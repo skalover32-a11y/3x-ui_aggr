@@ -1,0 +1,68 @@
+Структура папок тома Новый том
+Серийный номер тома: DAD0-3A64
+D:.
+|   docker-compose.yml
+|   Makefile
+|   README.md
+|   tree.txt
+|   
++---backend
+|   |   Dockerfile
+|   |   go.mod
+|   |   go.sum
+|   |   
+|   +---cmd
+|   |   \---api
+|   |           main.go
+|   |           
+|   \---internal
+|       +---audit
+|       |       audit.go
+|       |       
+|       +---config
+|       |       config.go
+|       |       
+|       +---db
+|       |   |   db.go
+|       |   |   models.go
+|       |   |   
+|       |   \---migrations
+|       |           0001_init.sql
+|       |           
+|       +---http
+|       |   |   actions.go
+|       |   |   auth.go
+|       |   |   handler.go
+|       |   |   inbounds.go
+|       |   |   nodes.go
+|       |   |   response.go
+|       |   |   router.go
+|       |   |   
+|       |   \---middleware
+|       |           auth.go
+|       |           
+|       +---security
+|       |       crypto.go
+|       |       
+|       +---services
+|       |   +---panelclient
+|       |   |       client.go
+|       |   |       
+|       |   \---sshclient
+|       |           client.go
+|       |           
+|       \---utils
+|               merge.go
+|               
+\---frontend
+    |   Dockerfile
+    |   index.html
+    |   package.json
+    |   vite.config.js
+    |   
+    \---src
+            api.js
+            App.jsx
+            main.jsx
+            styles.css
+            
