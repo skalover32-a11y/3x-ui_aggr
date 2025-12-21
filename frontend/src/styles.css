@@ -634,14 +634,22 @@ button.ghost:hover {
 @media (max-width: 900px) {
   .table.inbounds {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .table.inbounds .table-row {
-    min-width: 900px;
+    grid-template-columns: 180px 260px 80px 160px 180px 120px 120px 120px;
+    min-width: 1220px;
+    width: max-content;
   }
 
   .table.inbounds .table-row > div {
     min-width: 120px;
+  }
+
+  .table.inbounds .table-row input,
+  .table.inbounds .table-row select {
+    min-width: 140px;
   }
 
   .table.inbounds .table-row .actions {
