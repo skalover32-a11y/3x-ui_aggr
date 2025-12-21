@@ -1,0 +1,6 @@
+ALTER TABLE audit_logs
+    DROP COLUMN IF EXISTS payload_json,
+    DROP COLUMN IF EXISTS message,
+    DROP COLUMN IF EXISTS ip,
+    DROP COLUMN IF EXISTS actor_user,
+    DROP COLUMN IF EXISTS ts;

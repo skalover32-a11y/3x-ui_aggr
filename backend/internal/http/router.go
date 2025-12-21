@@ -44,7 +44,10 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.POST("/nodes/:id/actions/restart-xray", h.RestartXray)
 	auth.POST("/nodes/:id/actions/reboot", h.RebootServer)
+	auth.POST("/nodes/:id/actions/:action/plan", h.PlanNodeAction)
+	auth.POST("/nodes/:id/actions/:action/run", h.RunNodeAction)
 	auth.POST("/utils/convert-ssh-key", h.ConvertSSHKey)
+	auth.POST("/validate/node", h.ValidateNode)
 
 	return r
 }

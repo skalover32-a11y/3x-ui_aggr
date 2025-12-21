@@ -104,11 +104,15 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	}
 	encPass, err := h.Encryptor.EncryptString(req.PanelPassword)
 	if err != nil {
+		msg := "failed to encrypt panel password"
+		h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name, "base_url": req.BaseURL}, errString(err))
 		respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")
 		return
 	}
 	encKey, err := h.Encryptor.EncryptString(req.SSHKey)
 	if err != nil {
+		msg := "failed to encrypt ssh key"
+		h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name, "base_url": req.BaseURL}, errString(err))
 		respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt ssh key")
 		return
 	}
@@ -129,9 +133,12 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		VerifyTLS:        verifyTLS,
 	}
 	if err := h.DB.WithContext(c.Request.Context()).Create(&node).Error; err != nil {
+		msg := "failed to create node"
+		h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name, "base_url": req.BaseURL}, errString(err))
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create node")
 		return
 	}
+	h.auditEvent(c, &node.ID, "NODE_CREATE", "ok", nil, gin.H{"name": node.Name, "base_url": node.BaseURL}, nil)
 	respondStatus(c, http.StatusCreated, toNodeResponse(&node))
 }
 
@@ -160,6 +167,8 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	if req.PanelPassword != nil {
 		encPass, err := h.Encryptor.EncryptString(*req.PanelPassword)
 		if err != nil {
+			msg := "failed to encrypt panel password"
+			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
 			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")
 			return
 		}
@@ -177,6 +186,8 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	if req.SSHKey != nil {
 		encKey, err := h.Encryptor.EncryptString(*req.SSHKey)
 		if err != nil {
+			msg := "failed to encrypt ssh key"
+			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
 			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt ssh key")
 			return
 		}
@@ -186,9 +197,12 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 		node.VerifyTLS = *req.VerifyTLS
 	}
 	if err := h.DB.WithContext(c.Request.Context()).Save(node).Error; err != nil {
+		msg := "failed to update node"
+		h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name, "base_url": node.BaseURL}, errString(err))
 		respondError(c, http.StatusInternalServerError, "DB_UPDATE", "failed to update node")
 		return
 	}
+	h.auditEvent(c, &node.ID, "NODE_UPDATE", "ok", nil, gin.H{"name": node.Name, "base_url": node.BaseURL}, nil)
 	respondStatus(c, http.StatusOK, toNodeResponse(node))
 }
 
@@ -198,28 +212,35 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
-	ctx := c.Request.Context()
+	if err := h.deleteNodeRecords(c.Request.Context(), node); err != nil {
+		msg := "failed to delete node"
+		h.auditEvent(c, &node.ID, "NODE_DELETE", "error", &msg, gin.H{"name": node.Name}, errString(err))
+		respondError(c, http.StatusInternalServerError, "DB_DELETE", msg)
+		return
+	}
+	h.auditEvent(c, &node.ID, "NODE_DELETE", "ok", nil, gin.H{"name": node.Name}, nil)
+	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *Handler) deleteNodeRecords(ctx context.Context, node *db.Node) error {
 	tx := h.DB.WithContext(ctx).Begin()
 	if err := tx.Delete(&db.NodeCheck{}, "node_id = ?", node.ID).Error; err != nil {
 		tx.Rollback()
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete node checks")
-		return
+		return err
+	}
+	if err := tx.Delete(&db.NodeMetric{}, "node_id = ?", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
 	}
 	if err := tx.Delete(&db.AuditLog{}, "node_id = ?", node.ID).Error; err != nil {
 		tx.Rollback()
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete audit logs")
-		return
+		return err
 	}
 	if err := tx.Delete(&db.Node{}, "id = ?", node.ID).Error; err != nil {
 		tx.Rollback()
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete node")
-		return
+		return err
 	}
-	if err := tx.Commit().Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to commit delete")
-		return
-	}
-	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+	return tx.Commit().Error
 }
 
 func (h *Handler) TestNode(c *gin.Context) {
@@ -230,17 +251,23 @@ func (h *Handler) TestNode(c *gin.Context) {
 	}
 	panel, err := h.newPanelClient(node)
 	if err != nil {
+		msg := "failed to init panel client"
+		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	ctx, cancel := h.withTimeout(context.Background())
 	defer cancel()
 	if err := panel.Login(); err != nil {
+		msg := "panel login failed"
+		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
 	key, err := h.decryptSSHKey(node)
 	if err != nil {
+		msg := "failed to decrypt ssh key"
+		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
 		respondError(c, http.StatusInternalServerError, "DEC_FAIL", "failed to decrypt ssh key")
 		return
 	}
@@ -258,7 +285,10 @@ func (h *Handler) TestNode(c *gin.Context) {
 			"stage": stage,
 			"error": msg,
 		})
+		logMsg := "ssh test failed"
+		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &logMsg, gin.H{"stage": stage}, &msg)
 		return
 	}
+	h.auditEvent(c, &node.ID, "NODE_TEST", "ok", nil, gin.H{}, nil)
 	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
 }

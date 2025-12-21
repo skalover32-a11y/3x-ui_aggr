@@ -65,8 +65,25 @@ func getActor(c *gin.Context) string {
 	return actor
 }
 
+func (h *Handler) auditEvent(c *gin.Context, nodeID *uuid.UUID, action string, status string, message *string, payload any, errMsg *string) {
+	if h == nil || h.Audit == nil {
+		return
+	}
+	actor := getActor(c)
+	ip := c.ClientIP()
+	h.Audit.Write(c.Request.Context(), actor, &actor, &ip, nodeID, action, status, message, payload, errMsg)
+}
+
 func validateConfirm(confirm string) bool {
 	return strings.TrimSpace(confirm) == "REBOOT"
+}
+
+func errString(err error) *string {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	return &msg
 }
 
 func respondStatus(c *gin.Context, status int, payload any) {

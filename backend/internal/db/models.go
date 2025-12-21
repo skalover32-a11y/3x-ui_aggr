@@ -28,14 +28,19 @@ type Node struct {
 }
 
 type AuditLog struct {
-	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Actor     string         `gorm:"type:text;not null" json:"actor"`
-	NodeID    *uuid.UUID     `gorm:"type:uuid" json:"node_id"`
-	Action    string         `gorm:"type:text;not null" json:"action"`
-	Payload   datatypes.JSON `gorm:"type:jsonb;not null" json:"payload"`
-	Status    string         `gorm:"type:text;not null" json:"status"`
-	Error     *string        `gorm:"type:text" json:"error"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	TS          time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"ts"`
+	Actor       string         `gorm:"type:text;not null" json:"actor"`
+	ActorUser   *string        `gorm:"type:text" json:"actor_user"`
+	IP          *string        `gorm:"type:text" json:"ip"`
+	NodeID      *uuid.UUID     `gorm:"type:uuid" json:"node_id"`
+	Action      string         `gorm:"type:text;not null" json:"action"`
+	Status      string         `gorm:"type:text;not null" json:"status"`
+	Message     *string        `gorm:"type:text" json:"message"`
+	Payload     datatypes.JSON `gorm:"type:jsonb;not null" json:"payload"`
+	PayloadJSON datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"payload_json"`
+	Error       *string        `gorm:"type:text" json:"error"`
+	CreatedAt   time.Time      `json:"created_at"`
 }
 
 type NodeCheck struct {

@@ -20,19 +20,24 @@ func New(dbConn *gorm.DB) *Service {
 	return &Service{db: dbConn}
 }
 
-func (s *Service) Write(ctx context.Context, actor string, nodeID *uuid.UUID, action string, payload any, status string, errMsg *string) {
+func (s *Service) Write(ctx context.Context, actor string, actorUser *string, ip *string, nodeID *uuid.UUID, action string, status string, message *string, payload any, errMsg *string) {
 	if s == nil || s.db == nil {
 		return
 	}
 	raw, _ := json.Marshal(payload)
 	entry := db.AuditLog{
-		Actor:     actor,
-		NodeID:    nodeID,
-		Action:    action,
-		Payload:   datatypes.JSON(raw),
-		Status:    status,
-		Error:     errMsg,
-		CreatedAt: time.Now(),
+		TS:          time.Now(),
+		Actor:       actor,
+		ActorUser:   actorUser,
+		IP:          ip,
+		NodeID:      nodeID,
+		Action:      action,
+		Status:      status,
+		Message:     message,
+		Payload:     datatypes.JSON(raw),
+		PayloadJSON: datatypes.JSON(raw),
+		Error:       errMsg,
+		CreatedAt:   time.Now(),
 	}
 	_ = s.db.WithContext(ctx).Create(&entry).Error
 }

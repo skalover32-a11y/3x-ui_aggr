@@ -23,10 +23,14 @@ func (h *Handler) ListInbounds(c *gin.Context) {
 	}
 	panel, err := h.newPanelClient(node)
 	if err != nil {
+		msg := "failed to init panel client"
+		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
+		msg := "panel login failed"
+		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
@@ -50,10 +54,14 @@ func (h *Handler) AddInbound(c *gin.Context) {
 	}
 	panel, err := h.newPanelClient(node)
 	if err != nil {
+		msg := "failed to init panel client"
+		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
+		msg := "panel login failed"
+		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
@@ -64,11 +72,11 @@ func (h *Handler) AddInbound(c *gin.Context) {
 	resp, err := panel.AddInbound(payload)
 	if err != nil {
 		msg := "failed to add inbound"
-		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_ADD", payload, "error", &msg)
+		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, nil)
 		respondError(c, http.StatusBadGateway, "INBOUND_ADD", err.Error())
 		return
 	}
-	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_ADD", payload, "ok", nil)
+	h.auditEvent(c, &node.ID, "INBOUND_ADD", "ok", nil, payload, nil)
 	respondStatus(c, http.StatusOK, resp)
 }
 
@@ -84,10 +92,14 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 	}
 	panel, err := h.newPanelClient(node)
 	if err != nil {
+		msg := "failed to init panel client"
+		h.auditEvent(c, &node.ID, "INBOUND_DELETE", "error", &msg, gin.H{"id": c.Param("inboundId")}, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
+		msg := "panel login failed"
+		h.auditEvent(c, &node.ID, "INBOUND_DELETE", "error", &msg, gin.H{"id": c.Param("inboundId")}, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
@@ -111,11 +123,11 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 	resp, err := panel.UpdateInbound(c.Param("inboundId"), merged)
 	if err != nil {
 		msg := "failed to update inbound"
-		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_UPDATE", patch, "error", &msg)
+		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, nil)
 		respondError(c, http.StatusBadGateway, "INBOUND_UPDATE", err.Error())
 		return
 	}
-	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_UPDATE", patch, "ok", nil)
+	h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "ok", nil, patch, nil)
 	respondStatus(c, http.StatusOK, resp)
 }
 
@@ -137,11 +149,11 @@ func (h *Handler) DeleteInbound(c *gin.Context) {
 	resp, err := panel.DeleteInbound(c.Param("inboundId"))
 	if err != nil {
 		msg := "failed to delete inbound"
-		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_DELETE", gin.H{"id": c.Param("inboundId")}, "error", &msg)
+		h.auditEvent(c, &node.ID, "INBOUND_DELETE", "error", &msg, gin.H{"id": c.Param("inboundId")}, nil)
 		respondError(c, http.StatusBadGateway, "INBOUND_DELETE", err.Error())
 		return
 	}
-	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_DELETE", gin.H{"id": c.Param("inboundId")}, "ok", nil)
+	h.auditEvent(c, &node.ID, "INBOUND_DELETE", "ok", nil, gin.H{"id": c.Param("inboundId")}, nil)
 	respondStatus(c, http.StatusOK, resp)
 }
 

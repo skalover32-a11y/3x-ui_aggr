@@ -124,6 +124,17 @@ function MetricSparks({ metrics }) {
   );
 }
 
+function ValidationBadge({ label, status, detail }) {
+  if (!status) return null;
+  const cls = status === "ok" ? "badge online" : "badge offline";
+  return (
+    <span className="validation-badge">
+      <span className={cls}>{label}</span>
+      {detail && <span className="validation-detail">{detail}</span>}
+    </span>
+  );
+}
+
 function RequireAuth({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -180,6 +191,12 @@ function NodesPage() {
   const [statusMap, setStatusMap] = useState({});
   const [uptimeMap, setUptimeMap] = useState({});
   const [metricsMap, setMetricsMap] = useState({});
+  const [validation, setValidation] = useState(null);
+  const [validating, setValidating] = useState(false);
+  const [editValidation, setEditValidation] = useState(null);
+  const [editValidating, setEditValidating] = useState(false);
+  const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
+  const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
   const [form, setForm] = useState({
     name: "",
@@ -269,6 +286,34 @@ function NodesPage() {
     }
   }
 
+  async function validateNodePayload(payload, setResult, setBusy) {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await request("POST", "/validate/node", payload);
+      setResult(res);
+    } catch (err) {
+      setResult({ error: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onValidateCreate() {
+    const payload = {
+      base_url: form.base_url,
+      verify_tls: form.verify_tls,
+      ssh_host: form.ssh_host,
+      ssh_port: form.ssh_port,
+      ssh_user: form.ssh_user,
+      ssh_key: form.ssh_key,
+      ssh_key_passphrase: keyPassphrase || "",
+      panel_username: form.panel_username,
+      panel_password: form.panel_password,
+    };
+    validateNodePayload(payload, setValidation, setValidating);
+  }
+
   async function onTest(id) {
     setError("");
     try {
@@ -280,31 +325,19 @@ function NodesPage() {
   }
 
   async function onRestart(id) {
-    setError("");
-    try {
-      await request("POST", `/nodes/${id}/actions/restart-xray`, {});
-      alert("Xray restart requested");
-    } catch (err) {
-      setError(err.message);
-    }
+    const node = nodes.find((n) => n.id === id);
+    if (node) openActionPlan("restart_xray", node);
   }
 
   async function onReboot(id) {
-    const confirm = prompt('Type "REBOOT" to confirm reboot');
-    if (confirm !== "REBOOT") {
-      return;
-    }
-    setError("");
-    try {
-      await request("POST", `/nodes/${id}/actions/reboot`, { confirm: "REBOOT" });
-      alert("Reboot requested");
-    } catch (err) {
-      setError(err.message);
-    }
+    const node = nodes.find((n) => n.id === id);
+    if (node) openActionPlan("reboot", node);
   }
 
   function openEdit(node) {
     setEditModal({ open: true, node });
+    setEditValidation(null);
+    setEditValidating(false);
   }
 
   async function onUpdate(e) {
@@ -335,15 +368,61 @@ function NodesPage() {
     }
   }
 
+  async function onValidateEdit(formEl) {
+    const payload = {
+      base_url: formEl.base_url.value,
+      verify_tls: formEl.verify_tls.checked,
+      ssh_host: formEl.ssh_host.value,
+      ssh_port: Number(formEl.ssh_port.value || 22),
+      ssh_user: formEl.ssh_user.value,
+      ssh_key: formEl.ssh_key.value,
+      panel_username: formEl.panel_username.value,
+      panel_password: formEl.panel_password.value,
+    };
+    validateNodePayload(payload, setEditValidation, setEditValidating);
+  }
+
   async function onDelete(node) {
-    const confirm = prompt(`Type DELETE to remove node ${node.name}`);
-    if (confirm !== "DELETE") return;
+    openActionPlan("delete_node", node);
+  }
+
+  function actionConfirmToken(action) {
+    if (action === "reboot") return "REBOOT";
+    if (action === "delete_node") return "DELETE";
+    return "";
+  }
+
+  async function openActionPlan(action, node) {
+    setActionBusy(true);
     setError("");
     try {
-      await request("DELETE", `/nodes/${node.id}`, {});
+      const res = await request("POST", `/nodes/${node.id}/actions/${action}/plan`, {});
+      setActionPlan({ open: true, node, action, steps: res.steps || [], confirm: "" });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function runActionPlan() {
+    if (!actionPlan.open || !actionPlan.node) return;
+    const required = actionConfirmToken(actionPlan.action);
+    if (required && actionPlan.confirm.trim() !== required) {
+      setError(`Type ${required} to confirm`);
+      return;
+    }
+    setActionBusy(true);
+    setError("");
+    try {
+      const payload = required ? { confirm: required } : {};
+      await request("POST", `/nodes/${actionPlan.node.id}/actions/${actionPlan.action}/run`, payload);
+      setActionPlan({ open: false, node: null, action: null, steps: [], confirm: "" });
       loadNodes();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -376,10 +455,75 @@ function NodesPage() {
           <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
           Verify TLS
         </label>
+        <button type="button" onClick={onValidateCreate} disabled={validating}>
+          {validating ? "Validating..." : "Validate"}
+        </button>
         <button type="submit">Create</button>
       </form>
 
+      {validation && (
+        <div className="validation-summary">
+          {validation.error && <div className="error">{validation.error}</div>}
+          <ValidationBadge
+            label="SSH"
+            status={validation.ssh?.ok ? "ok" : "error"}
+            detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
+          />
+          <ValidationBadge
+            label="Base URL"
+            status={validation.base_url?.ok ? "ok" : "error"}
+            detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
+          />
+          <ValidationBadge
+            label="Panel"
+            status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
+            detail={validation.panel_version || "unknown"}
+          />
+          <ValidationBadge
+            label="Xray"
+            status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
+            detail={validation.xray_version || "unknown"}
+          />
+          {validation.ssh?.passphrase_required && (
+            <span className="muted small">Passphrase required for SSH key</span>
+          )}
+        </div>
+      )}
+
       {error && <div className="error">{error}</div>}
+
+      {actionPlan.open && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Confirm action</h3>
+            <div className="plan-steps">
+              <div className="muted small">Will run on node {actionPlan.node?.name}:</div>
+              <ul>
+                {actionPlan.steps.map((step, idx) => (
+                  <li key={`${actionPlan.action}-${idx}`}>{step}</li>
+                ))}
+              </ul>
+            </div>
+            {actionConfirmToken(actionPlan.action) && (
+              <label>
+                Type {actionConfirmToken(actionPlan.action)} to confirm
+                <input
+                  value={actionPlan.confirm}
+                  onChange={(e) => setActionPlan({ ...actionPlan, confirm: e.target.value })}
+                />
+              </label>
+            )}
+            <div className="actions">
+              <button type="button" onClick={() => setActionPlan({ open: false, node: null, action: null, steps: [], confirm: "" })}>
+                Cancel
+              </button>
+              <button type="button" onClick={runActionPlan} disabled={actionBusy}>
+                {actionBusy ? "Running..." : "Run"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="nodes-cards">
         <div className="nodes-cards-head">
@@ -490,8 +634,39 @@ function NodesPage() {
                 <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
                 Verify TLS
               </label>
+              {editValidation && (
+                <div className="validation-summary">
+                  {editValidation.error && <div className="error">{editValidation.error}</div>}
+                  <ValidationBadge
+                    label="SSH"
+                    status={editValidation.ssh?.ok ? "ok" : "error"}
+                    detail={editValidation.ssh?.ok ? editValidation.ssh.fingerprint : editValidation.ssh?.error}
+                  />
+                  <ValidationBadge
+                    label="Base URL"
+                    status={editValidation.base_url?.ok ? "ok" : "error"}
+                    detail={editValidation.base_url?.ok ? `HTTP ${editValidation.base_url.status_code}` : editValidation.base_url?.error}
+                  />
+                  <ValidationBadge
+                    label="Panel"
+                    status={editValidation.panel_version && editValidation.panel_version !== "unknown" ? "ok" : "error"}
+                    detail={editValidation.panel_version || "unknown"}
+                  />
+                  <ValidationBadge
+                    label="Xray"
+                    status={editValidation.xray_version && editValidation.xray_version !== "unknown" ? "ok" : "error"}
+                    detail={editValidation.xray_version || "unknown"}
+                  />
+                  {editValidation.ssh?.passphrase_required && (
+                    <span className="muted small">Passphrase required for SSH key</span>
+                  )}
+                </div>
+              )}
               <div className="actions">
                 <button type="button" onClick={() => setEditModal({ open: false, node: null })}>Cancel</button>
+                <button type="button" onClick={(e) => onValidateEdit(e.currentTarget.form)} disabled={editValidating}>
+                  {editValidating ? "Validating..." : "Validate"}
+                </button>
                 <button type="submit">Save</button>
               </div>
             </form>
