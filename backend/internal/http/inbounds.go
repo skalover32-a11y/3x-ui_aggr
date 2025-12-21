@@ -23,14 +23,10 @@ func (h *Handler) ListInbounds(c *gin.Context) {
 	}
 	panel, err := h.newPanelClient(node)
 	if err != nil {
-		msg := "failed to init panel client"
-		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
-		msg := "panel login failed"
-		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
@@ -55,13 +51,13 @@ func (h *Handler) AddInbound(c *gin.Context) {
 	panel, err := h.newPanelClient(node)
 	if err != nil {
 		msg := "failed to init panel client"
-		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
+		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
 		msg := "panel login failed"
-		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
+		h.auditEvent(c, &node.ID, "INBOUND_ADD", "error", &msg, payload, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
@@ -93,13 +89,13 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 	panel, err := h.newPanelClient(node)
 	if err != nil {
 		msg := "failed to init panel client"
-		h.auditEvent(c, &node.ID, "INBOUND_DELETE", "error", &msg, gin.H{"id": c.Param("inboundId")}, errString(err))
+		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
 		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 		return
 	}
 	if err := panel.Login(); err != nil {
 		msg := "panel login failed"
-		h.auditEvent(c, &node.ID, "INBOUND_DELETE", "error", &msg, gin.H{"id": c.Param("inboundId")}, errString(err))
+		h.auditEvent(c, &node.ID, "INBOUND_UPDATE", "error", &msg, patch, errString(err))
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
