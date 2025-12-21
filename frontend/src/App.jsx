@@ -1,16 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import { request, setToken, getToken, convertSSHKey } from "./api.js";
-
-function safeParseJSON(value, fallback = {}) {
-  if (!value) return fallback;
-  if (typeof value === "object") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
+import InboundEditor from "./components/InboundEditor.jsx";
 
 function formatTS(ts) {
   if (!ts) return "";
@@ -30,31 +21,25 @@ function StatusBadge({ status }) {
 }
 
 function Sparkline({ points }) {
-  if (!points || points.length === 0) return <div className="sparkline empty">no data</div>;
-  const width = 140;
-  const height = 36;
-  const maxLatency = Math.max(...points.map((p) => p.latency_ms || 0), 1);
-  const step = points.length > 1 ? width / (points.length - 1) : width;
-  const poly = points.map((p, idx) => {
-    const x = idx * step;
-    const y = height - (p.latency_ms || 0) / maxLatency * (height - 6) - 3;
-    return `${x},${Math.max(3, Math.min(height - 3, y))}`;
-  }).join(" ");
-
+  if (!points || points.length === 0) return <div className="availability empty">no data</div>;
+  const first = points[0];
+  const last = points[points.length - 1];
   return (
-    <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      <polyline points={poly} fill="none" stroke="#60a5fa" strokeWidth="2" />
-      {points.map((p, idx) => {
-        const x = idx * step;
-        const y = height - (p.latency_ms || 0) / maxLatency * (height - 6) - 3;
-        const status = deriveStatus(p.panel_ok, p.ssh_ok);
-        return (
-          <circle key={`${p.ts}-${idx}`} cx={x} cy={Math.max(3, Math.min(height - 3, y))} r="2.5" className={`dot ${status}`}>
-            <title>{`${formatTS(p.ts)} | latency ${p.latency_ms || 0}ms${p.error ? ` | ${p.error}` : ""}`}</title>
-          </circle>
-        );
-      })}
-    </svg>
+    <div className="availability">
+      <div className="availability-bars">
+        {points.map((p, idx) => {
+          const status = deriveStatus(p.panel_ok, p.ssh_ok);
+          const title = `${formatTS(p.ts)} | latency ${p.latency_ms || 0}ms${p.error ? ` | ${p.error}` : ""}`;
+          return (
+            <span key={`${p.ts}-${idx}`} className={`bar ${status}`} title={title} />
+          );
+        })}
+      </div>
+      <div className="availability-meta">
+        <span>{formatTS(first?.ts)}</span>
+        <span>{formatTS(last?.ts)}</span>
+      </div>
+    </div>
   );
 }
 
@@ -449,7 +434,7 @@ function InboundsPage() {
         ))}
       </div>
 
-      <InboundEditorModal
+      <InboundEditor
         open={editor.open}
         mode={editor.mode}
         inbound={editor.inbound}
@@ -471,315 +456,6 @@ function InboundsPage() {
       />
     </div>
   );
-}
-
-function InboundEditorModal({ open, mode, inbound, onClose, onSave }) {
-  const [tab, setTab] = useState("basic");
-  const [base, setBase] = useState({ remark: "", enable: true, port: 0, protocol: "vless" });
-  const [clients, setClients] = useState([]);
-  const [settingsRaw, setSettingsRaw] = useState({});
-  const [streamRaw, setStreamRaw] = useState({});
-  const [streamFields, setStreamFields] = useState({
-    network: "tcp",
-    security: "none",
-    wsPath: "",
-    wsHeadersText: "{}",
-    grpcServiceName: "",
-    tlsServerName: "",
-    realityServerName: "",
-    realityPublicKey: "",
-    realityShortId: "",
-    realitySpiderX: "",
-  });
-  const [advancedJson, setAdvancedJson] = useState("");
-  const [advancedDirty, setAdvancedDirty] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    const rawInbound = inbound || {};
-    const settingsObj = safeParseJSON(rawInbound.settings, {});
-    const streamObj = safeParseJSON(rawInbound.streamSettings, {});
-    setSettingsRaw(settingsObj);
-    setStreamRaw(streamObj);
-    setBase({
-      remark: rawInbound.remark || "",
-      enable: rawInbound.enable !== undefined ? rawInbound.enable : true,
-      port: rawInbound.port || 0,
-      protocol: rawInbound.protocol || "vless",
-    });
-    setClients(Array.isArray(settingsObj.clients) ? settingsObj.clients.map((c) => ({ ...c })) : []);
-    setStreamFields({
-      network: streamObj.network || "tcp",
-      security: streamObj.security || "none",
-      wsPath: streamObj.wsSettings?.path || "",
-      wsHeadersText: JSON.stringify(streamObj.wsSettings?.headers || {}, null, 2),
-      grpcServiceName: streamObj.grpcSettings?.serviceName || "",
-      tlsServerName: streamObj.tlsSettings?.serverName || "",
-      realityServerName: streamObj.realitySettings?.serverName || "",
-      realityPublicKey: streamObj.realitySettings?.publicKey || "",
-      realityShortId: streamObj.realitySettings?.shortId || "",
-      realitySpiderX: streamObj.realitySettings?.spiderX || "",
-    });
-    setTab("basic");
-    setError("");
-    setAdvancedDirty(false);
-  }, [open, inbound]);
-
-  useEffect(() => {
-    if (!open || advancedDirty) return;
-    const patch = buildInboundPatch(base, clients, settingsRaw, streamRaw, streamFields);
-    setAdvancedJson(JSON.stringify(patch, null, 2));
-  }, [open, base, clients, settingsRaw, streamRaw, streamFields, advancedDirty]);
-
-  function updateClient(idx, field, value) {
-    setClients((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
-  }
-
-  function addClient() {
-    setClients((prev) => [...prev, { email: "", id: "", enable: true, expiryTime: 0, totalGB: 0, limitIp: 0 }]);
-  }
-
-  function removeClient(idx) {
-    setClients((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function handleSave() {
-    setError("");
-    if (advancedDirty) {
-      try {
-        const payload = JSON.parse(advancedJson || "{}");
-        onSave(payload);
-      } catch {
-        setError("Invalid JSON in Advanced tab");
-      }
-      return;
-    }
-    const payload = buildInboundPatch(base, clients, settingsRaw, streamRaw, streamFields);
-    if (!payload) {
-      setError("Invalid stream settings");
-      return;
-    }
-    onSave(payload);
-  }
-
-  if (!open) return null;
-
-  return (
-    <div className="modal">
-      <div className="modal-content wide">
-        <header className="modal-header">
-          <h3>{mode === "add" ? "Add inbound" : "Edit inbound"}</h3>
-          <div className="tabs">
-            {["basic", "clients", "stream", "advanced"].map((t) => (
-              <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)} type="button">
-                {t === "basic" && "Basic"}
-                {t === "clients" && "Clients"}
-                {t === "stream" && "Transport"}
-                {t === "advanced" && "Advanced JSON"}
-              </button>
-            ))}
-          </div>
-        </header>
-
-        {error && <div className="error">{error}</div>}
-
-        {tab === "basic" && (
-          <div className="grid-2">
-            <label>
-              Remark
-              <input value={base.remark} onChange={(e) => setBase({ ...base, remark: e.target.value })} />
-            </label>
-            <label className="checkbox">
-              <input type="checkbox" checked={base.enable} onChange={(e) => setBase({ ...base, enable: e.target.checked })} />
-              Enable
-            </label>
-            <label>
-              Port
-              <input type="number" value={base.port} onChange={(e) => setBase({ ...base, port: Number(e.target.value) })} />
-            </label>
-            <label>
-              Protocol
-              <select value={base.protocol} onChange={(e) => setBase({ ...base, protocol: e.target.value })} disabled={mode === "edit"}>
-                <option value="vless">vless</option>
-                <option value="vmess">vmess</option>
-                <option value="trojan">trojan</option>
-              </select>
-            </label>
-          </div>
-        )}
-
-        {tab === "clients" && (
-          <div className="clients">
-            <div className="actions">
-              <button type="button" onClick={addClient}>Add client</button>
-            </div>
-            <div className="table compact">
-              <div className="table-row head">
-                <div>Email</div>
-                <div>UUID</div>
-                <div>Enable</div>
-                <div>Expiry</div>
-                <div>Total GB</div>
-                <div>Limit IP</div>
-                <div>Actions</div>
-              </div>
-              {clients.map((client, idx) => (
-                <div className="table-row" key={`${client.email}-${idx}`}>
-                  <div>
-                    <input value={client.email || ""} onChange={(e) => updateClient(idx, "email", e.target.value)} />
-                  </div>
-                  <div>
-                    <input value={client.id || ""} onChange={(e) => updateClient(idx, "id", e.target.value)} />
-                  </div>
-                  <div>
-                    <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(idx, "enable", e.target.checked)} />
-                  </div>
-                  <div>
-                    <input type="number" value={client.expiryTime || 0} onChange={(e) => updateClient(idx, "expiryTime", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <input type="number" value={client.totalGB || 0} onChange={(e) => updateClient(idx, "totalGB", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(idx, "limitIp", Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <button className="danger" type="button" onClick={() => removeClient(idx)}>Remove</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {tab === "stream" && (
-          <div className="grid-2">
-            <label>
-              Network
-              <select value={streamFields.network} onChange={(e) => setStreamFields({ ...streamFields, network: e.target.value })}>
-                <option value="tcp">tcp</option>
-                <option value="ws">ws</option>
-                <option value="grpc">grpc</option>
-              </select>
-            </label>
-            <label>
-              Security
-              <select value={streamFields.security} onChange={(e) => setStreamFields({ ...streamFields, security: e.target.value })}>
-                <option value="none">none</option>
-                <option value="tls">tls</option>
-                <option value="reality">reality</option>
-              </select>
-            </label>
-            <label>
-              WS Path
-              <input value={streamFields.wsPath} onChange={(e) => setStreamFields({ ...streamFields, wsPath: e.target.value })} />
-            </label>
-            <label>
-              WS Headers (JSON)
-              <textarea rows="3" value={streamFields.wsHeadersText} onChange={(e) => setStreamFields({ ...streamFields, wsHeadersText: e.target.value })} />
-            </label>
-            <label>
-              gRPC Service Name
-              <input value={streamFields.grpcServiceName} onChange={(e) => setStreamFields({ ...streamFields, grpcServiceName: e.target.value })} />
-            </label>
-            <label>
-              TLS/Reality Server Name
-              <input value={streamFields.tlsServerName} onChange={(e) => setStreamFields({ ...streamFields, tlsServerName: e.target.value })} />
-            </label>
-            <label>
-              Reality Server Name
-              <input value={streamFields.realityServerName} onChange={(e) => setStreamFields({ ...streamFields, realityServerName: e.target.value })} />
-            </label>
-            <label>
-              Reality Public Key
-              <input value={streamFields.realityPublicKey} onChange={(e) => setStreamFields({ ...streamFields, realityPublicKey: e.target.value })} />
-            </label>
-            <label>
-              Reality Short ID
-              <input value={streamFields.realityShortId} onChange={(e) => setStreamFields({ ...streamFields, realityShortId: e.target.value })} />
-            </label>
-            <label>
-              Reality SpiderX
-              <input value={streamFields.realitySpiderX} onChange={(e) => setStreamFields({ ...streamFields, realitySpiderX: e.target.value })} />
-            </label>
-          </div>
-        )}
-
-        {tab === "advanced" && (
-          <div>
-            <textarea
-              rows="18"
-              value={advancedJson}
-              onChange={(e) => {
-                setAdvancedDirty(true);
-                setAdvancedJson(e.target.value);
-              }}
-            />
-            <div className="hint">Advanced JSON is sent as patch and overrides the form.</div>
-          </div>
-        )}
-
-        <div className="actions">
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button type="button" onClick={handleSave}>Save</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function buildInboundPatch(base, clients, settingsRaw, streamRaw, streamFields) {
-  const normalizedClients = (clients || []).map((c) => ({
-    ...c,
-    enable: c.enable !== undefined ? c.enable : true,
-    expiryTime: Number(c.expiryTime || 0),
-    totalGB: Number(c.totalGB || 0),
-    limitIp: Number(c.limitIp || 0),
-  }));
-
-  let wsHeaders = {};
-  if (streamFields.wsHeadersText && streamFields.wsHeadersText.trim() !== "") {
-    try {
-      wsHeaders = JSON.parse(streamFields.wsHeadersText);
-    } catch {
-      return null;
-    }
-  }
-
-  const settingsNext = { ...settingsRaw, clients: normalizedClients };
-  const streamNext = { ...streamRaw };
-  streamNext.network = streamFields.network;
-  streamNext.security = streamFields.security;
-  streamNext.wsSettings = {
-    ...(streamNext.wsSettings || {}),
-    path: streamFields.wsPath || "",
-    headers: wsHeaders,
-  };
-  streamNext.grpcSettings = {
-    ...(streamNext.grpcSettings || {}),
-    serviceName: streamFields.grpcServiceName || "",
-  };
-  streamNext.tlsSettings = {
-    ...(streamNext.tlsSettings || {}),
-    serverName: streamFields.tlsServerName || "",
-  };
-  streamNext.realitySettings = {
-    ...(streamNext.realitySettings || {}),
-    serverName: streamFields.realityServerName || "",
-    publicKey: streamFields.realityPublicKey || "",
-    shortId: streamFields.realityShortId || "",
-    spiderX: streamFields.realitySpiderX || "",
-  };
-
-  return {
-    remark: base.remark,
-    enable: base.enable,
-    port: Number(base.port || 0),
-    protocol: base.protocol,
-    settings: settingsNext,
-    streamSettings: streamNext,
-  };
 }
 
 export default function App() {

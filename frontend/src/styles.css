@@ -141,7 +141,7 @@ button.danger:hover {
 }
 
 .table.compact .table-row {
-  grid-template-columns: 1.4fr 1.6fr 0.6fr 0.8fr 0.8fr 0.8fr 0.8fr;
+  grid-template-columns: 1.4fr 1.6fr 0.6fr 1fr 1fr 0.8fr 0.8fr 0.8fr;
 }
 
 .table-row.head {
@@ -187,6 +187,8 @@ button.danger:hover {
   padding: 20px;
   border-radius: 12px;
   width: min(900px, 90vw);
+  max-height: 90vh;
+  overflow: auto;
 }
 
 .modal-content textarea {
@@ -241,26 +243,49 @@ button.danger:hover {
   width: 100%;
 }
 
-.sparkline {
-  width: 140px;
-  height: 36px;
+.availability {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.sparkline.empty {
+.availability.empty {
   font-size: 12px;
   color: #94a3b8;
 }
 
-.dot.online {
-  fill: #22c55e;
+.availability-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 6px;
+  gap: 4px;
+  align-items: end;
 }
 
-.dot.degraded {
-  fill: #f59e0b;
+.availability .bar {
+  width: 6px;
+  height: 18px;
+  border-radius: 4px;
+  background: #334155;
 }
 
-.dot.offline {
-  fill: #ef4444;
+.availability .bar.online {
+  background: #22c55e;
+}
+
+.availability .bar.degraded {
+  background: #f59e0b;
+}
+
+.availability .bar.offline {
+  background: #ef4444;
+}
+
+.availability-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .badge {
@@ -287,4 +312,50 @@ button.danger:hover {
 .badge.offline {
   background: #7f1d1d;
   color: #fecaca;
+}
+
+.list-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-label {
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.chip button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+}
+
+.list-input {
+  display: flex;
+  gap: 8px;
+}
+
+.list-input input {
+  flex: 1;
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -128,7 +129,12 @@ func (c *Client) doJSON(method, url string, body map[string]any) (map[string]any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("request failed with status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, msg)
 	}
 	var data map[string]any
 	decoder := json.NewDecoder(resp.Body)

@@ -2,11 +2,15 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"agr_3x_ui/internal/utils"
 )
@@ -53,11 +57,15 @@ func (h *Handler) AddInbound(c *gin.Context) {
 		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
 		return
 	}
+	if err := validateInboundPayload(payload); err != nil {
+		respondError(c, http.StatusBadRequest, "INBOUND_VALIDATE", err.Error())
+		return
+	}
 	resp, err := panel.AddInbound(payload)
 	if err != nil {
 		msg := "failed to add inbound"
 		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_ADD", payload, "error", &msg)
-		respondError(c, http.StatusBadGateway, "INBOUND_ADD", "failed to add inbound")
+		respondError(c, http.StatusBadGateway, "INBOUND_ADD", err.Error())
 		return
 	}
 	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_ADD", payload, "ok", nil)
@@ -96,11 +104,15 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 	prepareMerge(current, patch, "settings")
 	prepareMerge(current, patch, "streamSettings")
 	merged := utils.MergeMaps(current, patch)
+	if err := validateInboundPayload(merged); err != nil {
+		respondError(c, http.StatusBadRequest, "INBOUND_VALIDATE", err.Error())
+		return
+	}
 	resp, err := panel.UpdateInbound(c.Param("inboundId"), merged)
 	if err != nil {
 		msg := "failed to update inbound"
 		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_UPDATE", patch, "error", &msg)
-		respondError(c, http.StatusBadGateway, "INBOUND_UPDATE", "failed to update inbound")
+		respondError(c, http.StatusBadGateway, "INBOUND_UPDATE", err.Error())
 		return
 	}
 	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_UPDATE", patch, "ok", nil)
@@ -126,7 +138,7 @@ func (h *Handler) DeleteInbound(c *gin.Context) {
 	if err != nil {
 		msg := "failed to delete inbound"
 		h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_DELETE", gin.H{"id": c.Param("inboundId")}, "error", &msg)
-		respondError(c, http.StatusBadGateway, "INBOUND_DELETE", "failed to delete inbound")
+		respondError(c, http.StatusBadGateway, "INBOUND_DELETE", err.Error())
 		return
 	}
 	h.Audit.Write(c.Request.Context(), getActor(c), &node.ID, "INBOUND_DELETE", gin.H{"id": c.Param("inboundId")}, "ok", nil)
@@ -180,5 +192,90 @@ func prepareMerge(existing map[string]any, patch map[string]any, key string) {
 	if existingMap, ok := existing[key].(map[string]any); ok {
 		existing[key] = utils.MergeMaps(existingMap, patchMap)
 		delete(patch, key)
+	}
+}
+
+var shortIDRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+func validateInboundPayload(payload map[string]any) error {
+	if payload == nil {
+		return errors.New("empty payload")
+	}
+	if port, ok := payload["port"]; ok {
+		p, err := asInt(port)
+		if err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("invalid port")
+		}
+	}
+
+	settings := extractMap(payload["settings"])
+	if settings != nil {
+		if clients, ok := settings["clients"].([]any); ok {
+			for _, raw := range clients {
+				client, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				if id, ok := client["id"].(string); ok && id != "" {
+					if _, err := uuid.Parse(id); err != nil {
+						return fmt.Errorf("invalid client uuid")
+					}
+				}
+			}
+		}
+	}
+
+	stream := extractMap(payload["streamSettings"])
+	if stream != nil {
+		if security, ok := stream["security"].(string); ok && security == "reality" {
+			if reality := extractMap(stream["realitySettings"]); reality != nil {
+				if dest, ok := reality["dest"].(string); ok && dest != "" {
+					if _, _, err := net.SplitHostPort(dest); err != nil {
+						return fmt.Errorf("invalid reality dest")
+					}
+				}
+				if shortIDs, ok := reality["shortIds"].([]any); ok {
+					for _, raw := range shortIDs {
+						val, ok := raw.(string)
+						if !ok || val == "" {
+							continue
+						}
+						if !shortIDRe.MatchString(val) {
+							return fmt.Errorf("invalid reality shortId")
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func extractMap(value any) map[string]any {
+	switch v := value.(type) {
+	case map[string]any:
+		return v
+	case string:
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(v), &decoded); err == nil {
+			return decoded
+		}
+	}
+	return nil
+}
+
+func asInt(value any) (int, error) {
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	case json.Number:
+		i, err := v.Int64()
+		return int(i), err
+	default:
+		return 0, fmt.Errorf("invalid number")
 	}
 }
