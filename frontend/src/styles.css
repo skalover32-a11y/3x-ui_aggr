@@ -141,7 +141,13 @@ button.danger:hover {
 }
 
 .table.nodes .table-row {
-  grid-template-columns: 1.1fr 1fr 1.8fr 0.8fr 1.2fr 2fr;
+  grid-template-columns:
+    minmax(0, 1.1fr)
+    minmax(0, 1fr)
+    minmax(0, 1.8fr)
+    minmax(0, 0.8fr)
+    minmax(0, 1.2fr)
+    minmax(0, 2fr);
 }
 
 .table.compact .table-row {
@@ -252,6 +258,7 @@ button.danger:hover {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .availability.empty {
