@@ -259,6 +259,7 @@ button.danger:hover {
   gap: 6px;
   min-width: 0;
   overflow: hidden;
+  width: 100%;
 }
 
 .availability.empty {
@@ -275,6 +276,8 @@ button.danger:hover {
   max-width: 100%;
   overflow: hidden;
   justify-content: end;
+  width: 100%;
+  min-width: 0;
 }
 
 .availability .bar {
