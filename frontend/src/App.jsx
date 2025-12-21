@@ -195,6 +195,7 @@ function NodesPage() {
   const [validating, setValidating] = useState(false);
   const [editValidation, setEditValidation] = useState(null);
   const [editValidating, setEditValidating] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -426,6 +427,11 @@ function NodesPage() {
     }
   }
 
+  function openAddForm() {
+    setAddOpen(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="page">
       <header className="header">
@@ -433,62 +439,71 @@ function NodesPage() {
         <button onClick={() => { setToken(""); window.location.href = "/login"; }}>Logout</button>
       </header>
 
-      <form className="card form-grid" onSubmit={onCreate}>
-        <h3>Add Node</h3>
-        <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-        <input placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-        <input placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-        <input placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
-        <input placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
-        <input placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
-        <input placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
-        <input placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
-        <label className="file-input">
-          Upload SSH Key (.ppk/.pem/.key)
-          <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
-        </label>
-        <textarea placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
-        <div className="hint">Paste OpenSSH private key or upload .ppk</div>
-        {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
-        <label className="checkbox">
-          <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
-          Verify TLS
-        </label>
-        <button type="button" onClick={onValidateCreate} disabled={validating}>
-          {validating ? "Validating..." : "Validate"}
+      <div className="card add-node-panel">
+        <button className="add-node-toggle" type="button" onClick={() => setAddOpen((v) => !v)}>
+          {addOpen ? "Hide Add Node" : "Add Node"}
         </button>
-        <button type="submit">Create</button>
-      </form>
+        {addOpen && (
+          <>
+            <form className="form-grid" onSubmit={onCreate}>
+              <h3>Add Node</h3>
+              <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              <input placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+              <input placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+              <input placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+              <input placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
+              <input placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
+              <input placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
+              <input placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
+              <label className="file-input">
+                Upload SSH Key (.ppk/.pem/.key)
+                <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
+              </label>
+              <textarea placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
+              <div className="hint">Paste OpenSSH private key or upload .ppk</div>
+              {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
+              <label className="checkbox">
+                <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
+                Verify TLS
+              </label>
+              <button type="button" onClick={onValidateCreate} disabled={validating}>
+                {validating ? "Validating..." : "Validate"}
+              </button>
+              <button type="submit">Create</button>
+            </form>
 
-      {validation && (
-        <div className="validation-summary">
-          {validation.error && <div className="error">{validation.error}</div>}
-          <ValidationBadge
-            label="SSH"
-            status={validation.ssh?.ok ? "ok" : "error"}
-            detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
-          />
-          <ValidationBadge
-            label="Base URL"
-            status={validation.base_url?.ok ? "ok" : "error"}
-            detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
-          />
-          <ValidationBadge
-            label="Panel"
-            status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
-            detail={validation.panel_version || "unknown"}
-          />
-          <ValidationBadge
-            label="Xray"
-            status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
-            detail={validation.xray_version || "unknown"}
-          />
-          {validation.ssh?.passphrase_required && (
-            <span className="muted small">Passphrase required for SSH key</span>
-          )}
-        </div>
-      )}
+            {validation && (
+              <div className="validation-summary">
+                {validation.error && <div className="error">{validation.error}</div>}
+                <ValidationBadge
+                  label="SSH"
+                  status={validation.ssh?.ok ? "ok" : "error"}
+                  detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
+                />
+                <ValidationBadge
+                  label="Base URL"
+                  status={validation.base_url?.ok ? "ok" : "error"}
+                  detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
+                />
+                <ValidationBadge
+                  label="Panel"
+                  status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
+                  detail={validation.panel_version || "unknown"}
+                />
+                <ValidationBadge
+                  label="Xray"
+                  status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
+                  detail={validation.xray_version || "unknown"}
+                />
+                {validation.ssh?.passphrase_required && (
+                  <span className="muted small">Passphrase required for SSH key</span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -531,7 +546,7 @@ function NodesPage() {
             <h3>Nodes Manager</h3>
             <div className="muted">{nodes.length} servers configured</div>
           </div>
-          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Add Node</button>
+          <button onClick={openAddForm}>Add Node</button>
         </div>
 
         {nodes.map((node) => {
