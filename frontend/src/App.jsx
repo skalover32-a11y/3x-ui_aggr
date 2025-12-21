@@ -15,6 +15,16 @@ function deriveStatus(panelOK, sshOK) {
   return "offline";
 }
 
+function computeUptime(points) {
+  if (!points || points.length === 0) {
+    return { percent: 0, success: 0, total: 0 };
+  }
+  const success = points.filter((p) => p.panel_ok || p.ssh_ok).length;
+  const total = points.length;
+  const percent = Math.round((success / total) * 1000) / 10;
+  return { percent, success, total };
+}
+
 function StatusBadge({ status }) {
   const label = status || "unknown";
   return <span className={`badge ${label}`}>{label}</span>;
@@ -293,36 +303,80 @@ function NodesPage() {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="table nodes">
-        <div className="table-row head">
-          <div>Name</div>
-          <div>Tags</div>
-          <div>Base URL</div>
-          <div>Status</div>
-          <div>Availability</div>
-          <div>Actions</div>
-        </div>
-        {nodes.map((node) => (
-          <div className="table-row" key={node.id}>
-            <div>{node.name}</div>
-            <div>{(node.tags || []).join(", ")}</div>
-            <div>{node.base_url}</div>
-            <div>
-              <StatusBadge status={statusMap[node.id]?.status} />
-            </div>
-            <div>
-              <Sparkline points={uptimeMap[node.id]} />
-            </div>
-            <div className="actions">
-              <button onClick={() => onTest(node.id)}>Test</button>
-              <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
-              <button onClick={() => openEdit(node)}>Edit</button>
-              <button className="danger" onClick={() => onDelete(node)}>Delete</button>
-              <button onClick={() => onRestart(node.id)}>Restart Xray</button>
-              <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
-            </div>
+      <div className="nodes-cards">
+        <div className="nodes-cards-head">
+          <div>
+            <h3>Nodes Manager</h3>
+            <div className="muted">{nodes.length} servers configured</div>
           </div>
-        ))}
+          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Add Node</button>
+        </div>
+
+        {nodes.map((node) => {
+          const uptimePoints = uptimeMap[node.id] || [];
+          const { percent, success, total } = computeUptime(uptimePoints);
+          const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+
+          return (
+            <div className="node-card" key={node.id}>
+              <div className="node-card-top">
+                <div className="node-card-title">
+                  <div className="node-name-row">
+                    <div className="node-name">{node.name || "Unnamed node"}</div>
+                    <StatusBadge status={statusMap[node.id]?.status} />
+                  </div>
+                  <div className="node-tags">{(node.tags || []).join(", ") || "—"}</div>
+                  <div className="node-link">
+                    {node.base_url ? (
+                      <a href={node.base_url} target="_blank" rel="noreferrer">
+                        {node.base_url}
+                      </a>
+                    ) : (
+                      "No base URL"
+                    )}
+                  </div>
+                  {lastTs && <div className="muted small">Last check: {formatTS(lastTs)}</div>}
+                </div>
+                <div className="node-uptime">
+                  <div className="uptime-value">{percent.toFixed(1)}%</div>
+                  <div className="uptime-label">Uptime</div>
+                </div>
+              </div>
+
+              <div className="node-availability">
+                <div className="availability-header">
+                  <div className="muted small">Last {total || 0} checks</div>
+                  <div className="muted small">{success}/{total || 0} successful</div>
+                </div>
+                <Sparkline points={uptimePoints} />
+              </div>
+
+              <div className="node-meta-grid">
+                <div className="meta-box">
+                  <div className="meta-label">SSH Host</div>
+                  <div className="meta-value">{node.ssh_host || "—"}</div>
+                </div>
+                <div className="meta-box">
+                  <div className="meta-label">Port</div>
+                  <div className="meta-value">{node.ssh_port || "—"}</div>
+                </div>
+                <div className="meta-box">
+                  <div className="meta-label">Panel User</div>
+                  <div className="meta-value">{node.panel_username || "—"}</div>
+                </div>
+              </div>
+
+              <div className="node-actions">
+                <button onClick={() => onTest(node.id)}>Test</button>
+                <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
+                <button onClick={() => openEdit(node)}>Edit</button>
+                <button onClick={() => onRestart(node.id)}>Restart Xray</button>
+                <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
+                <button className="danger" onClick={() => onDelete(node)}>Delete</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {editModal.open && editModal.node && (
