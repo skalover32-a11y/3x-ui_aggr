@@ -669,19 +669,22 @@ button.ghost:hover {
   }
 
   .clients-table .table-row.head {
-    display: none;
+    display: none !important;
   }
 
   .clients-table .table-row {
-    grid-template-columns: 1fr;
+    display: flex !important;
+    flex-direction: column;
     gap: 12px;
     padding: 14px;
+    width: 100%;
   }
 
   .clients-table .table-row > div {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
   }
 
   .clients-table .table-row > div::before {
