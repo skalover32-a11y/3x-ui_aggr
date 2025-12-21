@@ -25,6 +25,18 @@ function computeUptime(points) {
   return { percent, success, total };
 }
 
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = bytes;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length-1) {
+    v /= 1024;
+    idx++;
+  }
+  return `${v.toFixed(1)} ${units[idx]}`;
+}
+
 function StatusBadge({ status }) {
   const label = status || "unknown";
   return <span className={`badge ${label}`}>{label}</span>;
@@ -48,6 +60,65 @@ function Sparkline({ points }) {
       <div className="availability-meta">
         <span>{formatTS(first?.ts)}</span>
         <span>{formatTS(last?.ts)}</span>
+      </div>
+    </div>
+  );
+}
+
+function MetricSparks({ metrics }) {
+  if (!metrics || metrics.length === 0) return <div className="metrics empty">no metrics</div>;
+  const latest = metrics[metrics.length - 1];
+  const memPercents = metrics
+    .map((m) => {
+      if (!m.mem_total_bytes || !m.mem_available_bytes) return null;
+      return Math.max(0, Math.min(100, ((m.mem_total_bytes - m.mem_available_bytes) / m.mem_total_bytes) * 100));
+    })
+    .filter((v) => v !== null);
+  const diskPercents = metrics
+    .map((m) => {
+      if (!m.disk_total_bytes || !m.disk_used_bytes) return null;
+      return Math.max(0, Math.min(100, (m.disk_used_bytes / m.disk_total_bytes) * 100));
+    })
+    .filter((v) => v !== null);
+  const renderBars = (values, className) => (
+    <div className="metric-bars">
+      {values.slice(-60).map((v, idx) => (
+        <span key={`${className}-${idx}`} className={`metric-bar ${className}`} style={{ height: `${8 + (v / 2)}px` }} title={`${v.toFixed(1)}%`} />
+      ))}
+    </div>
+  );
+  const memLatest = memPercents.length > 0 ? memPercents[memPercents.length - 1] : null;
+  const diskLatest = diskPercents.length > 0 ? diskPercents[diskPercents.length - 1] : null;
+  const load1 = latest.load1;
+
+  return (
+    <div className="metrics">
+      <div className="metric">
+        <div className="metric-header">
+          <span>CPU Load</span>
+          <span className="muted small">{load1 != null ? load1.toFixed(2) : "—"}</span>
+        </div>
+        {renderBars(metrics.map((m) => (m.load1 != null ? Math.min(m.load1 * 100, 200) : 0)), "cpu")}
+      </div>
+      <div className="metric">
+        <div className="metric-header">
+          <span>Memory</span>
+          <span className="muted small">
+            {memLatest != null ? `${memLatest.toFixed(1)}%` : "—"}
+            {latest.mem_total_bytes ? ` / ${formatBytes(latest.mem_total_bytes)}` : ""}
+          </span>
+        </div>
+        {renderBars(memPercents, "mem")}
+      </div>
+      <div className="metric">
+        <div className="metric-header">
+          <span>Disk</span>
+          <span className="muted small">
+            {diskLatest != null ? `${diskLatest.toFixed(1)}%` : "—"}
+            {latest.disk_total_bytes ? ` / ${formatBytes(latest.disk_total_bytes)}` : ""}
+          </span>
+        </div>
+        {renderBars(diskPercents, "disk")}
       </div>
     </div>
   );
@@ -108,6 +179,7 @@ function NodesPage() {
   const [keyFingerprint, setKeyFingerprint] = useState("");
   const [statusMap, setStatusMap] = useState({});
   const [uptimeMap, setUptimeMap] = useState({});
+  const [metricsMap, setMetricsMap] = useState({});
   const [editModal, setEditModal] = useState({ open: false, node: null });
   const [form, setForm] = useState({
     name: "",
@@ -145,14 +217,20 @@ function NodesPage() {
         const uptimeEntries = await Promise.all(
           nodes.map((node) => request("GET", `/nodes/${node.id}/uptime?minutes=60`).catch(() => []))
         );
+        const metricEntries = await Promise.all(
+          nodes.map((node) => request("GET", `/nodes/${node.id}/metrics?minutes=720`).catch(() => []))
+        );
         const statusNext = {};
         const uptimeNext = {};
+        const metricsNext = {};
         nodes.forEach((node, idx) => {
           statusNext[node.id] = statusEntries[idx];
           uptimeNext[node.id] = uptimeEntries[idx] || [];
+          metricsNext[node.id] = metricEntries[idx] || [];
         });
         setStatusMap(statusNext);
         setUptimeMap(uptimeNext);
+        setMetricsMap(metricsNext);
       } catch {
         // ignore
       }
@@ -343,6 +421,10 @@ function NodesPage() {
                       <span className="muted small">No base URL</span>
                     )}
                   </div>
+                  <div className="node-versions">
+                    <span className="muted small">Panel: {node.panel_version || "unknown"}</span>
+                    <span className="muted small">Xray: {node.xray_version || "unknown"}</span>
+                  </div>
                   {lastTs && <div className="muted small">Last check: {formatTS(lastTs)}</div>}
                 </div>
                 <div className="node-uptime">
@@ -360,10 +442,12 @@ function NodesPage() {
                 <Sparkline points={uptimePoints} />
               </div>
 
+              <MetricSparks metrics={metricsMap[node.id]} />
+
               <div className="node-meta-grid">
                 <div className="meta-box">
                   <div className="meta-label">SSH Host</div>
-                  <div className="meta-value">{node.ssh_host || "—"}</div>
+                  <div className="meta-value">{node.ssh_host || "-"}</div>
                 </div>
                 <div className="meta-box">
                   <div className="meta-label">Port</div>

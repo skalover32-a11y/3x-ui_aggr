@@ -40,32 +40,38 @@ type nodeUpdateRequest struct {
 }
 
 type nodeResponse struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Tags          []string  `json:"tags"`
-	BaseURL       string    `json:"base_url"`
-	PanelUsername string    `json:"panel_username"`
-	SSHHost       string    `json:"ssh_host"`
-	SSHPort       int       `json:"ssh_port"`
-	SSHUser       string    `json:"ssh_user"`
-	VerifyTLS     bool      `json:"verify_tls"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Tags              []string   `json:"tags"`
+	BaseURL           string     `json:"base_url"`
+	PanelUsername     string     `json:"panel_username"`
+	SSHHost           string     `json:"ssh_host"`
+	SSHPort           int        `json:"ssh_port"`
+	SSHUser           string     `json:"ssh_user"`
+	VerifyTLS         bool       `json:"verify_tls"`
+	XrayVersion       *string    `json:"xray_version"`
+	PanelVersion      *string    `json:"panel_version"`
+	VersionsCheckedAt *time.Time `json:"versions_checked_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 func toNodeResponse(node *db.Node) nodeResponse {
 	return nodeResponse{
-		ID:            node.ID.String(),
-		Name:          node.Name,
-		Tags:          []string(node.Tags),
-		BaseURL:       node.BaseURL,
-		PanelUsername: node.PanelUsername,
-		SSHHost:       node.SSHHost,
-		SSHPort:       node.SSHPort,
-		SSHUser:       node.SSHUser,
-		VerifyTLS:     node.VerifyTLS,
-		CreatedAt:     node.CreatedAt,
-		UpdatedAt:     node.UpdatedAt,
+		ID:                node.ID.String(),
+		Name:              node.Name,
+		Tags:              []string(node.Tags),
+		BaseURL:           node.BaseURL,
+		PanelUsername:     node.PanelUsername,
+		SSHHost:           node.SSHHost,
+		SSHPort:           node.SSHPort,
+		SSHUser:           node.SSHUser,
+		VerifyTLS:         node.VerifyTLS,
+		XrayVersion:       node.XrayVersion,
+		PanelVersion:      node.PanelVersion,
+		VersionsCheckedAt: node.VersionsCheckedAt,
+		CreatedAt:         node.CreatedAt,
+		UpdatedAt:         node.UpdatedAt,
 	}
 }
 

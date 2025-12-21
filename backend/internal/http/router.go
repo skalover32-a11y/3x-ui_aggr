@@ -35,6 +35,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/nodes/:id/test", h.TestNode)
 	auth.GET("/nodes/:id/status", h.GetNodeStatus)
 	auth.GET("/nodes/:id/uptime", h.GetNodeUptime)
+	auth.GET("/nodes/:id/metrics", h.GetNodeMetrics)
 
 	auth.GET("/nodes/:id/inbounds", h.ListInbounds)
 	auth.POST("/nodes/:id/inbounds", h.AddInbound)

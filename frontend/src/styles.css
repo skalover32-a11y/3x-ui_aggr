@@ -263,6 +263,12 @@ button.danger:hover {
   color: #9cc1ff;
 }
 
+.node-versions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .node-uptime {
   text-align: right;
   min-width: 120px;
@@ -306,6 +312,58 @@ button.danger:hover {
 
 .node-availability .availability {
   gap: 8px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.metrics.empty {
+  color: #94a3b8;
+}
+
+.metric {
+  background: #0f1724;
+  border: 1px solid #1d2531;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 4px;
+  gap: 3px;
+  align-items: end;
+}
+
+.metric-bar {
+  width: 4px;
+  border-radius: 999px;
+  background: #334155;
+}
+
+.metric-bar.cpu {
+  background: #38bdf8;
+}
+
+.metric-bar.mem {
+  background: #22c55e;
+}
+
+.metric-bar.disk {
+  background: #fbbf24;
 }
 
 .node-meta-grid {
