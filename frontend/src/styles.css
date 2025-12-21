@@ -655,6 +655,50 @@ button.ghost:hover {
   .table.inbounds .table-row .actions {
     min-width: 120px;
   }
+
+  .clients-table .table-row.head {
+    display: none;
+  }
+
+  .clients-table .table-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .clients-table .table-row > div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .clients-table .table-row > div::before {
+    content: attr(data-label);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+  }
+
+  .clients-table .table-row input,
+  .clients-table .table-row select,
+  .clients-table .table-row button {
+    width: 100%;
+  }
+
+  .clients-table .table-row div[data-label="Enable"] {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .clients-table .table-row div[data-label="Enable"]::before {
+    margin-right: 4px;
+  }
+
+  .clients-table .table-row div[data-label="Actions"] {
+    align-items: stretch;
+  }
 }
 
 .availability {
