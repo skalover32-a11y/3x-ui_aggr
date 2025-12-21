@@ -170,6 +170,12 @@ button.danger:hover {
   width: 100%;
   min-width: 0;
   flex-direction: column;
+  align-items: flex-end;
+}
+
+.table-row .actions button,
+.table-row .actions .link-button {
+  width: 100%;
 }
 
 .error {
