@@ -579,6 +579,39 @@ button.ghost:hover {
   width: 100%;
 }
 
+.clients-cards-mobile {
+  display: none;
+}
+
+.client-card {
+  background: #0d1522;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.client-card .field-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.client-card .row {
+  display: flex;
+  gap: 8px;
+}
+
+.client-card .row input {
+  flex: 1;
+}
+
 .clients-toolbar {
   display: flex;
   justify-content: space-between;
@@ -713,6 +746,15 @@ button.ghost:hover {
 
   .clients-table .table-row div[data-label="Actions"] {
     align-items: stretch;
+  }
+
+  .clients-table-desktop {
+    display: none;
+  }
+
+  .clients-cards-mobile {
+    display: flex;
+    flex-direction: column;
   }
 }
 

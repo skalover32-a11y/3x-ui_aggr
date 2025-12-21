@@ -357,49 +357,96 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
                 </select>
               </div>
             </div>
-            <div className="table compact clients-table">
-              <div className="table-row head">
-                <div>Email</div>
-                <div>UUID</div>
-                <div>Enable</div>
-                <div>Flow</div>
-                <div>Expiry</div>
-                <div>Total (GB)</div>
-                <div>Limit IP</div>
-                <div>Actions</div>
+            <div className="clients-table-desktop">
+              <div className="table compact clients-table">
+                <div className="table-row head">
+                  <div>Email</div>
+                  <div>UUID</div>
+                  <div>Enable</div>
+                  <div>Flow</div>
+                  <div>Expiry</div>
+                  <div>Total (GB)</div>
+                  <div>Limit IP</div>
+                  <div>Actions</div>
+                </div>
+                {paginatedClients.map((client, idx) => {
+                  const globalIdx = (clientPage - 1) * clientPageSize + idx;
+                  return (
+                    <div className="table-row" key={client._localId || `${client.email}-${globalIdx}`}>
+                      <div data-label="Email">
+                        <input value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
+                        <div className="hint">subId/tgId are kept if present</div>
+                      </div>
+                      <div data-label="UUID">
+                        <input value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
+                        <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
+                      </div>
+                      <div data-label="Enable">
+                        <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
+                      </div>
+                      <div data-label="Flow">
+                        <input value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
+                      </div>
+                      <div data-label="Expiry">
+                        <input type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
+                      </div>
+                      <div data-label="Total (GB)">
+                        <input type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
+                      </div>
+                      <div data-label="Limit IP">
+                        <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
+                      </div>
+                      <div data-label="Actions">
+                        <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            </div>
+            <div className="clients-cards-mobile">
               {paginatedClients.map((client, idx) => {
                 const globalIdx = (clientPage - 1) * clientPageSize + idx;
                 return (
-                <div className="table-row" key={client._localId || `${client.email}-${globalIdx}`}>
-                  <div data-label="Email">
-                    <input value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
-                    <div className="hint">subId/tgId are kept if present</div>
+                  <div className="client-card" key={client._localId || `${client.email}-${globalIdx}`}>
+                    <label>
+                      <span className="field-label">Email</span>
+                      <input value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
+                      <div className="hint">subId/tgId are kept if present</div>
+                    </label>
+                    <label>
+                      <span className="field-label">UUID</span>
+                      <div className="row">
+                        <input value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
+                        <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
+                      </div>
+                    </label>
+                    <label className="checkbox">
+                      <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
+                      Enable
+                    </label>
+                    <label>
+                      <span className="field-label">Flow</span>
+                      <input value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="field-label">Expiry</span>
+                      <input type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
+                    </label>
+                    <label>
+                      <span className="field-label">Total (GB)</span>
+                      <input type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
+                    </label>
+                    <label>
+                      <span className="field-label">Limit IP</span>
+                      <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
+                    </label>
+                    <div className="actions">
+                      <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
+                    </div>
                   </div>
-                  <div data-label="UUID">
-                    <input value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
-                    <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
-                  </div>
-                  <div data-label="Enable">
-                    <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
-                  </div>
-                  <div data-label="Flow">
-                    <input value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
-                  </div>
-                  <div data-label="Expiry">
-                    <input type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
-                  </div>
-                  <div data-label="Total (GB)">
-                    <input type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
-                  </div>
-                  <div data-label="Limit IP">
-                    <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
-                  </div>
-                  <div data-label="Actions">
-                    <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
-                  </div>
-                </div>
-              )})}
+                );
+              })}
             </div>
           </div>
         )}
