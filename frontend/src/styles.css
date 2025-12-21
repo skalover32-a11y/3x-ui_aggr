@@ -132,6 +132,10 @@ button.danger:hover {
   align-items: center;
 }
 
+.table-row > div {
+  min-width: 0;
+}
+
 .table.inbounds .table-row {
   grid-template-columns: 0.6fr 1.4fr 1fr 0.6fr 1.4fr;
 }
@@ -247,6 +251,7 @@ button.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .availability.empty {
@@ -260,6 +265,9 @@ button.danger:hover {
   grid-auto-columns: 6px;
   gap: 4px;
   align-items: end;
+  max-width: 100%;
+  overflow: hidden;
+  justify-content: end;
 }
 
 .availability .bar {
