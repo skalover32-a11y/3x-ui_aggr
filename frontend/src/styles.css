@@ -146,8 +146,8 @@ button.danger:hover {
     minmax(0, 1fr)
     minmax(0, 1.8fr)
     minmax(0, 0.8fr)
-    minmax(0, 1.2fr)
-    minmax(0, 2fr);
+    minmax(0, 2fr)
+    180px;
 }
 
 .table.compact .table-row {
@@ -167,6 +167,9 @@ button.danger:hover {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .error {
