@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -89,7 +90,7 @@ func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
 		"sh -lc 'if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true'",
 	})
 	panelVersion := detectVersion(run, []string{
-		"sh -lc 'if command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
+		"sh -lc 'if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
 	})
 	now := time.Now()
 	update := map[string]any{
@@ -114,13 +115,18 @@ func detectVersion(run func(cmd string) (string, error), commands []string) stri
 		if err != nil {
 			continue
 		}
-		trim := strings.TrimSpace(out)
+		trim := strings.TrimSpace(stripANSI(out))
 		if trim != "" {
 			lines := strings.Split(trim, "\n")
 			return strings.TrimSpace(lines[0])
 		}
 	}
 	return ""
+}
+
+func stripANSI(value string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return re.ReplaceAllString(value, "")
 }
 
 func (w *Worker) saveMetric(ctx context.Context, nodeID uuid.UUID, load1, load5, load15 *float64, memTotal, memAvail, diskTotal, diskUsed *int64, errMsg *string) {

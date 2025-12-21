@@ -633,14 +633,15 @@ button.ghost:hover {
 
 @media (max-width: 900px) {
   .tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 6px;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-bottom: 0;
   }
 
   .tab {
-    flex: 0 0 auto;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 7px;
   }
 
   .table.inbounds {

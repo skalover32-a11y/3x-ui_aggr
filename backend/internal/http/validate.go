@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -224,7 +225,7 @@ func (h *Handler) checkSSHAndVersion(ctx context.Context, req *validateNodeReque
 		defer cancel()
 		return h.SSHClient.RunWithOutput(cctx, req.SSHHost, req.SSHPort, req.SSHUser, normalized, cmd)
 	}, []string{
-		"sh -lc 'if command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
+		"sh -lc 'if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
 	})
 
 	return result, panelVersion, xrayVersion
@@ -236,11 +237,16 @@ func detectVersion(run func(cmd string) (string, error), commands []string) stri
 		if err != nil {
 			continue
 		}
-		trim := strings.TrimSpace(out)
+		trim := strings.TrimSpace(stripANSI(out))
 		if trim != "" {
 			lines := strings.Split(trim, "\n")
 			return strings.TrimSpace(lines[0])
 		}
 	}
 	return "unknown"
+}
+
+func stripANSI(value string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return re.ReplaceAllString(value, "")
 }
