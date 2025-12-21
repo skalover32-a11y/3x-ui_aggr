@@ -632,6 +632,17 @@ button.ghost:hover {
 }
 
 @media (max-width: 900px) {
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+  }
+
   .table.inbounds {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;

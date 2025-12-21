@@ -217,14 +217,14 @@ func (h *Handler) checkSSHAndVersion(ctx context.Context, req *validateNodeReque
 		defer cancel()
 		return h.SSHClient.RunWithOutput(cctx, req.SSHHost, req.SSHPort, req.SSHUser, normalized, cmd)
 	}, []string{
-		"if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi",
+		"sh -lc 'if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true'",
 	})
 	panelVersion := detectVersion(func(cmd string) (string, error) {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return h.SSHClient.RunWithOutput(cctx, req.SSHHost, req.SSHPort, req.SSHUser, normalized, cmd)
 	}, []string{
-		"if command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi",
+		"sh -lc 'if command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
 	})
 
 	return result, panelVersion, xrayVersion
