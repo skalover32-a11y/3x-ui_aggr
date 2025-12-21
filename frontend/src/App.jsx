@@ -325,14 +325,22 @@ function NodesPage() {
                     <div className="node-name">{node.name || "Unnamed node"}</div>
                     <StatusBadge status={statusMap[node.id]?.status} />
                   </div>
-                  <div className="node-tags">{(node.tags || []).join(", ") || "—"}</div>
+                  <div className="tag-row">
+                    {(node.tags || []).length > 0 ? (
+                      (node.tags || []).map((tag, idx) => (
+                        <span className="chip subtle" key={`${node.id}-tag-${idx}`}>{tag}</span>
+                      ))
+                    ) : (
+                      <span className="muted small">No tags</span>
+                    )}
+                  </div>
                   <div className="node-link">
                     {node.base_url ? (
                       <a href={node.base_url} target="_blank" rel="noreferrer">
-                        {node.base_url}
+                        {node.base_url} ↗
                       </a>
                     ) : (
-                      "No base URL"
+                      <span className="muted small">No base URL</span>
                     )}
                   </div>
                   {lastTs && <div className="muted small">Last check: {formatTS(lastTs)}</div>}
@@ -340,6 +348,7 @@ function NodesPage() {
                 <div className="node-uptime">
                   <div className="uptime-value">{percent.toFixed(1)}%</div>
                   <div className="uptime-label">Uptime</div>
+                  <div className="uptime-arrow">▾</div>
                 </div>
               </div>
 
@@ -367,12 +376,12 @@ function NodesPage() {
               </div>
 
               <div className="node-actions">
-                <button onClick={() => onTest(node.id)}>Test</button>
+                <button className="primary" onClick={() => onTest(node.id)}>Test</button>
                 <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
-                <button onClick={() => openEdit(node)}>Edit</button>
-                <button onClick={() => onRestart(node.id)}>Restart Xray</button>
+                <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
+                <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
                 <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
-                <button className="danger" onClick={() => onDelete(node)}>Delete</button>
+                <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>
               </div>
             </div>
           );

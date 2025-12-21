@@ -5,7 +5,7 @@
 body {
   margin: 0;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  background: #0b0f17;
+  background: #0c0f14;
   color: #e2e8f0;
 }
 
@@ -188,14 +188,14 @@ button.danger:hover {
 .nodes-cards {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .nodes-cards-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 2px;
+  padding: 6px 4px;
 }
 
 .nodes-cards-head h3 {
@@ -211,11 +211,11 @@ button.danger:hover {
 }
 
 .node-card {
-  background: linear-gradient(145deg, #0f1724, #0a0f18);
-  border: 1px solid #1f2937;
+  background: linear-gradient(145deg, #121720, #0d121a);
+  border: 1px solid #1c2431;
   border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  padding: 18px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -226,6 +226,7 @@ button.danger:hover {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .node-card-title {
@@ -247,22 +248,32 @@ button.danger:hover {
   color: #f8fafc;
 }
 
-.node-tags {
-  font-size: 13px;
-  color: #cbd5f5;
+.tag-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip.subtle {
+  background: #1b2432;
+  border-color: #2a3445;
 }
 
 .node-link a {
-  color: #93c5fd;
+  color: #9cc1ff;
 }
 
 .node-uptime {
   text-align: right;
   min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
 
 .uptime-value {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   color: #e0f2fe;
 }
@@ -272,11 +283,16 @@ button.danger:hover {
   font-size: 12px;
 }
 
+.uptime-arrow {
+  font-size: 12px;
+  color: #64748b;
+}
+
 .node-availability {
-  background: #0d1524;
-  border: 1px solid #1f2937;
+  background: #101722;
+  border: 1px solid #1d2531;
   border-radius: 12px;
-  padding: 12px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -299,8 +315,8 @@ button.danger:hover {
 }
 
 .meta-box {
-  background: #0d1524;
-  border: 1px solid #1f2937;
+  background: #101722;
+  border: 1px solid #1d2531;
   border-radius: 10px;
   padding: 10px 12px;
 }
@@ -320,11 +336,45 @@ button.danger:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: center;
 }
 
 .node-actions button,
 .node-actions .link-button {
   min-width: 90px;
+}
+
+button.primary {
+  background: #2563eb;
+}
+
+button.primary:hover {
+  background: #1d4ed8;
+}
+
+button.secondary {
+  background: #1f2937;
+}
+
+button.secondary:hover {
+  background: #2a3547;
+}
+
+button.warning {
+  background: #f59e0b;
+  color: #0b0f17;
+}
+
+button.warning:hover {
+  background: #d97706;
+}
+
+button.ghost {
+  background: #b91c1c;
+}
+
+button.ghost:hover {
+  background: #991b1b;
 }
 
 .error {
