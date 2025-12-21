@@ -496,6 +496,32 @@ button.ghost:hover {
   width: 100%;
 }
 
+.clients-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.clients-toolbar input {
+  flex: 1;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination select {
+  background: #0f1724;
+  border: 1px solid #2a3344;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
 .table.inbounds {
   margin-top: 12px;
   background: #0d1522;

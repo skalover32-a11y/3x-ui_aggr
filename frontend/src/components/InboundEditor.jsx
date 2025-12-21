@@ -98,6 +98,9 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
   const [tab, setTab] = useState("basic");
   const [base, setBase] = useState({ remark: "", enable: true, port: 0, protocol: "vless" });
   const [clients, setClients] = useState([]);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientPage, setClientPage] = useState(1);
+  const [clientPageSize, setClientPageSize] = useState(10);
   const [settingsRaw, setSettingsRaw] = useState({});
   const [streamRaw, setStreamRaw] = useState({});
   const [sniffing, setSniffing] = useState({ enabled: false, destOverride: [] });
@@ -139,7 +142,7 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
       port: rawInbound.port || 0,
       protocol: rawInbound.protocol || "vless",
     });
-    setClients(Array.isArray(settingsObj.clients) ? settingsObj.clients.map((c) => ({ ...DEFAULT_CLIENT, ...c })) : []);
+    setClients(Array.isArray(settingsObj.clients) ? settingsObj.clients.map((c) => ({ ...DEFAULT_CLIENT, ...c, _localId: c._localId || generateUUID() })) : []);
     setSniffing({
       enabled: settingsObj.sniffing?.enabled || false,
       destOverride: toArray(settingsObj.sniffing?.destOverride || []),
@@ -168,6 +171,8 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
     setAdvancedDirty(false);
     setError("");
     setTab("basic");
+    setClientSearch("");
+    setClientPage(1);
   }, [open, inbound]);
 
   const builtPatch = useMemo(() => buildInboundPatch(base, clients, settingsRaw, streamRaw, sniffing, transport, security), [
@@ -185,12 +190,36 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
     setAdvancedJson(JSON.stringify(builtPatch, null, 2));
   }, [open, advancedDirty, builtPatch]);
 
+  const filteredClients = useMemo(() => {
+    const term = clientSearch.trim().toLowerCase();
+    if (!term) return clients;
+    return clients.filter((c) => {
+      const email = (c.email || "").toLowerCase();
+      const id = (c.id || "").toLowerCase();
+      return email.includes(term) || id.includes(term);
+    });
+  }, [clients, clientSearch]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredClients.length / clientPageSize));
+
+  useEffect(() => {
+    if (clientPage > totalPages) {
+      setClientPage(totalPages);
+    }
+  }, [clientPage, totalPages]);
+
+  const paginatedClients = useMemo(() => {
+    const start = (clientPage - 1) * clientPageSize;
+    return filteredClients.slice(start, start + clientPageSize);
+  }, [filteredClients, clientPage, clientPageSize]);
+
   function updateClient(idx, field, value) {
     setClients((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
   }
 
   function addClient() {
-    setClients((prev) => [...prev, { ...DEFAULT_CLIENT, id: generateUUID() }]);
+    setClients((prev) => [...prev, { ...DEFAULT_CLIENT, id: generateUUID(), _localId: generateUUID() }]);
+    setClientPage(1);
   }
 
   function removeClient(idx) {
@@ -313,6 +342,21 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
             <div className="actions">
               <button type="button" onClick={addClient}>Add client</button>
             </div>
+            <div className="clients-toolbar">
+              <input
+                placeholder="Search by email or UUID"
+                value={clientSearch}
+                onChange={(e) => { setClientSearch(e.target.value); setClientPage(1); }}
+              />
+              <div className="pagination">
+                <button type="button" disabled={clientPage <= 1} onClick={() => setClientPage((p) => Math.max(1, p - 1))}>Prev</button>
+                <span>Page {clientPage} / {totalPages}</span>
+                <button type="button" disabled={clientPage >= totalPages} onClick={() => setClientPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+                <select value={clientPageSize} onChange={(e) => { setClientPageSize(Number(e.target.value)); setClientPage(1); }}>
+                  {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}/page</option>)}
+                </select>
+              </div>
+            </div>
             <div className="table compact">
               <div className="table-row head">
                 <div>Email</div>
@@ -324,36 +368,38 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
                 <div>Limit IP</div>
                 <div>Actions</div>
               </div>
-              {clients.map((client, idx) => (
-                <div className="table-row" key={`${client.email}-${idx}`}>
+              {paginatedClients.map((client, idx) => {
+                const globalIdx = (clientPage - 1) * clientPageSize + idx;
+                return (
+                <div className="table-row" key={client._localId || `${client.email}-${globalIdx}`}>
                   <div>
-                    <input value={client.email || ""} onChange={(e) => updateClient(idx, "email", e.target.value)} />
+                    <input value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
                     <div className="hint">subId/tgId are kept if present</div>
                   </div>
                   <div>
-                    <input value={client.id || ""} onChange={(e) => updateClient(idx, "id", e.target.value)} />
-                    <button type="button" onClick={() => updateClient(idx, "id", generateUUID())}>Gen</button>
+                    <input value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
+                    <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
                   </div>
                   <div>
-                    <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(idx, "enable", e.target.checked)} />
+                    <input type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
                   </div>
                   <div>
-                    <input value={client.flow || ""} onChange={(e) => updateClient(idx, "flow", e.target.value)} />
+                    <input value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
                   </div>
                   <div>
-                    <input type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(idx, "expiryTime", parseDateTime(e.target.value))} />
+                    <input type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
                   </div>
                   <div>
-                    <input type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(idx, "totalGB", gbToBytes(e.target.value))} />
+                    <input type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
                   </div>
                   <div>
-                    <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(idx, "limitIp", Number(e.target.value))} />
+                    <input type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
                   </div>
                   <div>
-                    <button className="danger" type="button" onClick={() => removeClient(idx)}>Remove</button>
+                    <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         )}
