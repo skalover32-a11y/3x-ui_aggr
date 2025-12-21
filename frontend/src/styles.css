@@ -787,12 +787,22 @@ button.ghost:hover {
   }
 
   .inbounds-table-desktop {
-    display: none;
+    display: none !important;
   }
 
   .inbounds-cards-mobile {
-    display: flex;
+    display: flex !important;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .inbounds-table-desktop {
+    display: none !important;
+  }
+
+  .inbounds-cards-mobile {
+    display: flex !important;
   }
 }
 
