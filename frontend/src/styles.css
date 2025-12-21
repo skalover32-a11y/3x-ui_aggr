@@ -583,6 +583,35 @@ button.ghost:hover {
   display: none;
 }
 
+.inbounds-cards-mobile {
+  display: none;
+}
+
+.inbound-card {
+  background: #0d1522;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.inbound-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.inbound-card .actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .client-card {
   background: #0d1522;
   border: 1px solid #1f2937;
@@ -753,6 +782,15 @@ button.ghost:hover {
   }
 
   .clients-cards-mobile {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inbounds-table-desktop {
+    display: none;
+  }
+
+  .inbounds-cards-mobile {
     display: flex;
     flex-direction: column;
   }

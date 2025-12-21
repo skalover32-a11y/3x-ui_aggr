@@ -734,20 +734,48 @@ function InboundsPage() {
 
       {error && <div className="error">{error}</div>}
 
-      <div className="table inbounds">
-        <div className="table-row head">
-          <div>ID</div>
-          <div>Remark</div>
-          <div>Protocol</div>
-          <div>Port</div>
-          <div>Actions</div>
+      <div className="inbounds-table-desktop">
+        <div className="table inbounds">
+          <div className="table-row head">
+            <div>ID</div>
+            <div>Remark</div>
+            <div>Protocol</div>
+            <div>Port</div>
+            <div>Actions</div>
+          </div>
+          {inbounds.map((inbound) => (
+            <div className="table-row" key={inbound.id}>
+              <div>{inbound.id}</div>
+              <div>{inbound.remark}</div>
+              <div>{inbound.protocol}</div>
+              <div>{inbound.port}</div>
+              <div className="actions">
+                <button onClick={() => openEdit(inbound)}>Edit</button>
+                <button className="danger" onClick={() => onDelete(inbound.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
         </div>
+      </div>
+      <div className="inbounds-cards-mobile">
         {inbounds.map((inbound) => (
-          <div className="table-row" key={inbound.id}>
-            <div>{inbound.id}</div>
-            <div>{inbound.remark}</div>
-            <div>{inbound.protocol}</div>
-            <div>{inbound.port}</div>
+          <div className="inbound-card" key={`card-${inbound.id}`}>
+            <div className="inbound-card-row">
+              <span className="field-label">ID</span>
+              <span>{inbound.id}</span>
+            </div>
+            <div className="inbound-card-row">
+              <span className="field-label">Remark</span>
+              <span>{inbound.remark || "—"}</span>
+            </div>
+            <div className="inbound-card-row">
+              <span className="field-label">Protocol</span>
+              <span>{inbound.protocol || "—"}</span>
+            </div>
+            <div className="inbound-card-row">
+              <span className="field-label">Port</span>
+              <span>{inbound.port || "—"}</span>
+            </div>
             <div className="actions">
               <button onClick={() => openEdit(inbound)}>Edit</button>
               <button className="danger" onClick={() => onDelete(inbound.id)}>Delete</button>
