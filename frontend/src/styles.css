@@ -423,6 +423,40 @@ button.ghost:hover {
   width: min(1100px, 92vw);
 }
 
+.modal-content h3 {
+  margin: 0;
+}
+
+.modal-content label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: #cbd5f5;
+}
+
+.modal-content input,
+.modal-content select,
+.modal-content textarea {
+  width: 100%;
+  background: #0f1724;
+  border: 1px solid #2a3344;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.modal-content select {
+  height: 36px;
+}
+
+.modal-content .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .modal-header {
   display: flex;
   flex-direction: column;
@@ -449,6 +483,7 @@ button.ghost:hover {
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.3);
 }
 
 .grid-2 {
@@ -459,6 +494,30 @@ button.ghost:hover {
 
 .clients .table-row input {
   width: 100%;
+}
+
+.table.inbounds {
+  margin-top: 12px;
+  background: #0d1522;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.table.inbounds .table-row {
+  background: #0d1522;
+}
+
+.table.inbounds .table-row.head {
+  background: #101827;
+}
+
+.table.inbounds .table-row:not(.head):hover {
+  background: #111e30;
+}
+
+.table.inbounds .table-row .actions {
+  justify-self: end;
 }
 
 .availability {
