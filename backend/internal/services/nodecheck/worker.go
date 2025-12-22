@@ -69,30 +69,39 @@ func (w *Worker) runOnce(ctx context.Context) {
 }
 
 func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int, *string) {
-	start := time.Now()
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 8 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifyTLS},
 		},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
-	if err != nil {
-		msg := err.Error()
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		start := time.Now()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
+		if err != nil {
+			msg := err.Error()
+			return false, 0, &msg
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+		latency := int(time.Since(start).Milliseconds())
+		if resp.StatusCode >= 500 {
+			msg := fmt.Sprintf("panel status %d", resp.StatusCode)
+			return false, latency, &msg
+		}
+		return true, latency, nil
+	}
+	if lastErr != nil {
+		msg := lastErr.Error()
 		return false, 0, &msg
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		msg := err.Error()
-		return false, 0, &msg
-	}
-	defer resp.Body.Close()
-	latency := int(time.Since(start).Milliseconds())
-	if resp.StatusCode >= 500 {
-		msg := fmt.Sprintf("panel status %d", resp.StatusCode)
-		return false, latency, &msg
-	}
-	return true, latency, nil
+	msg := "panel check failed"
+	return false, 0, &msg
 }
 
 func checkSSH(ctx context.Context, host string, port int) (bool, *string) {

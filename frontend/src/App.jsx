@@ -1292,7 +1292,7 @@ function NodesPage() {
               <button type="button" onClick={() => loadAudit({ offset: 0, nodeID: auditNodeID })}>Apply</button>
               <button type="button" onClick={() => { setAuditNodeID(""); loadAudit({ offset: 0, nodeID: "" }); }}>Clear</button>
             </div>
-            <div className="table compact">
+            <div className="table compact audit-table">
               <div className="table-row head">
                 <div>Time</div>
                 <div>Actor</div>
@@ -1303,12 +1303,12 @@ function NodesPage() {
               </div>
               {auditLogs.map((row) => (
                 <div className="table-row" key={row.id}>
-                  <div>{formatTS(row.ts || row.created_at)}</div>
-                  <div>{row.actor_user || row.actor}</div>
-                  <div>{row.action}</div>
-                  <div>{row.status}</div>
-                  <div>{row.node_id || "-"}</div>
-                  <div>{row.message || row.error || "-"}</div>
+                  <div data-label="Time">{formatTS(row.ts || row.created_at)}</div>
+                  <div data-label="Actor">{row.actor_user || row.actor}</div>
+                  <div data-label="Action">{row.action}</div>
+                  <div data-label="Status">{row.status}</div>
+                  <div data-label="Node">{row.node_id || "-"}</div>
+                  <div data-label="Message">{row.message || row.error || "-"}</div>
                 </div>
               ))}
             </div>

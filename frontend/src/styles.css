@@ -1039,6 +1039,30 @@ button.ghost:hover {
   color: #fecaca;
 }
 
+@media (max-width: 700px) {
+  .audit-table .table-row.head {
+    display: none;
+  }
+
+  .audit-table .table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-table .table-row > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .audit-table .table-row > div::before {
+    content: attr(data-label);
+    color: #94a3b8;
+    text-align: left;
+  }
+}
+
 .badge.connected {
   background: #1d4ed8;
   color: #dbeafe;
