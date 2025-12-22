@@ -170,6 +170,10 @@ a {
 
 button,
 .link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   background: #2563eb;
   color: #fff;
   border: none;
