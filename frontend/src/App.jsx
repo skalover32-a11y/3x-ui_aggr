@@ -166,15 +166,15 @@ function LoginPage() {
 
   return (
     <div className="page center">
-      <form className="card" onSubmit={onSubmit}>
+      <form className="card" onSubmit={onSubmit} autoComplete="on">
         <h1>3x-ui Aggregator</h1>
         <label>
           Username
-          <input value={username} onChange={(e) => setUsername(e.target.value)} />
+          <input name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
         {error && <div className="error">{error}</div>}
         <button type="submit">Login</button>
@@ -529,6 +529,8 @@ function NodesPage() {
               <label>
                 Type {actionConfirmToken(actionPlan.action)} to confirm
                 <input
+                  autoComplete="off"
+                  name="action_confirm"
                   value={actionPlan.confirm}
                   onChange={(e) => setActionPlan({ ...actionPlan, confirm: e.target.value })}
                 />
@@ -640,16 +642,16 @@ function NodesPage() {
         <div className="modal">
           <div className="modal-content">
             <h3>Edit Node</h3>
-            <form className="form-grid" onSubmit={onUpdate}>
-              <input name="name" placeholder="Name" defaultValue={editModal.node.name} />
-              <input name="tags" placeholder="Tags (comma)" defaultValue={(editModal.node.tags || []).join(", ")} />
-              <input name="base_url" placeholder="Base URL" defaultValue={editModal.node.base_url} />
-              <input name="panel_username" placeholder="Panel Username" defaultValue={editModal.node.panel_username} />
-              <input name="panel_password" placeholder="Panel Password (leave blank to keep)" type="password" />
-              <input name="ssh_host" placeholder="SSH Host" defaultValue={editModal.node.ssh_host} />
-              <input name="ssh_port" placeholder="SSH Port" type="number" defaultValue={editModal.node.ssh_port} />
-              <input name="ssh_user" placeholder="SSH User" defaultValue={editModal.node.ssh_user} />
-              <textarea name="ssh_key" placeholder="SSH Private Key (leave blank to keep)" rows="3" />
+            <form className="form-grid" onSubmit={onUpdate} autoComplete="off">
+              <input name="node_name" autoComplete="off" placeholder="Name" defaultValue={editModal.node.name} />
+              <input name="node_tags" autoComplete="off" placeholder="Tags (comma)" defaultValue={(editModal.node.tags || []).join(", ")} />
+              <input name="node_base_url" autoComplete="off" placeholder="Base URL" defaultValue={editModal.node.base_url} />
+              <input name="node_panel_user" autoComplete="off" placeholder="Panel Username" defaultValue={editModal.node.panel_username} />
+              <input name="node_panel_password" autoComplete="new-password" placeholder="Panel Password (leave blank to keep)" type="password" />
+              <input name="node_ssh_host" autoComplete="off" placeholder="SSH Host" defaultValue={editModal.node.ssh_host} />
+              <input name="node_ssh_port" autoComplete="off" placeholder="SSH Port" type="number" defaultValue={editModal.node.ssh_port} />
+              <input name="node_ssh_user" autoComplete="off" placeholder="SSH User" defaultValue={editModal.node.ssh_user} />
+              <textarea name="node_ssh_key" autoComplete="off" placeholder="SSH Private Key (leave blank to keep)" rows="3" />
               <label className="checkbox">
                 <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
                 Verify TLS
@@ -698,21 +700,21 @@ function NodesPage() {
         <div className="modal">
           <div className="modal-content wide">
             <h3>Add Node</h3>
-            <form className="form-grid" onSubmit={onCreate}>
-              <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <input placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              <input placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-              <input placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-              <input placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
-              <input placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
-              <input placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
-              <input placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
-              <input placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
+            <form className="form-grid" onSubmit={onCreate} autoComplete="off">
+              <input name="node_name" autoComplete="off" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input name="node_tags" autoComplete="off" placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              <input name="node_base_url" autoComplete="off" placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+              <input name="node_panel_user" autoComplete="off" placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+              <input name="node_panel_password" autoComplete="new-password" placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+              <input name="node_ssh_host" autoComplete="off" placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
+              <input name="node_ssh_port" autoComplete="off" placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
+              <input name="node_ssh_user" autoComplete="off" placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
+              <input name="node_key_passphrase" autoComplete="new-password" placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
               <label className="file-input">
                 Upload SSH Key (.ppk/.pem/.key)
                 <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
               </label>
-              <textarea placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
+              <textarea name="node_ssh_key" autoComplete="off" placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
               <div className="hint">Paste OpenSSH private key or upload .ppk</div>
               {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
               <label className="checkbox">
@@ -764,15 +766,19 @@ function NodesPage() {
         <div className="modal">
           <div className="modal-content">
             <h3>Telegram alerts</h3>
-            <div className="form-grid">
+            <div className="form-grid" autoComplete="off">
               <input
                 placeholder={telegramTokenSet ? "Bot token (leave blank to keep)" : "Bot token"}
                 type="password"
+                name="telegram_bot_token"
+                autoComplete="new-password"
                 value={telegramForm.bot_token}
                 onChange={(e) => setTelegramForm({ ...telegramForm, bot_token: e.target.value })}
               />
               <input
                 placeholder="Admin chat ID"
+                name="telegram_admin_chat_id"
+                autoComplete="off"
                 value={telegramForm.admin_chat_id}
                 onChange={(e) => setTelegramForm({ ...telegramForm, admin_chat_id: e.target.value })}
               />
@@ -839,6 +845,8 @@ function NodesPage() {
             <div className="audit-controls">
               <input
                 placeholder="Filter by node_id"
+                autoComplete="off"
+                name="audit_node_id"
                 value={auditNodeID}
                 onChange={(e) => setAuditNodeID(e.target.value)}
               />
