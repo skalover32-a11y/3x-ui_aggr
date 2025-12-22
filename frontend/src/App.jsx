@@ -1105,7 +1105,7 @@ function NodesPage() {
                 Status: {totpStatus?.enabled ? "enabled" : "disabled"}
               </div>
               {!totpStatus?.enabled && (
-                <button type="button" onClick={setupTOTP}>
+                <button type="button" className="btn-inline" onClick={setupTOTP}>
                   Generate QR
                 </button>
               )}
@@ -1120,7 +1120,7 @@ function NodesPage() {
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
                   />
-                  <button type="button" onClick={verifyTOTP}>
+                  <button type="button" className="btn-inline" onClick={verifyTOTP}>
                     Enable 2FA
                   </button>
                 </>
@@ -1141,7 +1141,7 @@ function NodesPage() {
                     value={totpRecoveryCode}
                     onChange={(e) => setTotpRecoveryCode(e.target.value)}
                   />
-                  <button type="button" onClick={disableTOTP}>
+                  <button type="button" className="btn-inline" onClick={disableTOTP}>
                     Disable 2FA
                   </button>
                 </>

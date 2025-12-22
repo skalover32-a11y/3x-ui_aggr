@@ -559,6 +559,12 @@ button.ghost:hover {
   background: #991b1b;
 }
 
+.btn-inline {
+  width: auto;
+  justify-self: start;
+  padding: 8px 16px;
+}
+
 .error {
   background: #7f1d1d;
   padding: 10px 12px;
