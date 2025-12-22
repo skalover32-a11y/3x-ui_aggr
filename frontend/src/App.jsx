@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, setToken, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings } from "./api.js";
+import { request, setToken, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole } from "./api.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 
 function formatTS(ts) {
@@ -192,7 +192,7 @@ function LoginPage() {
     setError("");
     try {
       const data = await request("POST", "/auth/login", { username, password });
-      setToken(data.token);
+      setAuth(data.token, data.role, data.username);
       navigate("/nodes");
     } catch (err) {
       setError(err.message);
@@ -219,6 +219,10 @@ function LoginPage() {
 }
 
 function NodesPage() {
+  const role = getRole();
+  const isAdmin = role === "admin";
+  const isOperator = role === "operator";
+  const isViewer = role === "viewer";
   const [nodes, setNodes] = useState([]);
   const [error, setError] = useState("");
   const [keyPassphrase, setKeyPassphrase] = useState("");
@@ -251,8 +255,9 @@ function NodesPage() {
   const [telegramTestStatus, setTelegramTestStatus] = useState("");
   const [telegramTestResults, setTelegramTestResults] = useState([]);
   const [usersOpen, setUsersOpen] = useState(false);
-  const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator" });
+  const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator", password: "" });
   const [usersList, setUsersList] = useState([]);
+  const [usersBusy, setUsersBusy] = useState(false);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -502,6 +507,58 @@ function NodesPage() {
     }
   }
 
+  async function loadUsers() {
+    try {
+      const data = await request("GET", "/users");
+      setUsersList(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function createUser() {
+    if (!usersDraft.name.trim() || !usersDraft.password.trim()) return;
+    setUsersBusy(true);
+    try {
+      await request("POST", "/users", {
+        username: usersDraft.name.trim(),
+        password: usersDraft.password,
+        role: usersDraft.role,
+      });
+      setUsersDraft({ name: "", role: "operator", password: "" });
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUsersBusy(false);
+    }
+  }
+
+  async function updateUserRole(user) {
+    setUsersBusy(true);
+    try {
+      await request("PATCH", `/users/${user.id}`, { role: user.role });
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUsersBusy(false);
+    }
+  }
+
+  async function deleteUser(user) {
+    if (!confirm(`Delete user ${user.username}?`)) return;
+    setUsersBusy(true);
+    try {
+      await request("DELETE", `/users/${user.id}`, {});
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUsersBusy(false);
+    }
+  }
+
   async function loadAudit({ offset = auditOffset, nodeID = auditNodeID } = {}) {
     const params = new URLSearchParams();
     params.set("limit", "100");
@@ -524,36 +581,38 @@ function NodesPage() {
           <h2>Nodes</h2>
           {menuOpen && (
             <div className="menu">
-              <button type="button" onClick={openAddForm}>Add node</button>
-              <button type="button" onClick={() => { setUsersOpen(true); setMenuOpen(false); }}>Users & roles</button>
-              <button type="button" onClick={async () => {
-                setMenuOpen(false);
-                setTelegramSaved("");
-                setTelegramTestMsg("");
-                setTelegramTestStatus("");
-                setTelegramTestResults([]);
-                setTelegramOpen(true);
-                try {
-                  const data = await getTelegramSettings();
-                  setTelegramForm((prev) => ({
-                    ...prev,
-                    bot_token: "",
-                    admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
-                    alert_connection: data.alert_connection ?? true,
-                    alert_cpu: data.alert_cpu ?? true,
-                    alert_memory: data.alert_memory ?? true,
-                    alert_disk: data.alert_disk ?? true,
-                  }));
-                  setTelegramTokenSet(Boolean(data.bot_token_set));
-                } catch (err) {
-                  setError(err.message);
-                }
-              }}>Telegram alerts</button>
-              <button type="button" onClick={openAudit}>Audit log</button>
+              {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>Add node</button>}
+              {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>Users & roles</button>}
+              {isAdmin && (
+                <button type="button" onClick={async () => {
+                  setMenuOpen(false);
+                  setTelegramSaved("");
+                  setTelegramTestMsg("");
+                  setTelegramTestStatus("");
+                  setTelegramTestResults([]);
+                  setTelegramOpen(true);
+                  try {
+                    const data = await getTelegramSettings();
+                    setTelegramForm((prev) => ({
+                      ...prev,
+                      bot_token: "",
+                      admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
+                      alert_connection: data.alert_connection ?? true,
+                      alert_cpu: data.alert_cpu ?? true,
+                      alert_memory: data.alert_memory ?? true,
+                      alert_disk: data.alert_disk ?? true,
+                    }));
+                    setTelegramTokenSet(Boolean(data.bot_token_set));
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}>Telegram alerts</button>
+              )}
+              {isAdmin && <button type="button" onClick={openAudit}>Audit log</button>}
             </div>
           )}
         </div>
-        <button onClick={() => { setToken(""); window.location.href = "/login"; }}>Logout</button>
+        <button onClick={() => { clearAuth(); window.location.href = "/login"; }}>Logout</button>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -671,12 +730,16 @@ function NodesPage() {
               </div>
 
               <div className="node-actions">
-                <button className="primary" onClick={() => onTest(node.id)}>Test</button>
-                <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
-                <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
-                <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
-                <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
-                <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>
+                {!isViewer && (
+                  <>
+                    <button className="primary" onClick={() => onTest(node.id)}>Test</button>
+                    <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
+                    <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
+                    <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
+                    <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
+                  </>
+                )}
+                {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>}
               </div>
             </div>
           );
@@ -943,6 +1006,14 @@ function NodesPage() {
                 value={usersDraft.name}
                 onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
               />
+              <input
+                name="user_password"
+                autoComplete="new-password"
+                type="password"
+                placeholder="Password"
+                value={usersDraft.password}
+                onChange={(e) => setUsersDraft({ ...usersDraft, password: e.target.value })}
+              />
               <select
                 name="user_role"
                 value={usersDraft.role}
@@ -956,29 +1027,35 @@ function NodesPage() {
             <div className="actions">
               <button
                 type="button"
-                onClick={() => {
-                  if (!usersDraft.name.trim()) return;
-                  setUsersList([...usersList, { ...usersDraft, name: usersDraft.name.trim() }]);
-                  setUsersDraft({ name: "", role: "operator" });
-                }}
+                onClick={createUser}
+                disabled={usersBusy}
               >
                 Add user
               </button>
               <button type="button" onClick={() => setUsersOpen(false)}>Close</button>
             </div>
-            <div className="hint">Role system is UI-only for now. Backend wiring will be added later.</div>
             <div className="table compact">
               <div className="table-row head">
                 <div>User</div>
                 <div>Role</div>
                 <div>Actions</div>
               </div>
-              {usersList.map((user, idx) => (
-                <div className="table-row" key={`${user.name}-${idx}`}>
-                  <div>{user.name}</div>
-                  <div>{user.role}</div>
+              {usersList.map((user) => (
+                <div className="table-row" key={user.id}>
+                  <div>{user.username}</div>
                   <div>
-                    <button className="danger ghost" type="button" onClick={() => setUsersList(usersList.filter((_, i) => i !== idx))}>
+                    <select
+                      value={user.role}
+                      onChange={(e) => setUsersList(usersList.map((u) => u.id === user.id ? { ...u, role: e.target.value } : u))}
+                    >
+                      <option value="admin">Administrator</option>
+                      <option value="operator">Operator</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  </div>
+                  <div className="actions">
+                    <button type="button" onClick={() => updateUserRole(user)} disabled={usersBusy}>Save</button>
+                    <button className="danger ghost" type="button" onClick={() => deleteUser(user)} disabled={usersBusy}>
                       Remove
                     </button>
                   </div>

@@ -47,9 +47,9 @@ type Settings struct {
 }
 
 type SendResult struct {
-	ChatID string
-	OK     bool
-	Error  string
+	ChatID string `json:"chat_id"`
+	OK     bool   `json:"ok"`
+	Error  string `json:"error,omitempty"`
 }
 
 func New(dbConn *gorm.DB, enc *security.Encryptor) *Service {

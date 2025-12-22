@@ -78,3 +78,12 @@ type TelegramSettings struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
+
+type User struct {
+	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Username     string    `gorm:"type:text;not null" json:"username"`
+	PasswordHash string    `gorm:"type:text;not null" json:"-"`
+	Role         string    `gorm:"type:text;not null" json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}

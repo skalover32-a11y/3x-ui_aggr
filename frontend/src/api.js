@@ -12,6 +12,26 @@ export function setToken(token) {
   }
 }
 
+export function setAuth(token, role, username) {
+  setToken(token);
+  if (role) {
+    localStorage.setItem("agg_role", role);
+  }
+  if (username) {
+    localStorage.setItem("agg_user", username);
+  }
+}
+
+export function clearAuth() {
+  localStorage.removeItem("agg_token");
+  localStorage.removeItem("agg_role");
+  localStorage.removeItem("agg_user");
+}
+
+export function getRole() {
+  return localStorage.getItem("agg_role") || "admin";
+}
+
 export async function request(method, path, body) {
   const headers = { "Content-Type": "application/json" };
   const token = getToken();

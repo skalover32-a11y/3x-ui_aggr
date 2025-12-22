@@ -1,11 +1,18 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
+
+	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/http/middleware"
 )
 
 type loginRequest struct {
@@ -14,7 +21,9 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Token string `json:"token"`
+	Token    string `json:"token"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
 }
 
 func (h *Handler) Login(c *gin.Context) {
@@ -22,9 +31,30 @@ func (h *Handler) Login(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
-	if req.Username != h.AdminUser || req.Password != h.AdminPass {
-		respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
-		return
+	username := strings.TrimSpace(req.Username)
+	password := req.Password
+	role := middleware.RoleAdmin
+	if username == h.AdminUser {
+		if password != h.AdminPass {
+			respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
+			return
+		}
+	} else {
+		var user db.User
+		err := h.DB.WithContext(c.Request.Context()).Where("lower(username) = lower(?)", username).First(&user).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
+				return
+			}
+			respondError(c, http.StatusInternalServerError, "DB_READ", "failed to read user")
+			return
+		}
+		if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
+			respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
+			return
+		}
+		role = user.Role
 	}
 	now := time.Now()
 	expiry := h.JWTExpiry
@@ -32,8 +62,9 @@ func (h *Handler) Login(c *gin.Context) {
 		expiry = 24 * time.Hour
 	}
 	claims := jwt.MapClaims{
-		"sub":  "admin",
-		"role": "admin",
+		"sub":  username,
+		"user": username,
+		"role": role,
 		"iat":  now.Unix(),
 		"exp":  now.Add(expiry).Unix(),
 	}
@@ -43,5 +74,5 @@ func (h *Handler) Login(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TOKEN_SIGN", "failed to sign token")
 		return
 	}
-	respondStatus(c, http.StatusOK, loginResponse{Token: signed})
+	respondStatus(c, http.StatusOK, loginResponse{Token: signed, Username: username, Role: role})
 }
