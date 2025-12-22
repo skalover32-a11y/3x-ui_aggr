@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser } from "./api.js";
+import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
 
@@ -39,12 +40,15 @@ function formatBytes(bytes) {
 }
 
 function StatusBadge({ status }) {
+  const { t } = useI18n();
   const label = status || "unknown";
-  return <span className={`badge ${label}`}>{label}</span>;
+  const textKey = label === "online" ? "Online" : label === "degraded" ? "Degraded" : label === "offline" ? "Offline" : label;
+  return <span className={`badge ${label}`}>{t(textKey)}</span>;
 }
 
 function Sparkline({ points }) {
-  if (!points || points.length === 0) return <div className="availability empty">no data</div>;
+  const { t } = useI18n();
+  if (!points || points.length === 0) return <div className="availability empty">{t("No data")}</div>;
   const first = points[0];
   const last = points[points.length - 1];
   return (
@@ -52,7 +56,7 @@ function Sparkline({ points }) {
       <div className="availability-bars">
         {points.map((p, idx) => {
           const status = deriveStatus(p.panel_ok, p.ssh_ok);
-          const title = `${formatTS(p.ts)} | latency ${p.latency_ms || 0}ms${p.error ? ` | ${p.error}` : ""}`;
+          const title = `${formatTS(p.ts)} | ${t("Latency")} ${p.latency_ms || 0}ms${p.error ? ` | ${p.error}` : ""}`;
           return (
             <span key={`${p.ts}-${idx}`} className={`bar ${status}`} title={title} />
           );
@@ -67,7 +71,8 @@ function Sparkline({ points }) {
 }
 
 function MetricSparks({ metrics }) {
-  if (!metrics || metrics.length === 0) return <div className="metrics empty">no metrics</div>;
+  const { t } = useI18n();
+  if (!metrics || metrics.length === 0) return <div className="metrics empty">{t("No metrics")}</div>;
   const latest = metrics[metrics.length - 1];
   const memPercents = metrics
     .map((m) => {
@@ -96,14 +101,14 @@ function MetricSparks({ metrics }) {
     <div className="metrics">
       <div className="metric">
         <div className="metric-header">
-          <span>CPU Load</span>
+          <span>{t("CPU Load")}</span>
           <span className="muted small">{load1 != null ? load1.toFixed(2) : "—"}</span>
         </div>
         {renderBars(metrics.map((m) => (m.load1 != null ? Math.min(m.load1 * 100, 200) : 0)), "cpu")}
       </div>
       <div className="metric">
         <div className="metric-header">
-          <span>Memory</span>
+          <span>{t("Memory")}</span>
           <span className="muted small">
             {memLatest != null ? `${memLatest.toFixed(1)}%` : "—"}
             {latest.mem_total_bytes ? ` / ${formatBytes(latest.mem_total_bytes)}` : ""}
@@ -113,7 +118,7 @@ function MetricSparks({ metrics }) {
       </div>
       <div className="metric">
         <div className="metric-header">
-          <span>Disk</span>
+          <span>{t("Disk")}</span>
           <span className="muted small">
             {diskLatest != null ? `${diskLatest.toFixed(1)}%` : "—"}
             {latest.disk_total_bytes ? ` / ${formatBytes(latest.disk_total_bytes)}` : ""}
@@ -137,6 +142,7 @@ function ValidationBadge({ label, status, detail }) {
 }
 
 function ListInput({ label, values, onChange, placeholder }) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   return (
     <div className="list-editor">
@@ -145,7 +151,7 @@ function ListInput({ label, values, onChange, placeholder }) {
         {values.map((item, idx) => (
           <span className="chip" key={`${item}-${idx}`}>
             {item}
-            <button type="button" onClick={() => onChange(values.filter((_, i) => i !== idx))}>×</button>
+            <button type="button" onClick={() => onChange(values.filter((_, i) => i !== idx))} aria-label={t("Remove")}>×</button>
           </span>
         ))}
       </div>
@@ -164,7 +170,7 @@ function ListInput({ label, values, onChange, placeholder }) {
             setValue("");
           }}
         >
-          Add
+          {t("Add")}
         </button>
       </div>
     </div>
@@ -183,6 +189,7 @@ function RequireAuth({ children }) {
 }
 
 function LoginPage() {
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -214,7 +221,7 @@ function LoginPage() {
     setRecoveryStatus("");
     try {
       await request("POST", "/auth/2fa/recovery", { username, password });
-      setRecoveryStatus("Recovery code sent to Telegram");
+      setRecoveryStatus(t("Recovery code sent to Telegram"));
     } catch (err) {
       setError(err.message);
     }
@@ -225,27 +232,27 @@ function LoginPage() {
       <form className="card" onSubmit={onSubmit} autoComplete="on">
         <h1>3x-ui Aggregator</h1>
         <label>
-          Username
+          {t("Username")}
           <input name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>
         <label>
-          Password
+          {t("Password")}
           <input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
         <label>
-          2FA Code
+          {t("2FA Code")}
           <input name="otp" autoComplete="one-time-code" placeholder="123456" value={otp} onChange={(e) => setOtp(e.target.value)} />
         </label>
         <label>
-          Recovery code (optional)
+          {t("Recovery code (optional)")}
           <input name="recovery_code" autoComplete="off" value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} />
         </label>
         <button type="button" className="ghost" onClick={onSendRecovery}>
-          Send recovery code via Telegram
+          {t("Send recovery code via Telegram")}
         </button>
         {error && <div className="error">{error}</div>}
-        {recoveryStatus && <div className="hint">{recoveryStatus}</div>}
-        <button type="submit">Login</button>
+        {recoveryStatus && <div className="hint">{t("Recovery code sent to Telegram")}</div>}
+        <button type="submit">{t("Login")}</button>
       </form>
     </div>
   );
@@ -254,6 +261,7 @@ function LoginPage() {
 function NodesPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { t, lang, setLang } = useI18n();
   const role = getRole();
   const user = getUser();
   const isAdmin = role === "admin";
@@ -286,7 +294,7 @@ function NodesPage() {
     alert_disk: true,
   });
   const [telegramTokenSet, setTelegramTokenSet] = useState(false);
-  const [telegramSaved, setTelegramSaved] = useState("");
+  const [telegramSaved, setTelegramSaved] = useState(false);
   const [telegramTestMsg, setTelegramTestMsg] = useState("");
   const [telegramTestStatus, setTelegramTestStatus] = useState("");
   const [telegramTestResults, setTelegramTestResults] = useState([]);
@@ -447,7 +455,7 @@ function NodesPage() {
     setError("");
     try {
       await request("POST", `/nodes/${id}/test`, {});
-      alert("Test OK");
+      alert(t("Test OK"));
     } catch (err) {
       setError(err?.data?.error || err.message);
     }
@@ -542,7 +550,7 @@ function NodesPage() {
     if (!actionPlan.open || !actionPlan.node) return;
     const required = actionConfirmToken(actionPlan.action);
     if (required && actionPlan.confirm.trim() !== required) {
-      setError(`Type ${required} to confirm`);
+      setError(t("Type {token} to confirm", { token: required }));
       return;
     }
     setActionBusy(true);
@@ -603,7 +611,7 @@ function NodesPage() {
     try {
       const data = await request("POST", "/auth/2fa/setup", {});
       setTotpSetup(data);
-      setTotpMessage("Scan the QR in Google Authenticator and enter the code below.");
+      setTotpMessage(t("Scan the QR in Google Authenticator and enter the code below."));
     } catch (err) {
       setError(err.message);
     }
@@ -617,7 +625,7 @@ function NodesPage() {
       setTotpStatus(data);
       setTotpSetup(null);
       setTotpCode("");
-      setTotpMessage("2FA enabled");
+      setTotpMessage(t("2FA enabled"));
     } catch (err) {
       setError(err.message);
     }
@@ -634,7 +642,7 @@ function NodesPage() {
       setTotpStatus(data);
       setTotpDisableCode("");
       setTotpRecoveryCode("");
-      setTotpMessage("2FA disabled");
+      setTotpMessage(t("2FA disabled"));
     } catch (err) {
       setError(err.message);
     }
@@ -671,7 +679,7 @@ function NodesPage() {
   }
 
   async function deleteUser(user) {
-    if (!confirm(`Delete user ${user.username}?`)) return;
+    if (!confirm(t("Delete user {name}?", { name: user.username }))) return;
     setUsersBusy(true);
     try {
       await request("DELETE", `/users/${user.id}`, {});
@@ -699,19 +707,19 @@ function NodesPage() {
     <div className="page">
       <header className="header">
         <div className="header-left">
-          <button className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label="Menu">
+          <button className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
             ☰
           </button>
-          <h2>Nodes</h2>
+          <h2>{t("Nodes")}</h2>
           {menuOpen && (
             <div className="menu">
-              {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>Add node</button>}
-              {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>Users & roles</button>}
-              {!isViewer && <button type="button" onClick={openTOTP}>2FA settings</button>}
+              {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>{t("Add node")}</button>}
+              {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>{t("Users & roles")}</button>}
+              {!isViewer && <button type="button" onClick={openTOTP}>{t("2FA settings")}</button>}
               {isAdmin && (
                 <button type="button" onClick={async () => {
                   setMenuOpen(false);
-                  setTelegramSaved("");
+                  setTelegramSaved(false);
                   setTelegramTestMsg("");
                   setTelegramTestStatus("");
                   setTelegramTestResults([]);
@@ -731,15 +739,26 @@ function NodesPage() {
                   } catch (err) {
                     setError(err.message);
                   }
-                }}>Telegram alerts</button>
+                }}>{t("Telegram alerts")}</button>
               )}
-              {isAdmin && <button type="button" onClick={openAudit}>Audit log</button>}
+              {isAdmin && <button type="button" onClick={openAudit}>{t("Audit log")}</button>}
+              <div className="menu-section">
+                <div className="muted small">{t("Language")}</div>
+                <select
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value)}
+                >
+                  <option value="en">{t("English")}</option>
+                  <option value="ru">{t("Russian")}</option>
+                  <option value="fa">{t("Persian")}</option>
+                </select>
+              </div>
             </div>
           )}
         </div>
         <div className="header-user">
-          {user && <span className="muted small">Signed in: {user}</span>}
-          <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>Logout</button>
+          {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+          <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>{t("Logout")}</button>
         </div>
       </header>
 
@@ -748,9 +767,9 @@ function NodesPage() {
       {actionPlan.open && (
         <div className="modal">
           <div className="modal-content">
-            <h3>Confirm action</h3>
+            <h3>{t("Confirm action")}</h3>
             <div className="plan-steps">
-              <div className="muted small">Will run on node {actionPlan.node?.name}:</div>
+              <div className="muted small">{t("Will run on node {name}:", { name: actionPlan.node?.name || "" })}</div>
               <ul>
                 {actionPlan.steps.map((step, idx) => (
                   <li key={`${actionPlan.action}-${idx}`}>{step}</li>
@@ -759,7 +778,7 @@ function NodesPage() {
             </div>
             {actionConfirmToken(actionPlan.action) && (
               <label>
-                Type {actionConfirmToken(actionPlan.action)} to confirm
+                {t("Type {token} to confirm", { token: actionConfirmToken(actionPlan.action) })}
                 <input
                   autoComplete="off"
                   name="action_confirm"
@@ -770,10 +789,10 @@ function NodesPage() {
             )}
             <div className="actions">
               <button type="button" onClick={() => setActionPlan({ open: false, node: null, action: null, steps: [], confirm: "" })}>
-                Cancel
+                {t("Cancel")}
               </button>
               <button type="button" onClick={runActionPlan} disabled={actionBusy}>
-                {actionBusy ? "Running..." : "Run"}
+                {actionBusy ? t("Running...") : t("Run")}
               </button>
             </div>
           </div>
@@ -783,8 +802,8 @@ function NodesPage() {
       <div className="nodes-cards">
         <div className="nodes-cards-head">
           <div>
-            <h3>Nodes Manager</h3>
-            <div className="muted">{nodes.length} servers configured</div>
+            <h3>{t("Nodes Manager")}</h3>
+            <div className="muted">{t("Servers configured: {count}", { count: nodes.length })}</div>
           </div>
         </div>
 
@@ -799,7 +818,7 @@ function NodesPage() {
               <div className="node-card-top">
                 <div className="node-card-title">
                   <div className="node-name-row">
-                    <div className="node-name">{node.name || "Unnamed node"}</div>
+                    <div className="node-name">{node.name || t("Unnamed node")}</div>
                     <StatusBadge status={statusMap[node.id]?.status} />
                   </div>
                   <div className="tag-row">
@@ -808,7 +827,7 @@ function NodesPage() {
                         <span className="chip subtle" key={`${node.id}-tag-${idx}`}>{tag}</span>
                       ))
                     ) : (
-                      <span className="muted small">No tags</span>
+                      <span className="muted small">{t("No tags")}</span>
                     )}
                   </div>
                   <div className="node-link">
@@ -817,23 +836,23 @@ function NodesPage() {
                         {node.base_url} ↗
                       </a>
                     ) : (
-                      <span className="muted small">No base URL</span>
+                      <span className="muted small">{t("No base URL")}</span>
                     )}
                   </div>
                   <div className="node-versions">
-                    <span className="muted small">Panel: {node.panel_version || "unknown"}</span>
-                    <span className="muted small">Xray: {node.xray_version || "unknown"}</span>
+                    <span className="muted small">{t("Panel: {panel}", { panel: node.panel_version || t("unknown") })}</span>
+                    <span className="muted small">{t("Xray: {xray}", { xray: node.xray_version || t("unknown") })}</span>
                   </div>
-                  {lastTs && <div className="muted small">Last check: {formatTS(lastTs)}</div>}
+                  {lastTs && <div className="muted small">{t("Last check: {ts}", { ts: formatTS(lastTs) })}</div>}
                 </div>
                 <div className="node-uptime">
                   <div className="uptime-value">{percent.toFixed(1)}%</div>
-                  <div className="uptime-label">Uptime</div>
+                  <div className="uptime-label">{t("Uptime")}</div>
                   <button
                     type="button"
                     className="icon-button"
                     onClick={() => setCollapsedNodes((prev) => ({ ...prev, [node.id]: !isCollapsed }))}
-                    aria-label="Toggle node details"
+                    aria-label={t("Toggle node details")}
                   >
                     {isCollapsed ? "▸" : "▾"}
                   </button>
@@ -843,10 +862,10 @@ function NodesPage() {
               {!isCollapsed && (
                 <>
                   <div className="node-availability">
-                    <div className="availability-header">
-                      <div className="muted small">Last {total || 0} checks</div>
-                      <div className="muted small">{success}/{total || 0} successful</div>
-                    </div>
+                  <div className="availability-header">
+                      <div className="muted small">{t("Last {total} checks", { total: total || 0 })}</div>
+                      <div className="muted small">{t("{success}/{total} successful", { success, total: total || 0 })}</div>
+                  </div>
                     <Sparkline points={uptimePoints} />
                   </div>
 
@@ -854,15 +873,15 @@ function NodesPage() {
 
                   <div className="node-meta-grid">
                     <div className="meta-box">
-                      <div className="meta-label">SSH Host</div>
+                      <div className="meta-label">{t("SSH Host")}</div>
                       <div className="meta-value">{node.ssh_host || "-"}</div>
                     </div>
                     <div className="meta-box">
-                      <div className="meta-label">Port</div>
+                      <div className="meta-label">{t("SSH Port")}</div>
                       <div className="meta-value">{node.ssh_port || "-"}</div>
                     </div>
                     <div className="meta-box">
-                      <div className="meta-label">Panel User</div>
+                      <div className="meta-label">{t("Panel Username")}</div>
                       <div className="meta-value">{node.panel_username || "-"}</div>
                     </div>
                   </div>
@@ -870,14 +889,14 @@ function NodesPage() {
                   <div className="node-actions">
                     {!isViewer && (
                       <>
-                        <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
-                        <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
-                        {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>SSH</button>}
-                        <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
-                        <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
+                        <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>
+                        <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
+                        {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
+                        <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>
+                        <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
                       </>
                     )}
-                    {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>}
+                    {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
                   </div>
                 </>
               )}
@@ -889,56 +908,56 @@ function NodesPage() {
       {editModal.open && editModal.node && (
         <div className="modal">
           <div className="modal-content">
-            <h3>Edit Node</h3>
+            <h3>{t("Edit Node")}</h3>
             <form className="form-grid" onSubmit={onUpdate} autoComplete="off">
-              <input name="node_name" autoComplete="off" placeholder="Name" defaultValue={editModal.node.name} />
-              <input name="node_tags" autoComplete="off" placeholder="Tags (comma)" defaultValue={(editModal.node.tags || []).join(", ")} />
-              <input name="node_base_url" autoComplete="off" placeholder="Base URL" defaultValue={editModal.node.base_url} />
-              <input name="node_panel_user" autoComplete="off" placeholder="Panel Username" defaultValue={editModal.node.panel_username} />
-              <input name="node_panel_password" autoComplete="new-password" placeholder="Panel Password (leave blank to keep)" type="password" />
-              <input name="node_ssh_host" autoComplete="off" placeholder="SSH Host" defaultValue={editModal.node.ssh_host} />
-              <input name="node_ssh_port" autoComplete="off" placeholder="SSH Port" type="number" defaultValue={editModal.node.ssh_port} />
-              <input name="node_ssh_user" autoComplete="off" placeholder="SSH User" defaultValue={editModal.node.ssh_user} />
-              <textarea name="node_ssh_key" autoComplete="off" placeholder="SSH Private Key (leave blank to keep)" rows="3" />
+              <input name="node_name" autoComplete="off" placeholder={t("Name")} defaultValue={editModal.node.name} />
+              <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} defaultValue={(editModal.node.tags || []).join(", ")} />
+              <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} defaultValue={editModal.node.base_url} />
+              <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} defaultValue={editModal.node.panel_username} />
+              <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password (leave blank to keep)")} type="password" />
+              <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} defaultValue={editModal.node.ssh_host} />
+              <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" defaultValue={editModal.node.ssh_port} />
+              <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} defaultValue={editModal.node.ssh_user} />
+              <textarea name="node_ssh_key" autoComplete="off" placeholder={t("SSH Private Key (leave blank to keep)")} rows="3" />
               <label className="checkbox">
                 <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
-                Verify TLS
+                {t("Verify TLS")}
               </label>
               {editValidation && (
                 <div className="validation-summary">
                   {editValidation.error && <div className="error">{editValidation.error}</div>}
                   <ValidationBadge
-                    label="SSH"
+                    label={t("SSH")}
                     status={editValidation.ssh?.ok ? "ok" : "error"}
                     detail={editValidation.ssh?.ok ? editValidation.ssh.fingerprint : editValidation.ssh?.error}
                   />
                   <ValidationBadge
-                    label="Base URL"
+                    label={t("Base URL")}
                     status={editValidation.base_url?.ok ? "ok" : "error"}
                     detail={editValidation.base_url?.ok ? `HTTP ${editValidation.base_url.status_code}` : editValidation.base_url?.error}
                   />
                   <ValidationBadge
-                    label="Panel"
+                    label={t("Panel")}
                     status={editValidation.panel_version && editValidation.panel_version !== "unknown" ? "ok" : "error"}
-                    detail={editValidation.panel_version || "unknown"}
+                    detail={editValidation.panel_version || t("unknown")}
                   />
                   <ValidationBadge
-                    label="Xray"
+                    label={t("Xray")}
                     status={editValidation.xray_version && editValidation.xray_version !== "unknown" ? "ok" : "error"}
-                    detail={editValidation.xray_version || "unknown"}
+                    detail={editValidation.xray_version || t("unknown")}
                   />
                   {editValidation.ssh?.passphrase_required && (
-                    <span className="muted small">Passphrase required for SSH key</span>
+                    <span className="muted small">{t("Passphrase required for SSH key")}</span>
                   )}
                 </div>
               )}
               <div className="actions">
-                <button type="button" onClick={() => onTest(editModal.node.id)}>Test</button>
-                <button type="button" onClick={() => setEditModal({ open: false, node: null })}>Cancel</button>
+                <button type="button" onClick={() => onTest(editModal.node.id)}>{t("Test")}</button>
+                <button type="button" onClick={() => setEditModal({ open: false, node: null })}>{t("Cancel")}</button>
                 <button type="button" onClick={(e) => onValidateEdit(e.currentTarget.form)} disabled={editValidating}>
-                  {editValidating ? "Validating..." : "Validate"}
+                  {editValidating ? t("Validating...") : t("Validate")}
                 </button>
-                <button type="submit">Save</button>
+                <button type="submit">{t("Save")}</button>
               </div>
             </form>
           </div>
@@ -948,34 +967,34 @@ function NodesPage() {
       {addOpen && (
         <div className="modal">
           <div className="modal-content wide">
-            <h3>Add Node</h3>
+            <h3>{t("Add Node")}</h3>
             <form className="form-grid" onSubmit={onCreate} autoComplete="off">
-              <input name="node_name" autoComplete="off" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <input name="node_tags" autoComplete="off" placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              <input name="node_base_url" autoComplete="off" placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-              <input name="node_panel_user" autoComplete="off" placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-              <input name="node_panel_password" autoComplete="new-password" placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
-              <input name="node_ssh_host" autoComplete="off" placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
-              <input name="node_ssh_port" autoComplete="off" placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
-              <input name="node_ssh_user" autoComplete="off" placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
-              <input name="node_key_passphrase" autoComplete="new-password" placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
+              <input name="node_name" autoComplete="off" placeholder={t("Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+              <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+              <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password")} type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+              <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
+              <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
+              <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
+              <input name="node_key_passphrase" autoComplete="new-password" placeholder={t("Key Passphrase (optional)")} type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
               <label className="file-input">
-                Upload SSH Key (.ppk/.pem/.key)
+                {t("Upload SSH Key (.ppk/.pem/.key)")}
                 <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
               </label>
-              <textarea name="node_ssh_key" autoComplete="off" placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
-              <div className="hint">Paste OpenSSH private key or upload .ppk</div>
-              {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
+              <textarea name="node_ssh_key" autoComplete="off" placeholder={t("SSH Private Key")} rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
+              <div className="hint">{t("Paste OpenSSH private key or upload .ppk")}</div>
+              {keyFingerprint && <div className="hint">{t("Fingerprint: {fp}", { fp: keyFingerprint })}</div>}
               <label className="checkbox">
                 <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
-                Verify TLS
+                {t("Verify TLS")}
               </label>
               <div className="actions">
                 <button type="button" onClick={onValidateCreate} disabled={validating}>
-                  {validating ? "Validating..." : "Validate"}
+                  {validating ? t("Validating...") : t("Validate")}
                 </button>
-                <button type="submit">Create</button>
-                <button type="button" onClick={() => setAddOpen(false)}>Close</button>
+                <button type="submit">{t("Create")}</button>
+                <button type="button" onClick={() => setAddOpen(false)}>{t("Close")}</button>
               </div>
             </form>
 
@@ -983,27 +1002,27 @@ function NodesPage() {
               <div className="validation-summary">
                 {validation.error && <div className="error">{validation.error}</div>}
                 <ValidationBadge
-                  label="SSH"
+                  label={t("SSH")}
                   status={validation.ssh?.ok ? "ok" : "error"}
                   detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
                 />
                 <ValidationBadge
-                  label="Base URL"
+                  label={t("Base URL")}
                   status={validation.base_url?.ok ? "ok" : "error"}
                   detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
                 />
                 <ValidationBadge
-                  label="Panel"
+                  label={t("Panel")}
                   status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.panel_version || "unknown"}
+                  detail={validation.panel_version || t("unknown")}
                 />
                 <ValidationBadge
-                  label="Xray"
+                  label={t("Xray")}
                   status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.xray_version || "unknown"}
+                  detail={validation.xray_version || t("unknown")}
                 />
                 {validation.ssh?.passphrase_required && (
-                  <span className="muted small">Passphrase required for SSH key</span>
+                  <span className="muted small">{t("Passphrase required for SSH key")}</span>
                 )}
               </div>
             )}
@@ -1014,10 +1033,10 @@ function NodesPage() {
       {telegramOpen && (
         <div className="modal">
           <div className="modal-content">
-            <h3>Telegram alerts</h3>
+            <h3>{t("Telegram alerts")}</h3>
             <div className="form-grid" autoComplete="off">
               <input
-                placeholder={telegramTokenSet ? "Bot token (leave blank to keep)" : "Bot token"}
+                placeholder={telegramTokenSet ? t("Bot token (leave blank to keep)") : t("Bot token")}
                 type="password"
                 name="telegram_bot_token"
                 autoComplete="new-password"
@@ -1025,7 +1044,7 @@ function NodesPage() {
                 onChange={(e) => setTelegramForm({ ...telegramForm, bot_token: e.target.value })}
               />
               <ListInput
-                label="Admin chat IDs"
+                label={t("Admin chat IDs")}
                 values={telegramForm.admin_chat_ids}
                 placeholder="123456789"
                 onChange={(values) => setTelegramForm({ ...telegramForm, admin_chat_ids: values })}
@@ -1036,7 +1055,7 @@ function NodesPage() {
                   checked={telegramForm.alert_connection}
                   onChange={(e) => setTelegramForm({ ...telegramForm, alert_connection: e.target.checked })}
                 />
-                Connection loss
+                {t("Connection loss")}
               </label>
               <label className="checkbox">
                 <input
@@ -1044,7 +1063,7 @@ function NodesPage() {
                   checked={telegramForm.alert_cpu}
                   onChange={(e) => setTelegramForm({ ...telegramForm, alert_cpu: e.target.checked })}
                 />
-                High CPU
+                {t("High CPU")}
               </label>
               <label className="checkbox">
                 <input
@@ -1052,7 +1071,7 @@ function NodesPage() {
                   checked={telegramForm.alert_memory}
                   onChange={(e) => setTelegramForm({ ...telegramForm, alert_memory: e.target.checked })}
                 />
-                High memory
+                {t("High memory")}
               </label>
               <label className="checkbox">
                 <input
@@ -1060,14 +1079,14 @@ function NodesPage() {
                   checked={telegramForm.alert_disk}
                   onChange={(e) => setTelegramForm({ ...telegramForm, alert_disk: e.target.checked })}
                 />
-                Low disk space
+                {t("Low disk space")}
               </label>
             </div>
             <div className="audit-controls">
               <input
                 name="telegram_test_message"
                 autoComplete="off"
-                placeholder="Test message (optional)"
+                placeholder={t("Test message (optional)")}
                 value={telegramTestMsg}
                 onChange={(e) => setTelegramTestMsg(e.target.value)}
               />
@@ -1092,22 +1111,22 @@ function NodesPage() {
                   }
                 }}
               >
-                Send test
+                {t("Send test")}
               </button>
             </div>
-            {telegramSaved && <div className="hint">{telegramSaved}</div>}
+            {telegramSaved && <div className="hint">{t("Saved")}</div>}
             {telegramTestStatus && <div className="hint">{telegramTestStatus}</div>}
             {telegramTestResults.length > 0 && (
               <div className="table compact">
                 <div className="table-row head">
-                  <div>Chat ID</div>
-                  <div>Status</div>
-                  <div>Error</div>
+                  <div>{t("Chat ID")}</div>
+                  <div>{t("Status")}</div>
+                  <div>{t("error")}</div>
                 </div>
                 {telegramTestResults.map((row) => (
                   <div className="table-row" key={row.chat_id}>
                     <div>{row.chat_id}</div>
-                    <div>{row.ok ? "ok" : "error"}</div>
+                    <div>{row.ok ? t("ok") : t("error")}</div>
                     <div>{row.error || "-"}</div>
                   </div>
                 ))}
@@ -1117,19 +1136,19 @@ function NodesPage() {
               <button
                 type="button"
                 onClick={async () => {
-                  setTelegramSaved("");
+                  setTelegramSaved(false);
                   try {
                     await saveTelegramSettings(telegramForm);
                     setTelegramForm({ ...telegramForm, bot_token: "" });
-                    setTelegramSaved("Saved");
+                    setTelegramSaved(true);
                   } catch (err) {
                     setError(err.message);
                   }
                 }}
               >
-                Save
+                {t("Save")}
               </button>
-              <button type="button" onClick={() => setTelegramOpen(false)}>Close</button>
+              <button type="button" onClick={() => setTelegramOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>
@@ -1138,35 +1157,35 @@ function NodesPage() {
       {totpOpen && (
         <div className="modal">
           <div className="modal-content">
-            <h3>2FA (TOTP)</h3>
+            <h3>{t("2FA (TOTP)")}</h3>
             <div className="form-grid" autoComplete="off">
               <div className="hint">
-                Steps: Generate QR → scan in Google Authenticator → enter code → enable.
+                {t("Steps: Generate QR -> scan in Google Authenticator -> enter code -> enable.")}
               </div>
               <div className="hint">
-                {totpStatus?.required ? "Required for your role." : "Optional for your role."}
+                {totpStatus?.required ? t("Required for your role.") : t("Optional for your role.")}
               </div>
               <div className="hint">
-                Status: {totpStatus?.enabled ? "enabled" : "disabled"}
+                {t("Status: {status}", { status: totpStatus?.enabled ? t("connected") : t("disconnected") })}
               </div>
               {!totpStatus?.enabled && (
                 <button type="button" className="btn-inline" onClick={setupTOTP}>
-                  Generate QR
+                  {t("Generate QR")}
                 </button>
               )}
               {totpSetup && (
                 <>
-                  <img className="qr-img" src={totpSetup.qr_png} alt="TOTP QR" />
-                  <div className="hint">Secret: {totpSetup.secret}</div>
+                  <img className="qr-img" src={totpSetup.qr_png} alt={t("TOTP QR")} />
+                  <div className="hint">{t("Secret: {secret}", { secret: totpSetup.secret })}</div>
                   <input
                     name="totp_code"
                     autoComplete="one-time-code"
-                    placeholder="Enter code"
+                    placeholder={t("Enter code")}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
                   />
                   <button type="button" className="btn-inline" onClick={verifyTOTP}>
-                    Enable 2FA
+                    {t("Enable 2FA")}
                   </button>
                 </>
               )}
@@ -1175,26 +1194,26 @@ function NodesPage() {
                   <input
                     name="totp_disable_code"
                     autoComplete="one-time-code"
-                    placeholder="Code to disable"
+                    placeholder={t("Code to disable")}
                     value={totpDisableCode}
                     onChange={(e) => setTotpDisableCode(e.target.value)}
                   />
                   <input
                     name="totp_recovery_code"
                     autoComplete="off"
-                    placeholder="Recovery code (optional)"
+                    placeholder={t("Recovery code (optional)")}
                     value={totpRecoveryCode}
                     onChange={(e) => setTotpRecoveryCode(e.target.value)}
                   />
                   <button type="button" className="btn-inline" onClick={disableTOTP}>
-                    Disable 2FA
+                    {t("Disable 2FA")}
                   </button>
                 </>
               )}
             </div>
             {totpMessage && <div className="hint">{totpMessage}</div>}
             <div className="actions">
-              <button type="button" onClick={() => setTotpOpen(false)}>Close</button>
+              <button type="button" onClick={() => setTotpOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>
@@ -1203,12 +1222,12 @@ function NodesPage() {
       {usersOpen && (
         <div className="modal">
           <div className="modal-content">
-            <h3>Users & roles</h3>
+            <h3>{t("Users & roles")}</h3>
             <div className="form-grid" autoComplete="off">
               <input
                 name="user_name"
                 autoComplete="off"
-                placeholder="Username or email"
+                placeholder={t("Username or email")}
                 value={usersDraft.name}
                 onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
               />
@@ -1216,7 +1235,7 @@ function NodesPage() {
                 name="user_password"
                 autoComplete="new-password"
                 type="password"
-                placeholder="Password"
+                placeholder={t("Password")}
                 value={usersDraft.password}
                 onChange={(e) => setUsersDraft({ ...usersDraft, password: e.target.value })}
               />
@@ -1225,9 +1244,9 @@ function NodesPage() {
                 value={usersDraft.role}
                 onChange={(e) => setUsersDraft({ ...usersDraft, role: e.target.value })}
               >
-                <option value="admin">Administrator</option>
-                <option value="operator">Operator (no node delete)</option>
-                <option value="viewer">Viewer (status only)</option>
+                <option value="admin">{t("Administrator")}</option>
+                <option value="operator">{t("Operator (no node delete)")}</option>
+                <option value="viewer">{t("Viewer (status only)")}</option>
               </select>
             </div>
             <div className="actions">
@@ -1236,15 +1255,15 @@ function NodesPage() {
                 onClick={createUser}
                 disabled={usersBusy}
               >
-                Add user
+                {t("Add user")}
               </button>
-              <button type="button" onClick={() => setUsersOpen(false)}>Close</button>
+              <button type="button" onClick={() => setUsersOpen(false)}>{t("Close")}</button>
             </div>
             <div className="table compact users-table">
               <div className="table-row head">
-                <div>User</div>
-                <div>Role</div>
-                <div>Actions</div>
+                <div>{t("Username")}</div>
+                <div>{t("Role")}</div>
+                <div>{t("Actions")}</div>
               </div>
               {usersList.map((user) => (
                 <div className="table-row" key={user.id}>
@@ -1254,22 +1273,22 @@ function NodesPage() {
                       value={user.role}
                       onChange={(e) => setUsersList(usersList.map((u) => u.id === user.id ? { ...u, role: e.target.value } : u))}
                     >
-                      <option value="admin">Administrator</option>
-                      <option value="operator">Operator</option>
-                      <option value="viewer">Viewer</option>
+                      <option value="admin">{t("Administrator")}</option>
+                      <option value="operator">{t("Operator")}</option>
+                      <option value="viewer">{t("Viewer")}</option>
                     </select>
                   </div>
                   <div className="actions">
-                    <button type="button" onClick={() => updateUserRole(user)} disabled={usersBusy}>Save</button>
+                    <button type="button" onClick={() => updateUserRole(user)} disabled={usersBusy}>{t("Save")}</button>
                     <button className="danger ghost" type="button" onClick={() => deleteUser(user)} disabled={usersBusy}>
-                      Remove
+                      {t("Remove")}
                     </button>
                   </div>
                 </div>
               ))}
               {usersList.length === 0 && (
                 <div className="table-row">
-                  <div className="muted small">No users yet</div>
+                  <div className="muted small">{t("No users yet")}</div>
                 </div>
               )}
             </div>
@@ -1280,42 +1299,42 @@ function NodesPage() {
       {auditOpen && (
         <div className="modal">
           <div className="modal-content wide">
-            <h3>Audit log</h3>
+            <h3>{t("Audit log")}</h3>
             <div className="audit-controls">
               <input
-                placeholder="Filter by node_id"
+                placeholder={t("Filter by node_id")}
                 autoComplete="off"
                 name="audit_node_id"
                 value={auditNodeID}
                 onChange={(e) => setAuditNodeID(e.target.value)}
               />
-              <button type="button" onClick={() => loadAudit({ offset: 0, nodeID: auditNodeID })}>Apply</button>
-              <button type="button" onClick={() => { setAuditNodeID(""); loadAudit({ offset: 0, nodeID: "" }); }}>Clear</button>
+              <button type="button" onClick={() => loadAudit({ offset: 0, nodeID: auditNodeID })}>{t("Apply")}</button>
+              <button type="button" onClick={() => { setAuditNodeID(""); loadAudit({ offset: 0, nodeID: "" }); }}>{t("Clear")}</button>
             </div>
             <div className="table compact audit-table">
               <div className="table-row head">
-                <div>Time</div>
-                <div>Actor</div>
-                <div>Action</div>
-                <div>Status</div>
-                <div>Node</div>
-                <div>Message</div>
+                <div>{t("Time")}</div>
+                <div>{t("Actor")}</div>
+                <div>{t("Action")}</div>
+                <div>{t("Status")}</div>
+                <div>{t("Node")}</div>
+                <div>{t("Message")}</div>
               </div>
               {auditLogs.map((row) => (
                 <div className="table-row" key={row.id}>
-                  <div data-label="Time">{formatTS(row.ts || row.created_at)}</div>
-                  <div data-label="Actor">{row.actor_user || row.actor}</div>
-                  <div data-label="Action">{row.action}</div>
-                  <div data-label="Status">{row.status}</div>
-                  <div data-label="Node">{row.node_id || "-"}</div>
-                  <div data-label="Message">{row.message || row.error || "-"}</div>
-                </div>
-              ))}
+                <div data-label={t("Time")}>{formatTS(row.ts || row.created_at)}</div>
+                <div data-label={t("Actor")}>{row.actor_user || row.actor}</div>
+                <div data-label={t("Action")}>{row.action}</div>
+                <div data-label={t("Status")}>{row.status}</div>
+                <div data-label={t("Node")}>{row.node_id || "-"}</div>
+                <div data-label={t("Message")}>{row.message || row.error || "-"}</div>
+              </div>
+            ))}
             </div>
             <div className="actions">
-              <button type="button" onClick={() => loadAudit({ offset: Math.max(0, auditOffset - 100) })} disabled={auditOffset === 0}>Prev</button>
-              <button type="button" onClick={() => loadAudit({ offset: auditOffset + 100 })} disabled={auditLogs.length < 100}>Next</button>
-              <button type="button" onClick={() => setAuditOpen(false)}>Close</button>
+              <button type="button" onClick={() => loadAudit({ offset: Math.max(0, auditOffset - 100) })} disabled={auditOffset === 0}>{t("Prev")}</button>
+              <button type="button" onClick={() => loadAudit({ offset: auditOffset + 100 })} disabled={auditLogs.length < 100}>{t("Next")}</button>
+              <button type="button" onClick={() => setAuditOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>
@@ -1325,7 +1344,7 @@ function NodesPage() {
         open={sshModal.open}
         node={sshModal.node}
         onClose={() => {
-          if (sshModal.confirmClose && !confirm("Вы уверены?")) return;
+          if (sshModal.confirmClose && !confirm(t("Are you sure?"))) return;
           setSshModal({ open: false, node: null, confirmClose: false });
         }}
       />
@@ -1333,8 +1352,8 @@ function NodesPage() {
       {sshChoice.open && sshChoice.node && (
         <div className="modal">
           <div className="modal-content">
-            <h3>Открыть SSH</h3>
-            <div className="hint">Открыть здесь или в новом окне?</div>
+            <h3>{t("Open SSH")}</h3>
+            <div className="hint">{t("Open here or in a new tab?")}</div>
             <div className="actions">
               <button
                 type="button"
@@ -1343,7 +1362,7 @@ function NodesPage() {
                   setSshChoice({ open: false, node: null });
                 }}
               >
-                Здесь
+                {t("Open here")}
               </button>
               <button
                 type="button"
@@ -1352,9 +1371,9 @@ function NodesPage() {
                   setSshChoice({ open: false, node: null });
                 }}
               >
-                В новом окне
+                {t("Open in new tab")}
               </button>
-              <button type="button" onClick={() => setSshChoice({ open: false, node: null })}>Отмена</button>
+              <button type="button" onClick={() => setSshChoice({ open: false, node: null })}>{t("Cancel")}</button>
             </div>
           </div>
         </div>
@@ -1366,6 +1385,7 @@ function NodesPage() {
 function InboundsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState({ open: false, mode: "add", inbound: null });
@@ -1398,7 +1418,7 @@ function InboundsPage() {
   }
 
   async function onDelete(inboundId) {
-    if (!confirm("Delete inbound?")) return;
+    if (!confirm(t("Delete inbound?"))) return;
     setError("");
     try {
       await request("DELETE", `/nodes/${id}/inbounds/${inboundId}`, {});
@@ -1411,10 +1431,10 @@ function InboundsPage() {
   return (
     <div className="page">
       <header className="header">
-        <h2>Inbounds</h2>
+        <h2>{t("Inbounds")}</h2>
         <div className="actions">
-          <button onClick={() => navigate("/nodes")}>Back</button>
-          <button onClick={openAdd}>Add</button>
+          <button onClick={() => navigate("/nodes")}>{t("Back")}</button>
+          <button onClick={openAdd}>{t("Add")}</button>
         </div>
       </header>
 
@@ -1424,10 +1444,10 @@ function InboundsPage() {
         <div className="table inbounds">
           <div className="table-row head">
             <div>ID</div>
-            <div>Remark</div>
-            <div>Protocol</div>
-            <div>Port</div>
-            <div>Actions</div>
+            <div>{t("Remark")}</div>
+            <div>{t("Protocol")}</div>
+            <div>{t("Port")}</div>
+            <div>{t("Actions")}</div>
           </div>
           {inbounds.map((inbound) => (
             <div className="table-row" key={inbound.id}>
@@ -1436,8 +1456,8 @@ function InboundsPage() {
               <div>{inbound.protocol}</div>
               <div>{inbound.port}</div>
               <div className="actions">
-                <button onClick={() => openEdit(inbound)}>Edit</button>
-                <button className="danger" onClick={() => onDelete(inbound.id)}>Delete</button>
+                <button onClick={() => openEdit(inbound)}>{t("Edit")}</button>
+                <button className="danger" onClick={() => onDelete(inbound.id)}>{t("Delete")}</button>
               </div>
             </div>
           ))}
@@ -1451,20 +1471,20 @@ function InboundsPage() {
               <span>{inbound.id}</span>
             </div>
             <div className="inbound-card-row">
-              <span className="field-label">Remark</span>
-              <span>{inbound.remark || "—"}</span>
+              <span className="field-label">{t("Remark")}</span>
+              <span>{inbound.remark || "-"}</span>
             </div>
             <div className="inbound-card-row">
-              <span className="field-label">Protocol</span>
-              <span>{inbound.protocol || "—"}</span>
+              <span className="field-label">{t("Protocol")}</span>
+              <span>{inbound.protocol || "-"}</span>
             </div>
             <div className="inbound-card-row">
-              <span className="field-label">Port</span>
-              <span>{inbound.port || "—"}</span>
+              <span className="field-label">{t("Port")}</span>
+              <span>{inbound.port || "-"}</span>
             </div>
             <div className="actions">
-              <button onClick={() => openEdit(inbound)}>Edit</button>
-              <button className="danger" onClick={() => onDelete(inbound.id)}>Delete</button>
+              <button onClick={() => openEdit(inbound)}>{t("Edit")}</button>
+              <button className="danger" onClick={() => onDelete(inbound.id)}>{t("Delete")}</button>
             </div>
           </div>
         ))}
@@ -1518,3 +1538,4 @@ export default function App() {
     </Routes>
   );
 }
+

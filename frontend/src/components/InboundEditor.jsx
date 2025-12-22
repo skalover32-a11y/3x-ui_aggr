@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useI18n } from "../i18n.js";
 
 const DEFAULT_CLIENT = {
   email: "",
@@ -63,6 +64,7 @@ function generateUUID() {
 }
 
 function ListEditor({ label, values, onChange, placeholder }) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -88,13 +90,14 @@ function ListEditor({ label, values, onChange, placeholder }) {
           if (!value.trim()) return;
           onChange([...values, value.trim()]);
           setValue("");
-        }}>Add</button>
+        }}>{t("Add")}</button>
       </div>
     </div>
   );
 }
 
 export default function InboundEditor({ open, mode, inbound, onClose, onSave }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState("basic");
   const [base, setBase] = useState({ remark: "", enable: true, port: 0, protocol: "vless" });
   const [clients, setClients] = useState([]);
@@ -233,12 +236,12 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
         const payload = JSON.parse(advancedJson || "{}");
         onSave(payload);
       } catch {
-        setError("Invalid JSON in Advanced tab");
+      setError(t("Invalid JSON in Advanced tab"));
       }
       return;
     }
     if (!builtPatch) {
-      setError("Invalid stream settings");
+      setError(t("Invalid stream settings"));
       return;
     }
     onSave(builtPatch);
@@ -285,7 +288,7 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
       });
       setAdvancedDirty(false);
     } catch {
-      setError("Invalid JSON to re-parse");
+      setError(t("Invalid JSON to re-parse"));
     }
   }
 
@@ -295,16 +298,16 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
     <div className="modal">
       <div className="modal-content wide">
         <header className="modal-header">
-          <h3>{mode === "add" ? "Add inbound" : "Edit inbound"}</h3>
+          <h3>{mode === "add" ? t("Add inbound") : t("Edit inbound")}</h3>
           <div className="tabs">
-            {["basic", "clients", "transport", "security", "sniffing", "advanced"].map((t) => (
-              <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)} type="button">
-                {t === "basic" && "Basic"}
-                {t === "clients" && "Clients"}
-                {t === "transport" && "Transport"}
-                {t === "security" && "Security"}
-                {t === "sniffing" && "Sniffing"}
-                {t === "advanced" && "Advanced JSON"}
+            {["basic", "clients", "transport", "security", "sniffing", "advanced"].map((tabKey) => (
+              <button key={tabKey} className={tab === tabKey ? "tab active" : "tab"} onClick={() => setTab(tabKey)} type="button">
+                {tabKey === "basic" && t("Basic")}
+                {tabKey === "clients" && t("Clients")}
+                {tabKey === "transport" && t("Transport")}
+                {tabKey === "security" && t("Security")}
+                {tabKey === "sniffing" && t("Sniffing")}
+                {tabKey === "advanced" && t("Advanced JSON")}
               </button>
             ))}
           </div>
@@ -315,19 +318,19 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
         {tab === "basic" && (
           <div className="grid-2">
             <label>
-              Remark
+              {t("Remark")}
               <input autoComplete="off" value={base.remark} onChange={(e) => setBase({ ...base, remark: e.target.value })} />
             </label>
             <label className="checkbox">
               <input autoComplete="off" type="checkbox" checked={base.enable} onChange={(e) => setBase({ ...base, enable: e.target.checked })} />
-              Enable
+              {t("Enable")}
             </label>
             <label>
-              Port
+              {t("Port")}
               <input autoComplete="off" type="number" value={base.port} onChange={(e) => setBase({ ...base, port: Number(e.target.value) })} />
             </label>
             <label>
-              Protocol
+              {t("Protocol")}
               <select value={base.protocol} onChange={(e) => setBase({ ...base, protocol: e.target.value })} disabled={mode === "edit"}>
                 <option value="vless">vless</option>
                 <option value="vmess">vmess</option>
@@ -340,64 +343,64 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
         {tab === "clients" && (
           <div className="clients">
             <div className="actions">
-              <button type="button" onClick={addClient}>Add client</button>
+              <button type="button" onClick={addClient}>{t("Add client")}</button>
             </div>
             <div className="clients-toolbar">
               <input
-                placeholder="Search by email or UUID"
+                placeholder={t("Search")}
                 value={clientSearch}
                 onChange={(e) => { setClientSearch(e.target.value); setClientPage(1); }}
               />
               <div className="pagination">
-                <button type="button" disabled={clientPage <= 1} onClick={() => setClientPage((p) => Math.max(1, p - 1))}>Prev</button>
-                <span>Page {clientPage} / {totalPages}</span>
-                <button type="button" disabled={clientPage >= totalPages} onClick={() => setClientPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+                <button type="button" disabled={clientPage <= 1} onClick={() => setClientPage((p) => Math.max(1, p - 1))}>{t("Prev")}</button>
+                <span>{t("Page {page} / {total}", { page: clientPage, total: totalPages })}</span>
+                <button type="button" disabled={clientPage >= totalPages} onClick={() => setClientPage((p) => Math.min(totalPages, p + 1))}>{t("Next")}</button>
                 <select value={clientPageSize} onChange={(e) => { setClientPageSize(Number(e.target.value)); setClientPage(1); }}>
-                  {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}/page</option>)}
+                  {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}/{t("page")}</option>)}
                 </select>
               </div>
             </div>
             <div className="clients-table-desktop">
               <div className="table compact clients-table">
                 <div className="table-row head">
-                  <div>Email</div>
-                  <div>UUID</div>
-                  <div>Enable</div>
-                  <div>Flow</div>
-                  <div>Expiry</div>
-                  <div>Total (GB)</div>
-                  <div>Limit IP</div>
-                  <div>Actions</div>
+                  <div>{t("Email")}</div>
+                  <div>{t("UUID")}</div>
+                  <div>{t("Enable")}</div>
+                  <div>{t("Flow")}</div>
+                  <div>{t("Expiry")}</div>
+                  <div>{t("Total (GB)")}</div>
+                  <div>{t("Limit IP")}</div>
+                  <div>{t("Actions")}</div>
                 </div>
                 {paginatedClients.map((client, idx) => {
                   const globalIdx = (clientPage - 1) * clientPageSize + idx;
                   return (
                     <div className="table-row" key={client._localId || `${client.email}-${globalIdx}`}>
-                      <div data-label="Email">
+                      <div data-label={t("Email")}>
                         <input autoComplete="off" value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
-                        <div className="hint">subId/tgId are kept if present</div>
+                        <div className="hint">{t("subId/tgId are kept if present")}</div>
                       </div>
-                      <div data-label="UUID">
+                      <div data-label={t("UUID")}>
                         <input autoComplete="off" value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
                         <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
                       </div>
-                      <div data-label="Enable">
+                      <div data-label={t("Enable")}>
                         <input autoComplete="off" type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
                       </div>
-                      <div data-label="Flow">
+                      <div data-label={t("Flow")}>
                         <input autoComplete="off" value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
                       </div>
-                      <div data-label="Expiry">
+                      <div data-label={t("Expiry")}>
                         <input autoComplete="off" type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
                       </div>
-                      <div data-label="Total (GB)">
+                      <div data-label={t("Total (GB)")}>
                         <input autoComplete="off" type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
                       </div>
-                      <div data-label="Limit IP">
+                      <div data-label={t("Limit IP")}>
                         <input autoComplete="off" type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
                       </div>
-                      <div data-label="Actions">
-                        <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
+                      <div data-label={t("Actions")}>
+                        <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>{t("Remove")}</button>
                       </div>
                     </div>
                   );
@@ -410,12 +413,12 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
                 return (
                   <div className="client-card" key={client._localId || `${client.email}-${globalIdx}`}>
                     <label>
-                      <span className="field-label">Email</span>
+                      <span className="field-label">{t("Email")}</span>
                       <input autoComplete="off" value={client.email || ""} onChange={(e) => updateClient(globalIdx, "email", e.target.value)} />
-                      <div className="hint">subId/tgId are kept if present</div>
+                      <div className="hint">{t("subId/tgId are kept if present")}</div>
                     </label>
                     <label>
-                      <span className="field-label">UUID</span>
+                      <span className="field-label">{t("UUID")}</span>
                       <div className="row">
                         <input autoComplete="off" value={client.id || ""} onChange={(e) => updateClient(globalIdx, "id", e.target.value)} />
                         <button type="button" onClick={() => updateClient(globalIdx, "id", generateUUID())}>Gen</button>
@@ -423,26 +426,26 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
                     </label>
                     <label className="checkbox">
                       <input autoComplete="off" type="checkbox" checked={client.enable ?? true} onChange={(e) => updateClient(globalIdx, "enable", e.target.checked)} />
-                      Enable
+                      {t("Enable")}
                     </label>
                     <label>
-                      <span className="field-label">Flow</span>
+                      <span className="field-label">{t("Flow")}</span>
                       <input autoComplete="off" value={client.flow || ""} onChange={(e) => updateClient(globalIdx, "flow", e.target.value)} />
                     </label>
                     <label>
-                      <span className="field-label">Expiry</span>
+                      <span className="field-label">{t("Expiry")}</span>
                       <input autoComplete="off" type="datetime-local" value={formatDateTime(client.expiryTime)} onChange={(e) => updateClient(globalIdx, "expiryTime", parseDateTime(e.target.value))} />
                     </label>
                     <label>
-                      <span className="field-label">Total (GB)</span>
+                      <span className="field-label">{t("Total (GB)")}</span>
                       <input autoComplete="off" type="number" value={bytesToGB(client.totalGB)} onChange={(e) => updateClient(globalIdx, "totalGB", gbToBytes(e.target.value))} />
                     </label>
                     <label>
-                      <span className="field-label">Limit IP</span>
+                      <span className="field-label">{t("Limit IP")}</span>
                       <input autoComplete="off" type="number" value={client.limitIp || 0} onChange={(e) => updateClient(globalIdx, "limitIp", Number(e.target.value))} />
                     </label>
                     <div className="actions">
-                      <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>Remove</button>
+                      <button className="danger" type="button" onClick={() => removeClient(globalIdx)}>{t("Remove")}</button>
                     </div>
                   </div>
                 );
@@ -454,7 +457,7 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
         {tab === "transport" && (
           <div className="grid-2">
             <label>
-              Network
+              {t("Network")}
               <select value={transport.network} onChange={(e) => setTransport({ ...transport, network: e.target.value })}>
                 <option value="tcp">tcp</option>
                 <option value="ws">ws</option>
@@ -462,22 +465,22 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
               </select>
             </label>
             <label>
-              TCP Header Type
+              {t("TCP Header")}
               <select value={transport.tcpHeaderType} onChange={(e) => setTransport({ ...transport, tcpHeaderType: e.target.value })}>
                 <option value="none">none</option>
                 <option value="http">http</option>
               </select>
             </label>
             <label>
-              WS Path
+              {t("WS Path")}
               <input autoComplete="off" value={transport.wsPath} onChange={(e) => setTransport({ ...transport, wsPath: e.target.value })} />
             </label>
             <label>
-              WS Headers (JSON)
+              {t("WS Headers")}
               <textarea autoComplete="off" rows="3" value={transport.wsHeadersText} onChange={(e) => setTransport({ ...transport, wsHeadersText: e.target.value })} />
             </label>
             <label>
-              gRPC Service Name
+              {t("Service name")}
               <input autoComplete="off" value={transport.grpcServiceName} onChange={(e) => setTransport({ ...transport, grpcServiceName: e.target.value })} />
             </label>
           </div>
@@ -486,7 +489,7 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
         {tab === "security" && (
           <div className="grid-2">
             <label>
-              Security
+              {t("Security type")}
               <select value={transport.security} onChange={(e) => setTransport({ ...transport, security: e.target.value })}>
                 <option value="none">none</option>
                 <option value="tls">tls</option>
@@ -494,53 +497,53 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
               </select>
             </label>
             <label>
-              TLS Server Name
+              {t("Server name")}
               <input autoComplete="off" value={security.tlsServerName} onChange={(e) => setSecurity({ ...security, tlsServerName: e.target.value })} />
             </label>
             <ListEditor
-              label="TLS ALPN"
+              label={t("ALPN")}
               values={security.tlsALPN}
               placeholder="h2"
               onChange={(values) => setSecurity({ ...security, tlsALPN: values })}
             />
             <label className="checkbox">
               <input autoComplete="off" type="checkbox" checked={security.tlsAllowInsecure} onChange={(e) => setSecurity({ ...security, tlsAllowInsecure: e.target.checked })} />
-              TLS Allow Insecure
+              {t("Allow insecure")}
             </label>
             <label>
-              Reality Dest (host:port)
+              {t("Reality")}
               <input autoComplete="off" value={security.realityDest} onChange={(e) => setSecurity({ ...security, realityDest: e.target.value })} />
             </label>
             <label>
-              Reality Xver
+              {t("Reality Xver")}
               <input autoComplete="off" type="number" value={security.realityXver} onChange={(e) => setSecurity({ ...security, realityXver: Number(e.target.value) })} />
             </label>
             <ListEditor
-              label="Reality Server Names"
+              label={t("Server name")}
               values={security.realityServerNames}
               placeholder="example.com"
               onChange={(values) => setSecurity({ ...security, realityServerNames: values })}
             />
             <label>
-              Reality Private Key
+              {t("Private key")}
               <input autoComplete="off" value={security.realityPrivateKey} onChange={(e) => setSecurity({ ...security, realityPrivateKey: e.target.value })} />
             </label>
             <ListEditor
-              label="Reality Short IDs"
+              label={t("Short IDs")}
               values={security.realityShortIds}
               placeholder="a1b2c3"
               onChange={(values) => setSecurity({ ...security, realityShortIds: values })}
             />
             <label>
-              Reality SpiderX
+              {t("SpiderX")}
               <input autoComplete="off" value={security.realitySpiderX} onChange={(e) => setSecurity({ ...security, realitySpiderX: e.target.value })} />
             </label>
             <label>
-              Reality Fingerprint
+              {t("Fingerprint")}
               <input autoComplete="off" value={security.realityFingerprint} onChange={(e) => setSecurity({ ...security, realityFingerprint: e.target.value })} />
             </label>
             <ListEditor
-              label="Reality ALPN"
+              label={t("ALPN")}
               values={security.realityALPN}
               placeholder="h2"
               onChange={(values) => setSecurity({ ...security, realityALPN: values })}
@@ -552,10 +555,10 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
           <div className="grid-2">
             <label className="checkbox">
               <input autoComplete="off" type="checkbox" checked={sniffing.enabled} onChange={(e) => setSniffing({ ...sniffing, enabled: e.target.checked })} />
-              Sniffing enabled
+              {t("Sniffing")}
             </label>
             <ListEditor
-              label="Dest Override"
+              label={t("Dest Override")}
               values={sniffing.destOverride}
               placeholder="http"
               onChange={(values) => setSniffing({ ...sniffing, destOverride: values })}
@@ -574,15 +577,15 @@ export default function InboundEditor({ open, mode, inbound, onClose, onSave }) 
               }}
             />
             <div className="actions">
-              <button type="button" onClick={handleReparse}>Re-parse to form</button>
+              <button type="button" onClick={handleReparse}>{t("Re-parse to form")}</button>
             </div>
-            <div className="hint">Advanced JSON is sent as patch and overrides the form.</div>
+            <div className="hint">{t("Advanced JSON is sent as patch and overrides the form.")}</div>
           </div>
         )}
 
         <div className="actions">
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button type="button" onClick={handleSave}>Save</button>
+          <button type="button" onClick={onClose}>{t("Cancel")}</button>
+          <button type="button" onClick={handleSave}>{t("Save")}</button>
         </div>
       </div>
     </div>

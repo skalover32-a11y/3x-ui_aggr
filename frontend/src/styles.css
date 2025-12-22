@@ -107,6 +107,17 @@ a {
   background: #1e293b;
 }
 
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px;
+}
+
+.menu-section select {
+  width: 100%;
+}
+
 .audit-controls {
   display: flex;
   gap: 8px;
@@ -1081,6 +1092,10 @@ button.ghost:hover {
 .badge.error {
   background: #991b1b;
   color: #fee2e2;
+}
+
+html.rtl body {
+  direction: rtl;
 }
 
 .list-editor {

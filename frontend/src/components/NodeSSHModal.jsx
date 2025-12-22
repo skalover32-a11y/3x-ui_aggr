@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { getToken } from "../api.js";
+import { useI18n } from "../i18n.js";
 
 function buildWsUrl(path) {
   const base = import.meta.env.VITE_API_BASE || "/api";
@@ -14,6 +15,7 @@ function buildWsUrl(path) {
 }
 
 export default function NodeSSHModal({ open, node, onClose }) {
+  const { t } = useI18n();
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -65,10 +67,10 @@ export default function NodeSSHModal({ open, node, onClose }) {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "error") {
-            setStatus("error");
-            setError(msg.message || "SSH connection failed");
-            return;
-          }
+      setStatus("error");
+      setError(msg.message || t("SSH connection failed"));
+      return;
+    }
         } catch {
           // fallthrough to terminal output
         }
@@ -81,7 +83,7 @@ export default function NodeSSHModal({ open, node, onClose }) {
     };
     ws.onerror = () => {
       setStatus("error");
-      setError((prev) => prev || "SSH connection failed");
+      setError((prev) => prev || t("SSH connection failed"));
     };
     ws.onclose = (event) => {
       setStatus("disconnected");
@@ -120,15 +122,15 @@ export default function NodeSSHModal({ open, node, onClose }) {
     <div className="modal ssh-modal">
       <div className="modal-content wide ssh-modal-content">
         <div className="modal-header">
-          <h3>SSH: {node.name}</h3>
-          <div className="ssh-status">
-            <span className={`badge ${status}`}>{status}</span>
-          </div>
+        <h3>{t("Open SSH modal title", { name: node.name })}</h3>
+        <div className="ssh-status">
+          <span className={`badge ${status}`}>{t(status)}</span>
         </div>
-        {error && <div className="error">{error}</div>}
+      </div>
+      {error && <div className="error">{error}</div>}
         <div className="terminal-container" ref={containerRef} />
         <div className="actions">
-          <button type="button" onClick={onClose}>Close</button>
+          <button type="button" onClick={onClose}>{t("Close")}</button>
         </div>
       </div>
     </div>
