@@ -229,6 +229,20 @@ button.danger:hover {
   grid-template-columns: 1.4fr 1.6fr 0.6fr 1fr 1fr 0.8fr 0.8fr 0.8fr;
 }
 
+.table.users-table .table-row {
+  grid-template-columns: minmax(120px, 1.2fr) minmax(140px, 1fr) minmax(180px, 1fr);
+}
+
+.table.users-table .table-row .actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.table.users-table .table-row .actions button {
+  width: auto;
+}
+
 .table-row.head {
   background: #0b1220;
   font-weight: 600;

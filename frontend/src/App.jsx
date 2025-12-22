@@ -1035,7 +1035,7 @@ function NodesPage() {
               </button>
               <button type="button" onClick={() => setUsersOpen(false)}>Close</button>
             </div>
-            <div className="table compact">
+            <div className="table compact users-table">
               <div className="table-row head">
                 <div>User</div>
                 <div>Role</div>
