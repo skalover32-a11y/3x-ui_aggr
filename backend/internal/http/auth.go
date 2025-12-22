@@ -16,8 +16,10 @@ import (
 )
 
 type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	OTP          string `json:"otp"`
+	RecoveryCode string `json:"recovery_code"`
 }
 
 type loginResponse struct {
@@ -55,6 +57,27 @@ func (h *Handler) Login(c *gin.Context) {
 			return
 		}
 		role = user.Role
+		if role == middleware.RoleAdmin || role == middleware.RoleOperator {
+			if user.TOTPEnabled {
+				if strings.TrimSpace(req.OTP) == "" && strings.TrimSpace(req.RecoveryCode) == "" {
+					respondError(c, http.StatusUnauthorized, "TOTP_REQUIRED", "otp required")
+					return
+				}
+				if strings.TrimSpace(req.RecoveryCode) != "" {
+					if ok := h.verifyRecoveryCode(c, &user, req.RecoveryCode); !ok {
+						respondError(c, http.StatusUnauthorized, "RECOVERY_INVALID", "recovery code invalid")
+						return
+					}
+					if err := h.disableUserTOTP(c, &user); err != nil {
+						respondError(c, http.StatusInternalServerError, "TOTP_DISABLE", "failed to reset 2fa")
+						return
+					}
+				} else if !h.verifyTOTPCode(c, &user, req.OTP) {
+					respondError(c, http.StatusUnauthorized, "TOTP_INVALID", "invalid otp")
+					return
+				}
+			}
+		}
 	}
 	now := time.Now()
 	expiry := h.JWTExpiry

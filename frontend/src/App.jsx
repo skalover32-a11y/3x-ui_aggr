@@ -184,16 +184,36 @@ function RequireAuth({ children }) {
 function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [recoveryStatus, setRecoveryStatus] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
+    setRecoveryStatus("");
     try {
-      const data = await request("POST", "/auth/login", { username, password });
+      const data = await request("POST", "/auth/login", {
+        username,
+        password,
+        otp: otp.trim(),
+        recovery_code: recoveryCode.trim(),
+      });
       setAuth(data.token, data.role, data.username);
       navigate("/nodes");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function onSendRecovery() {
+    setError("");
+    setRecoveryStatus("");
+    try {
+      await request("POST", "/auth/2fa/recovery", { username, password });
+      setRecoveryStatus("Recovery code sent to Telegram");
     } catch (err) {
       setError(err.message);
     }
@@ -211,7 +231,19 @@ function LoginPage() {
           Password
           <input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </label>
+        <label>
+          2FA Code
+          <input name="otp" autoComplete="one-time-code" placeholder="123456" value={otp} onChange={(e) => setOtp(e.target.value)} />
+        </label>
+        <label>
+          Recovery code (optional)
+          <input name="recovery_code" autoComplete="off" value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value)} />
+        </label>
+        <button type="button" className="ghost" onClick={onSendRecovery}>
+          Send recovery code via Telegram
+        </button>
         {error && <div className="error">{error}</div>}
+        {recoveryStatus && <div className="hint">{recoveryStatus}</div>}
         <button type="submit">Login</button>
       </form>
     </div>
@@ -259,6 +291,13 @@ function NodesPage() {
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator", password: "" });
   const [usersList, setUsersList] = useState([]);
   const [usersBusy, setUsersBusy] = useState(false);
+  const [totpOpen, setTotpOpen] = useState(false);
+  const [totpStatus, setTotpStatus] = useState(null);
+  const [totpSetup, setTotpSetup] = useState(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpDisableCode, setTotpDisableCode] = useState("");
+  const [totpRecoveryCode, setTotpRecoveryCode] = useState("");
+  const [totpMessage, setTotpMessage] = useState("");
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -517,6 +556,61 @@ function NodesPage() {
     }
   }
 
+  async function openTOTP() {
+    setMenuOpen(false);
+    setTotpOpen(true);
+    setTotpSetup(null);
+    setTotpMessage("");
+    try {
+      const data = await request("GET", "/auth/2fa/status");
+      setTotpStatus(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function setupTOTP() {
+    setTotpMessage("");
+    try {
+      const data = await request("POST", "/auth/2fa/setup", {});
+      setTotpSetup(data);
+      setTotpMessage("Scan the QR in Google Authenticator and enter the code below.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function verifyTOTP() {
+    setTotpMessage("");
+    try {
+      await request("POST", "/auth/2fa/verify", { code: totpCode.trim() });
+      const data = await request("GET", "/auth/2fa/status");
+      setTotpStatus(data);
+      setTotpSetup(null);
+      setTotpCode("");
+      setTotpMessage("2FA enabled");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function disableTOTP() {
+    setTotpMessage("");
+    try {
+      await request("POST", "/auth/2fa/disable", {
+        code: totpDisableCode.trim(),
+        recovery_code: totpRecoveryCode.trim(),
+      });
+      const data = await request("GET", "/auth/2fa/status");
+      setTotpStatus(data);
+      setTotpDisableCode("");
+      setTotpRecoveryCode("");
+      setTotpMessage("2FA disabled");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function createUser() {
     if (!usersDraft.name.trim() || !usersDraft.password.trim()) return;
     setUsersBusy(true);
@@ -584,6 +678,7 @@ function NodesPage() {
             <div className="menu">
               {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>Add node</button>}
               {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>Users & roles</button>}
+              {!isViewer && <button type="button" onClick={openTOTP}>2FA settings</button>}
               {isAdmin && (
                 <button type="button" onClick={async () => {
                   setMenuOpen(false);
@@ -990,6 +1085,68 @@ function NodesPage() {
                 Save
               </button>
               <button type="button" onClick={() => setTelegramOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {totpOpen && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>2FA (TOTP)</h3>
+            <div className="form-grid" autoComplete="off">
+              <div className="hint">
+                {totpStatus?.required ? "Required for your role." : "Optional for your role."}
+              </div>
+              <div className="hint">
+                Status: {totpStatus?.enabled ? "enabled" : "disabled"}
+              </div>
+              {!totpStatus?.enabled && (
+                <button type="button" onClick={setupTOTP}>
+                  Generate QR
+                </button>
+              )}
+              {totpSetup && (
+                <>
+                  <img className="qr-img" src={totpSetup.qr_png} alt="TOTP QR" />
+                  <div className="hint">Secret: {totpSetup.secret}</div>
+                  <input
+                    name="totp_code"
+                    autoComplete="one-time-code"
+                    placeholder="Enter code"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                  />
+                  <button type="button" onClick={verifyTOTP}>
+                    Enable 2FA
+                  </button>
+                </>
+              )}
+              {totpStatus?.enabled && (
+                <>
+                  <input
+                    name="totp_disable_code"
+                    autoComplete="one-time-code"
+                    placeholder="Code to disable"
+                    value={totpDisableCode}
+                    onChange={(e) => setTotpDisableCode(e.target.value)}
+                  />
+                  <input
+                    name="totp_recovery_code"
+                    autoComplete="off"
+                    placeholder="Recovery code (optional)"
+                    value={totpRecoveryCode}
+                    onChange={(e) => setTotpRecoveryCode(e.target.value)}
+                  />
+                  <button type="button" onClick={disableTOTP}>
+                    Disable 2FA
+                  </button>
+                </>
+              )}
+            </div>
+            {totpMessage && <div className="hint">{totpMessage}</div>}
+            <div className="actions">
+              <button type="button" onClick={() => setTotpOpen(false)}>Close</button>
             </div>
           </div>
         </div>

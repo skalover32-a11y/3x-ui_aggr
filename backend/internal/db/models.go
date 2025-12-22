@@ -80,10 +80,14 @@ type TelegramSettings struct {
 }
 
 type User struct {
-	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Username     string    `gorm:"type:text;not null" json:"username"`
-	PasswordHash string    `gorm:"type:text;not null" json:"-"`
-	Role         string    `gorm:"type:text;not null" json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Username     string     `gorm:"type:text;not null" json:"username"`
+	PasswordHash string     `gorm:"type:text;not null" json:"-"`
+	Role         string     `gorm:"type:text;not null" json:"role"`
+	TOTPSecret   *string    `gorm:"type:text" json:"-"`
+	TOTPEnabled  bool       `gorm:"not null;default:false" json:"totp_enabled"`
+	RecoveryHash *string    `gorm:"type:text" json:"-"`
+	RecoveryExp  *time.Time `gorm:"type:timestamptz" json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }

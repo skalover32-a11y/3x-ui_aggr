@@ -19,6 +19,7 @@ type userResponse struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
 	Role      string    `json:"role"`
+	TOTP      bool      `json:"totp_enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -171,6 +172,7 @@ func toUserResponse(user db.User) userResponse {
 		ID:        user.ID.String(),
 		Username:  user.Username,
 		Role:      user.Role,
+		TOTP:      user.TOTPEnabled,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 	}

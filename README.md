@@ -61,6 +61,34 @@ curl -s http://localhost:8080/api/auth/login \
   -d '{"username":"admin","password":"admin123"}'
 ```
 
+Login with 2FA:
+```bash
+curl -s http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"operator1","password":"pass","otp":"123456"}'
+```
+
+Request a recovery code (sent to Telegram admin chats):
+```bash
+curl -s http://localhost:8080/api/auth/2fa/recovery \
+  -H "Content-Type: application/json" \
+  -d '{"username":"operator1","password":"pass"}'
+```
+
+2FA setup flow (authenticated):
+```bash
+curl -s http://localhost:8080/api/auth/2fa/status \
+  -H "Authorization: Bearer <token>"
+
+curl -s http://localhost:8080/api/auth/2fa/setup \
+  -H "Authorization: Bearer <token>"
+
+curl -s http://localhost:8080/api/auth/2fa/verify \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"123456"}'
+```
+
 List inbounds:
 ```bash
 curl -s http://localhost:8080/api/nodes/<node_id>/inbounds \

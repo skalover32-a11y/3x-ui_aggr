@@ -23,6 +23,7 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	api := r.Group("/api")
 	api.POST("/auth/login", h.Login)
+	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
 
 	auth := api.Group("")
 	auth.Use(middleware.JWTAuth(h.JWTSecret))
@@ -63,6 +64,11 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)
 	auth.PATCH("/users/:id", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateUser)
 	auth.DELETE("/users/:id", middleware.RequireRoles(middleware.RoleAdmin), h.DeleteUser)
+
+	auth.GET("/auth/2fa/status", middleware.RequireRoles(readRoles...), h.GetTOTPStatus)
+	auth.POST("/auth/2fa/setup", middleware.RequireRoles(writeRoles...), h.SetupTOTP)
+	auth.POST("/auth/2fa/verify", middleware.RequireRoles(writeRoles...), h.VerifyTOTP)
+	auth.POST("/auth/2fa/disable", middleware.RequireRoles(writeRoles...), h.DisableTOTP)
 
 	return r
 }
