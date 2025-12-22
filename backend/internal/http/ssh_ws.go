@@ -49,7 +49,7 @@ func (h *Handler) SSHWebsocket(c *gin.Context) {
 	ws.SetReadLimit(wsReadLimit)
 
 	writeClose := func(reason string) {
-		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason))
+		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, sanitizeReason(reason)))
 		_ = ws.Close()
 	}
 
@@ -105,7 +105,7 @@ func (h *Handler) SSHWebsocket(c *gin.Context) {
 	client, session, stdin, stdout, stderr, err := h.openSSHShell(node.SSHHost, node.SSHPort, node.SSHUser, sshKey)
 	if err != nil {
 		log.Printf("ssh ws open failed node=%s user=%s error=%v", node.ID, actor, err)
-		writeClose("failed to open ssh session")
+		writeClose(fmt.Sprintf("ssh failed: %v", err))
 		return
 	}
 	defer session.Close()
@@ -255,18 +255,18 @@ func (h *Handler) openSSHShell(host string, port int, user string, privateKeyPEM
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("dial failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("dial: %v", err)
 	}
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err != nil {
 		_ = conn.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("handshake failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("handshake: %v", err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 	session, err := client.NewSession()
 	if err != nil {
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("session failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("session: %v", err)
 	}
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
@@ -276,30 +276,41 @@ func (h *Handler) openSSHShell(host string, port int, user string, privateKeyPEM
 	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
 		_ = session.Close()
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("pty failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("pty: %v", err)
 	}
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("stdin failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("stdin: %v", err)
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
 		_ = session.Close()
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("stdout failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("stdout: %v", err)
 	}
 	stderr, err := session.StderrPipe()
 	if err != nil {
 		_ = session.Close()
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("stderr failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("stderr: %v", err)
 	}
 	if err := session.Shell(); err != nil {
 		_ = session.Close()
 		_ = client.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("shell failed")
+		return nil, nil, nil, nil, nil, fmt.Errorf("shell: %v", err)
 	}
 	return client, session, stdin, stdout, stderr, nil
+}
+
+func sanitizeReason(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "ssh closed"
+	}
+	if len(msg) > 120 {
+		return msg[:120]
+	}
+	return msg
 }
