@@ -11,15 +11,17 @@ import (
 	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/services/alerts"
 )
 
 type Worker struct {
 	DB       *gorm.DB
+	Alerts   *alerts.Service
 	Interval time.Duration
 }
 
-func New(dbConn *gorm.DB, interval time.Duration) *Worker {
-	return &Worker{DB: dbConn, Interval: interval}
+func New(dbConn *gorm.DB, alertsSvc *alerts.Service, interval time.Duration) *Worker {
+	return &Worker{DB: dbConn, Alerts: alertsSvc, Interval: interval}
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -46,6 +48,7 @@ func (w *Worker) runOnce(ctx context.Context) {
 	if err := w.DB.WithContext(ctx).Find(&nodes).Error; err != nil {
 		return
 	}
+	settings, _ := w.Alerts.LoadSettings(ctx)
 	for _, node := range nodes {
 		panelOK, latency, panelErr := checkPanel(ctx, node.BaseURL, node.VerifyTLS)
 		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort)
@@ -59,6 +62,9 @@ func (w *Worker) runOnce(ctx context.Context) {
 			Error:     errMsg,
 		}
 		_ = w.DB.WithContext(ctx).Create(&entry).Error
+		if w.Alerts != nil {
+			w.Alerts.NotifyConnection(ctx, settings, node.Name, panelOK, sshOK, errMsg)
+		}
 	}
 }
 

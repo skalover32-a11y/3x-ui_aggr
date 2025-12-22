@@ -66,3 +66,15 @@ type NodeMetric struct {
 	DiskUsedBytes     *int64    `json:"disk_used_bytes"`
 	Error             *string   `json:"error"`
 }
+
+type TelegramSettings struct {
+	ID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	BotTokenEnc     string    `gorm:"type:text;not null" json:"-"`
+	AdminChatID     string    `gorm:"type:text;not null" json:"admin_chat_id"`
+	AlertConnection bool      `gorm:"not null;default:true" json:"alert_connection"`
+	AlertCPU        bool      `gorm:"not null;default:true" json:"alert_cpu"`
+	AlertMemory     bool      `gorm:"not null;default:true" json:"alert_memory"`
+	AlertDisk       bool      `gorm:"not null;default:true" json:"alert_disk"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}

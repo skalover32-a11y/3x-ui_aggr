@@ -15,6 +15,7 @@ import (
 	"agr_3x_ui/internal/db"
 	httpapi "agr_3x_ui/internal/http"
 	"agr_3x_ui/internal/security"
+	"agr_3x_ui/internal/services/alerts"
 	"agr_3x_ui/internal/services/metrics"
 	"agr_3x_ui/internal/services/nodecheck"
 	"agr_3x_ui/internal/services/sshclient"
@@ -46,8 +47,9 @@ func main() {
 		JWTExpiry: cfg.JWTExpiry,
 		SSHClient: sshclient.New(15 * time.Second),
 	}
-	nodecheck.New(dbConn, time.Minute).Start(context.Background())
-	metrics.New(dbConn, handler.SSHClient, enc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
+	alertsSvc := alerts.New(dbConn, enc)
+	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())
+	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
 	router := httpapi.NewRouter(handler)
 
 	port := os.Getenv("PORT")

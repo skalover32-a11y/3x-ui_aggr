@@ -14,6 +14,7 @@ import (
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
+	"agr_3x_ui/internal/services/alerts"
 	"agr_3x_ui/internal/services/sshclient"
 )
 
@@ -22,13 +23,14 @@ type Worker struct {
 	DB        *gorm.DB
 	SSH       *sshclient.Client
 	Encryptor *security.Encryptor
+	Alerts    *alerts.Service
 	Interval  time.Duration
 	Retention time.Duration
 	lastPrune time.Time
 }
 
-func New(dbConn *gorm.DB, ssh *sshclient.Client, enc *security.Encryptor, interval, retention time.Duration) *Worker {
-	return &Worker{DB: dbConn, SSH: ssh, Encryptor: enc, Interval: interval, Retention: retention}
+func New(dbConn *gorm.DB, ssh *sshclient.Client, enc *security.Encryptor, alertsSvc *alerts.Service, interval, retention time.Duration) *Worker {
+	return &Worker{DB: dbConn, SSH: ssh, Encryptor: enc, Alerts: alertsSvc, Interval: interval, Retention: retention}
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -85,6 +87,23 @@ func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
 
 	errMsg := joinErrors(loadErr, memErr, diskErr)
 	w.saveMetric(ctx, node.ID, loads[0], loads[1], loads[2], memTotal, memAvail, diskTotal, diskUsed, errMsg)
+
+	if w.Alerts != nil {
+		settings, _ := w.Alerts.LoadSettings(ctx)
+		if settings != nil {
+			if loads[0] != nil {
+				w.Alerts.NotifyCPU(ctx, settings, node.Name, *loads[0])
+			}
+			if memTotal != nil && memAvail != nil && *memTotal > 0 {
+				usedPercent := (float64(*memTotal-*memAvail) / float64(*memTotal)) * 100
+				w.Alerts.NotifyMemory(ctx, settings, node.Name, usedPercent)
+			}
+			if diskTotal != nil && diskUsed != nil && *diskTotal > 0 {
+				freePercent := (float64(*diskTotal-*diskUsed) / float64(*diskTotal)) * 100
+				w.Alerts.NotifyDisk(ctx, settings, node.Name, freePercent)
+			}
+		}
+	}
 
 	xrayVersion := detectVersion(run, []string{
 		"sh -lc 'if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true'",

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, setToken, getToken, convertSSHKey } from "./api.js";
+import { request, setToken, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings } from "./api.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 
 function formatTS(ts) {
@@ -202,6 +202,16 @@ function NodesPage() {
   const [auditNodeID, setAuditNodeID] = useState("");
   const [auditOffset, setAuditOffset] = useState(0);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [telegramForm, setTelegramForm] = useState({
+    bot_token: "",
+    admin_chat_id: "",
+    alert_connection: true,
+    alert_cpu: true,
+    alert_memory: true,
+    alert_disk: true,
+  });
+  const [telegramTokenSet, setTelegramTokenSet] = useState(false);
+  const [telegramSaved, setTelegramSaved] = useState("");
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -474,7 +484,26 @@ function NodesPage() {
           {menuOpen && (
             <div className="menu">
               <button type="button" onClick={openAddForm}>Add node</button>
-              <button type="button" onClick={() => { setTelegramOpen(true); setMenuOpen(false); }}>Telegram alerts</button>
+              <button type="button" onClick={async () => {
+                setMenuOpen(false);
+                setTelegramSaved("");
+                setTelegramOpen(true);
+                try {
+                  const data = await getTelegramSettings();
+                  setTelegramForm((prev) => ({
+                    ...prev,
+                    bot_token: "",
+                    admin_chat_id: data.admin_chat_id || "",
+                    alert_connection: data.alert_connection ?? true,
+                    alert_cpu: data.alert_cpu ?? true,
+                    alert_memory: data.alert_memory ?? true,
+                    alert_disk: data.alert_disk ?? true,
+                  }));
+                  setTelegramTokenSet(Boolean(data.bot_token_set));
+                } catch (err) {
+                  setError(err.message);
+                }
+              }}>Telegram alerts</button>
               <button type="button" onClick={openAudit}>Audit log</button>
             </div>
           )}
@@ -736,8 +765,68 @@ function NodesPage() {
         <div className="modal">
           <div className="modal-content">
             <h3>Telegram alerts</h3>
-            <div className="hint">Coming soon. This section will configure bot tokens, chat ids, and alert rules.</div>
+            <div className="form-grid">
+              <input
+                placeholder={telegramTokenSet ? "Bot token (leave blank to keep)" : "Bot token"}
+                type="password"
+                value={telegramForm.bot_token}
+                onChange={(e) => setTelegramForm({ ...telegramForm, bot_token: e.target.value })}
+              />
+              <input
+                placeholder="Admin chat ID"
+                value={telegramForm.admin_chat_id}
+                onChange={(e) => setTelegramForm({ ...telegramForm, admin_chat_id: e.target.value })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={telegramForm.alert_connection}
+                  onChange={(e) => setTelegramForm({ ...telegramForm, alert_connection: e.target.checked })}
+                />
+                Connection loss
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={telegramForm.alert_cpu}
+                  onChange={(e) => setTelegramForm({ ...telegramForm, alert_cpu: e.target.checked })}
+                />
+                High CPU
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={telegramForm.alert_memory}
+                  onChange={(e) => setTelegramForm({ ...telegramForm, alert_memory: e.target.checked })}
+                />
+                High memory
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={telegramForm.alert_disk}
+                  onChange={(e) => setTelegramForm({ ...telegramForm, alert_disk: e.target.checked })}
+                />
+                Low disk space
+              </label>
+            </div>
+            {telegramSaved && <div className="hint">{telegramSaved}</div>}
             <div className="actions">
+              <button
+                type="button"
+                onClick={async () => {
+                  setTelegramSaved("");
+                  try {
+                    await saveTelegramSettings(telegramForm);
+                    setTelegramForm({ ...telegramForm, bot_token: "" });
+                    setTelegramSaved("Saved");
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}
+              >
+                Save
+              </button>
               <button type="button" onClick={() => setTelegramOpen(false)}>Close</button>
             </div>
           </div>

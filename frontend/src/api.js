@@ -74,3 +74,11 @@ export async function convertSSHKey(file, passphrase) {
   }
   return data;
 }
+
+export async function getTelegramSettings() {
+  return request("GET", "/telegram/settings");
+}
+
+export async function saveTelegramSettings(payload) {
+  return request("PUT", "/telegram/settings", payload);
+}
