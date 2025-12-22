@@ -24,6 +24,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api := r.Group("/api")
 	api.POST("/auth/login", h.Login)
 	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
+	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
 
 	auth := api.Group("")
 	auth.Use(middleware.JWTAuth(h.JWTSecret))

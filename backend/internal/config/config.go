@@ -9,12 +9,14 @@ import (
 )
 
 type Config struct {
-	DBDSN        string
-	AdminUser    string
-	AdminPass    string
-	JWTSecret    string
-	MasterKeyB64 string
-	JWTExpiry    time.Duration
+	DBDSN          string
+	AdminUser      string
+	AdminPass      string
+	JWTSecret      string
+	MasterKeyB64   string
+	JWTExpiry      time.Duration
+	SSHMaxSessions int
+	SSHIdleTimeout time.Duration
 }
 
 func Load() (*Config, error) {
@@ -37,6 +39,26 @@ func Load() (*Config, error) {
 	}
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")
+	}
+	maxSessions := strings.TrimSpace(os.Getenv("GLOBAL_MAX_SSH_SESSIONS"))
+	if maxSessions == "" {
+		cfg.SSHMaxSessions = 10
+	} else {
+		val, err := strconv.Atoi(maxSessions)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GLOBAL_MAX_SSH_SESSIONS: %w", err)
+		}
+		cfg.SSHMaxSessions = val
+	}
+	idleSeconds := strings.TrimSpace(os.Getenv("SSH_IDLE_TIMEOUT_SECONDS"))
+	if idleSeconds == "" {
+		cfg.SSHIdleTimeout = 600 * time.Second
+	} else {
+		val, err := strconv.Atoi(idleSeconds)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SSH_IDLE_TIMEOUT_SECONDS: %w", err)
+		}
+		cfg.SSHIdleTimeout = time.Duration(val) * time.Second
 	}
 	return cfg, nil
 }

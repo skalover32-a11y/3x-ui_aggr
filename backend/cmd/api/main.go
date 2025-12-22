@@ -19,6 +19,7 @@ import (
 	"agr_3x_ui/internal/services/metrics"
 	"agr_3x_ui/internal/services/nodecheck"
 	"agr_3x_ui/internal/services/sshclient"
+	"agr_3x_ui/internal/services/sshws"
 )
 
 func main() {
@@ -38,14 +39,16 @@ func main() {
 		log.Fatalf("encryptor error: %v", err)
 	}
 	handler := &httpapi.Handler{
-		DB:        dbConn,
-		Encryptor: enc,
-		Audit:     audit.New(dbConn),
-		AdminUser: cfg.AdminUser,
-		AdminPass: cfg.AdminPass,
-		JWTSecret: []byte(cfg.JWTSecret),
-		JWTExpiry: cfg.JWTExpiry,
-		SSHClient: sshclient.New(15 * time.Second),
+		DB:             dbConn,
+		Encryptor:      enc,
+		Audit:          audit.New(dbConn),
+		AdminUser:      cfg.AdminUser,
+		AdminPass:      cfg.AdminPass,
+		JWTSecret:      []byte(cfg.JWTSecret),
+		JWTExpiry:      cfg.JWTExpiry,
+		SSHClient:      sshclient.New(15 * time.Second),
+		SSHManager:     sshws.NewManager(cfg.SSHMaxSessions),
+		SSHIdleTimeout: cfg.SSHIdleTimeout,
 	}
 	alertsSvc := alerts.New(dbConn, enc)
 	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())

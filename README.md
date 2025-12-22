@@ -42,6 +42,8 @@ make run
 - `JWT_SECRET` (required)
 - `JWT_EXP_HOURS` (optional, default 24)
 - `PORT` (optional, default 8080)
+- `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
+- `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
 
 ## DB reset
 ```bash
@@ -145,3 +147,5 @@ curl -s http://localhost:8080/api/nodes \
 - Update inbound is a merge patch: unspecified fields are preserved.
 - Audit logs are written for add/update/delete inbound, restart xray, and reboot.
 - SSH key upload: use the UI "Upload SSH Key (.ppk/.pem/.key)" and optionally enter a passphrase for encrypted PPKs; the backend converts to an OpenSSH-compatible private key and shows a fingerprint.
+- Web SSH: use the "SSH" button on a node card (admin only). The browser terminal connects via WebSocket; SSH keys never leave the server.
+- Web SSH limits: global max sessions (`GLOBAL_MAX_SSH_SESSIONS`) and idle timeout (`SSH_IDLE_TIMEOUT_SECONDS`).

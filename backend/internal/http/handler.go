@@ -16,17 +16,20 @@ import (
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/panelclient"
 	"agr_3x_ui/internal/services/sshclient"
+	"agr_3x_ui/internal/services/sshws"
 )
 
 type Handler struct {
-	DB        *gorm.DB
-	Encryptor *security.Encryptor
-	Audit     *audit.Service
-	AdminUser string
-	AdminPass string
-	JWTSecret []byte
-	JWTExpiry time.Duration
-	SSHClient *sshclient.Client
+	DB             *gorm.DB
+	Encryptor      *security.Encryptor
+	Audit          *audit.Service
+	AdminUser      string
+	AdminPass      string
+	JWTSecret      []byte
+	JWTExpiry      time.Duration
+	SSHClient      *sshclient.Client
+	SSHManager     *sshws.Manager
+	SSHIdleTimeout time.Duration
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {
