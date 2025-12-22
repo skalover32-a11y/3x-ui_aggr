@@ -838,7 +838,6 @@ function NodesPage() {
               <div className="node-actions">
                 {!isViewer && (
                   <>
-                    <button className="primary" onClick={() => onTest(node.id)}>Test</button>
                     <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
                     <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
                     {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>SSH</button>}
@@ -900,6 +899,7 @@ function NodesPage() {
                 </div>
               )}
               <div className="actions">
+                <button type="button" onClick={() => onTest(editModal.node.id)}>Test</button>
                 <button type="button" onClick={() => setEditModal({ open: false, node: null })}>Cancel</button>
                 <button type="button" onClick={(e) => onValidateEdit(e.currentTarget.form)} disabled={editValidating}>
                   {editValidating ? "Validating..." : "Validate"}

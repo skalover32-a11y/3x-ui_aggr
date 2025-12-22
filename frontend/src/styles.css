@@ -530,6 +530,7 @@ button.danger:hover {
 .node-actions button,
 .node-actions .link-button {
   min-width: 90px;
+  min-height: 36px;
 }
 
 button.primary {
