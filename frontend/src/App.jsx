@@ -552,7 +552,6 @@ function NodesPage() {
             <h3>Nodes Manager</h3>
             <div className="muted">{nodes.length} servers configured</div>
           </div>
-          <button onClick={openAddForm}>Add Node</button>
         </div>
 
         {nodes.map((node) => {
