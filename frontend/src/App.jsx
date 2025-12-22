@@ -135,6 +135,41 @@ function ValidationBadge({ label, status, detail }) {
   );
 }
 
+function ListInput({ label, values, onChange, placeholder }) {
+  const [value, setValue] = useState("");
+  return (
+    <div className="list-editor">
+      <div className="list-label">{label}</div>
+      <div className="chips">
+        {values.map((item, idx) => (
+          <span className="chip" key={`${item}-${idx}`}>
+            {item}
+            <button type="button" onClick={() => onChange(values.filter((_, i) => i !== idx))}>×</button>
+          </span>
+        ))}
+      </div>
+      <div className="list-input">
+        <input
+          autoComplete="off"
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (!value.trim()) return;
+            onChange([...values, value.trim()]);
+            setValue("");
+          }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RequireAuth({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -204,7 +239,7 @@ function NodesPage() {
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [telegramForm, setTelegramForm] = useState({
     bot_token: "",
-    admin_chat_id: "",
+    admin_chat_ids: [],
     alert_connection: true,
     alert_cpu: true,
     alert_memory: true,
@@ -212,6 +247,9 @@ function NodesPage() {
   });
   const [telegramTokenSet, setTelegramTokenSet] = useState(false);
   const [telegramSaved, setTelegramSaved] = useState("");
+  const [usersOpen, setUsersOpen] = useState(false);
+  const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator" });
+  const [usersList, setUsersList] = useState([]);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -484,6 +522,7 @@ function NodesPage() {
           {menuOpen && (
             <div className="menu">
               <button type="button" onClick={openAddForm}>Add node</button>
+              <button type="button" onClick={() => { setUsersOpen(true); setMenuOpen(false); }}>Users & roles</button>
               <button type="button" onClick={async () => {
                 setMenuOpen(false);
                 setTelegramSaved("");
@@ -493,7 +532,7 @@ function NodesPage() {
                   setTelegramForm((prev) => ({
                     ...prev,
                     bot_token: "",
-                    admin_chat_id: data.admin_chat_id || "",
+                    admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
                     alert_connection: data.alert_connection ?? true,
                     alert_cpu: data.alert_cpu ?? true,
                     alert_memory: data.alert_memory ?? true,
@@ -775,12 +814,11 @@ function NodesPage() {
                 value={telegramForm.bot_token}
                 onChange={(e) => setTelegramForm({ ...telegramForm, bot_token: e.target.value })}
               />
-              <input
-                placeholder="Admin chat ID"
-                name="telegram_admin_chat_id"
-                autoComplete="off"
-                value={telegramForm.admin_chat_id}
-                onChange={(e) => setTelegramForm({ ...telegramForm, admin_chat_id: e.target.value })}
+              <ListInput
+                label="Admin chat IDs"
+                values={telegramForm.admin_chat_ids}
+                placeholder="123456789"
+                onChange={(values) => setTelegramForm({ ...telegramForm, admin_chat_ids: values })}
               />
               <label className="checkbox">
                 <input
@@ -833,6 +871,69 @@ function NodesPage() {
                 Save
               </button>
               <button type="button" onClick={() => setTelegramOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {usersOpen && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Users & roles</h3>
+            <div className="form-grid" autoComplete="off">
+              <input
+                name="user_name"
+                autoComplete="off"
+                placeholder="Username or email"
+                value={usersDraft.name}
+                onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
+              />
+              <select
+                name="user_role"
+                value={usersDraft.role}
+                onChange={(e) => setUsersDraft({ ...usersDraft, role: e.target.value })}
+              >
+                <option value="admin">Administrator</option>
+                <option value="operator">Operator (no node delete)</option>
+                <option value="viewer">Viewer (status only)</option>
+              </select>
+            </div>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!usersDraft.name.trim()) return;
+                  setUsersList([...usersList, { ...usersDraft, name: usersDraft.name.trim() }]);
+                  setUsersDraft({ name: "", role: "operator" });
+                }}
+              >
+                Add user
+              </button>
+              <button type="button" onClick={() => setUsersOpen(false)}>Close</button>
+            </div>
+            <div className="hint">Role system is UI-only for now. Backend wiring will be added later.</div>
+            <div className="table compact">
+              <div className="table-row head">
+                <div>User</div>
+                <div>Role</div>
+                <div>Actions</div>
+              </div>
+              {usersList.map((user, idx) => (
+                <div className="table-row" key={`${user.name}-${idx}`}>
+                  <div>{user.name}</div>
+                  <div>{user.role}</div>
+                  <div>
+                    <button className="danger ghost" type="button" onClick={() => setUsersList(usersList.filter((_, i) => i !== idx))}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {usersList.length === 0 && (
+                <div className="table-row">
+                  <div className="muted small">No users yet</div>
+                </div>
+              )}
             </div>
           </div>
         </div>

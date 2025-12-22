@@ -11,21 +11,23 @@ import (
 )
 
 type telegramSettingsResponse struct {
-	BotTokenSet     bool   `json:"bot_token_set"`
-	AdminChatID     string `json:"admin_chat_id"`
-	AlertConnection bool   `json:"alert_connection"`
-	AlertCPU        bool   `json:"alert_cpu"`
-	AlertMemory     bool   `json:"alert_memory"`
-	AlertDisk       bool   `json:"alert_disk"`
+	BotTokenSet     bool     `json:"bot_token_set"`
+	AdminChatID     string   `json:"admin_chat_id"`
+	AdminChatIDs    []string `json:"admin_chat_ids"`
+	AlertConnection bool     `json:"alert_connection"`
+	AlertCPU        bool     `json:"alert_cpu"`
+	AlertMemory     bool     `json:"alert_memory"`
+	AlertDisk       bool     `json:"alert_disk"`
 }
 
 type telegramSettingsRequest struct {
-	BotToken        string `json:"bot_token"`
-	AdminChatID     string `json:"admin_chat_id"`
-	AlertConnection bool   `json:"alert_connection"`
-	AlertCPU        bool   `json:"alert_cpu"`
-	AlertMemory     bool   `json:"alert_memory"`
-	AlertDisk       bool   `json:"alert_disk"`
+	BotToken        string   `json:"bot_token"`
+	AdminChatID     string   `json:"admin_chat_id"`
+	AdminChatIDs    []string `json:"admin_chat_ids"`
+	AlertConnection bool     `json:"alert_connection"`
+	AlertCPU        bool     `json:"alert_cpu"`
+	AlertMemory     bool     `json:"alert_memory"`
+	AlertDisk       bool     `json:"alert_disk"`
 }
 
 func (h *Handler) GetTelegramSettings(c *gin.Context) {
@@ -40,6 +42,7 @@ func (h *Handler) GetTelegramSettings(c *gin.Context) {
 	respondStatus(c, http.StatusOK, telegramSettingsResponse{
 		BotTokenSet:     row.BotTokenEnc != "",
 		AdminChatID:     row.AdminChatID,
+		AdminChatIDs:    splitChatIDs(row.AdminChatID),
 		AlertConnection: row.AlertConnection,
 		AlertCPU:        row.AlertCPU,
 		AlertMemory:     row.AlertMemory,
@@ -53,6 +56,9 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		return
 	}
 	adminChatID := strings.TrimSpace(req.AdminChatID)
+	if len(req.AdminChatIDs) > 0 {
+		adminChatID = strings.Join(req.AdminChatIDs, ",")
+	}
 	botToken := strings.TrimSpace(req.BotToken)
 
 	var current db.TelegramSettings
@@ -65,6 +71,9 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	if adminChatID == "" && current.AdminChatID == "" {
 		respondError(c, http.StatusBadRequest, "TELEGRAM_CHAT", "admin chat id required")
 		return
+	}
+	if adminChatID == "" {
+		adminChatID = current.AdminChatID
 	}
 
 	botTokenEnc := current.BotTokenEnc
@@ -101,9 +110,24 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	respondStatus(c, http.StatusOK, telegramSettingsResponse{
 		BotTokenSet:     botTokenEnc != "",
 		AdminChatID:     adminChatID,
+		AdminChatIDs:    splitChatIDs(adminChatID),
 		AlertConnection: req.AlertConnection,
 		AlertCPU:        req.AlertCPU,
 		AlertMemory:     req.AlertMemory,
 		AlertDisk:       req.AlertDisk,
 	})
+}
+
+func splitChatIDs(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+	})
+	var out []string
+	for _, part := range parts {
+		val := strings.TrimSpace(part)
+		if val != "" {
+			out = append(out, val)
+		}
+	}
+	return out
 }

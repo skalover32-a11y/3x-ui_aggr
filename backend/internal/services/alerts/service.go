@@ -37,7 +37,7 @@ type alertState struct {
 
 type Settings struct {
 	BotToken        string
-	AdminChatID     string
+	AdminChatIDs    []string
 	AlertConnection bool
 	AlertCPU        bool
 	AlertMemory     bool
@@ -73,9 +73,13 @@ func (s *Service) LoadSettings(ctx context.Context) (*Settings, error) {
 	if token == "" || strings.TrimSpace(row.AdminChatID) == "" {
 		return nil, nil
 	}
+	adminIDs := splitChatIDs(row.AdminChatID)
+	if len(adminIDs) == 0 {
+		return nil, nil
+	}
 	return &Settings{
 		BotToken:        token,
-		AdminChatID:     strings.TrimSpace(row.AdminChatID),
+		AdminChatIDs:    adminIDs,
 		AlertConnection: row.AlertConnection,
 		AlertCPU:        row.AlertCPU,
 		AlertMemory:     row.AlertMemory,
@@ -144,8 +148,10 @@ func (s *Service) maybeSend(ctx context.Context, key string, settings *Settings,
 	if !active || !shouldSend {
 		return
 	}
-	if err := s.sendMessage(ctx, settings.BotToken, settings.AdminChatID, msg); err != nil {
-		return
+	for _, chatID := range settings.AdminChatIDs {
+		if err := s.sendMessage(ctx, settings.BotToken, chatID, msg); err != nil {
+			continue
+		}
 	}
 	s.mu.Lock()
 	state.active = true
@@ -184,4 +190,21 @@ func MemThreshold() float64 {
 
 func DiskThreshold() float64 {
 	return diskFreeLow
+}
+
+func splitChatIDs(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+	})
+	var out []string
+	for _, part := range parts {
+		val := strings.TrimSpace(part)
+		if val != "" {
+			out = append(out, val)
+		}
+	}
+	return out
 }
