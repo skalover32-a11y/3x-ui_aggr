@@ -304,6 +304,7 @@ function NodesPage() {
   const [sshModal, setSshModal] = useState({ open: false, node: null, confirmClose: false });
   const [sshChoice, setSshChoice] = useState({ open: false, node: null });
   const [sshAutoOpened, setSshAutoOpened] = useState("");
+  const [collapsedNodes, setCollapsedNodes] = useState({});
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -335,6 +336,15 @@ function NodesPage() {
 
   useEffect(() => {
     if (nodes.length === 0) return;
+    setCollapsedNodes((prev) => {
+      const next = { ...prev };
+      nodes.forEach((node) => {
+        if (next[node.id] === undefined) {
+          next[node.id] = true;
+        }
+      });
+      return next;
+    });
     const params = new URLSearchParams(location.search);
     const sshId = params.get("ssh");
     if (sshId && sshAutoOpened !== sshId) {
@@ -782,6 +792,7 @@ function NodesPage() {
           const uptimePoints = uptimeMap[node.id] || [];
           const { percent, success, total } = computeUptime(uptimePoints);
           const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+          const isCollapsed = collapsedNodes[node.id] !== false;
 
           return (
             <div className="node-card" key={node.id}>
@@ -818,47 +829,58 @@ function NodesPage() {
                 <div className="node-uptime">
                   <div className="uptime-value">{percent.toFixed(1)}%</div>
                   <div className="uptime-label">Uptime</div>
-                  <div className="uptime-arrow">▾</div>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setCollapsedNodes((prev) => ({ ...prev, [node.id]: !isCollapsed }))}
+                    aria-label="Toggle node details"
+                  >
+                    {isCollapsed ? "▸" : "▾"}
+                  </button>
                 </div>
               </div>
 
-              <div className="node-availability">
-                <div className="availability-header">
-                  <div className="muted small">Last {total || 0} checks</div>
-                  <div className="muted small">{success}/{total || 0} successful</div>
-                </div>
-                <Sparkline points={uptimePoints} />
-              </div>
+              {!isCollapsed && (
+                <>
+                  <div className="node-availability">
+                    <div className="availability-header">
+                      <div className="muted small">Last {total || 0} checks</div>
+                      <div className="muted small">{success}/{total || 0} successful</div>
+                    </div>
+                    <Sparkline points={uptimePoints} />
+                  </div>
 
-              <MetricSparks metrics={metricsMap[node.id]} />
+                  <MetricSparks metrics={metricsMap[node.id]} />
 
-              <div className="node-meta-grid">
-                <div className="meta-box">
-                  <div className="meta-label">SSH Host</div>
-                  <div className="meta-value">{node.ssh_host || "-"}</div>
-                </div>
-                <div className="meta-box">
-                  <div className="meta-label">Port</div>
-                  <div className="meta-value">{node.ssh_port || "—"}</div>
-                </div>
-                <div className="meta-box">
-                  <div className="meta-label">Panel User</div>
-                  <div className="meta-value">{node.panel_username || "—"}</div>
-                </div>
-              </div>
+                  <div className="node-meta-grid">
+                    <div className="meta-box">
+                      <div className="meta-label">SSH Host</div>
+                      <div className="meta-value">{node.ssh_host || "-"}</div>
+                    </div>
+                    <div className="meta-box">
+                      <div className="meta-label">Port</div>
+                      <div className="meta-value">{node.ssh_port || "-"}</div>
+                    </div>
+                    <div className="meta-box">
+                      <div className="meta-label">Panel User</div>
+                      <div className="meta-value">{node.panel_username || "-"}</div>
+                    </div>
+                  </div>
 
-              <div className="node-actions">
-                {!isViewer && (
-                  <>
-                    <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
-                    <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
-                    {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>SSH</button>}
-                    <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
-                    <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
-                  </>
-                )}
-                {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>}
-              </div>
+                  <div className="node-actions">
+                    {!isViewer && (
+                      <>
+                        <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
+                        <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
+                        {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>SSH</button>}
+                        <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
+                        <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
+                      </>
+                    )}
+                    {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>Delete</button>}
+                  </div>
+                </>
+              )}
             </div>
           );
         })}
