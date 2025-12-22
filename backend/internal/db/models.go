@@ -84,10 +84,10 @@ type User struct {
 	Username     string     `gorm:"type:text;not null" json:"username"`
 	PasswordHash string     `gorm:"type:text;not null" json:"-"`
 	Role         string     `gorm:"type:text;not null" json:"role"`
-	TOTPSecret   *string    `gorm:"type:text" json:"-"`
+	TOTPSecret   *string    `gorm:"column:totp_secret_enc;type:text" json:"-"`
 	TOTPEnabled  bool       `gorm:"not null;default:false" json:"totp_enabled"`
-	RecoveryHash *string    `gorm:"type:text" json:"-"`
-	RecoveryExp  *time.Time `gorm:"type:timestamptz" json:"-"`
+	RecoveryHash *string    `gorm:"column:recovery_code_hash;type:text" json:"-"`
+	RecoveryExp  *time.Time `gorm:"column:recovery_code_expires_at;type:timestamptz" json:"-"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }

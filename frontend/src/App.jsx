@@ -1096,6 +1096,9 @@ function NodesPage() {
             <h3>2FA (TOTP)</h3>
             <div className="form-grid" autoComplete="off">
               <div className="hint">
+                Steps: Generate QR → scan in Google Authenticator → enter code → enable.
+              </div>
+              <div className="hint">
                 {totpStatus?.required ? "Required for your role." : "Optional for your role."}
               </div>
               <div className="hint">
