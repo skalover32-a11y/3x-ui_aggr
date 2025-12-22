@@ -61,15 +61,27 @@ export default function NodeSSHModal({ open, node, onClose }) {
     };
     ws.onmessage = (event) => {
       if (!termRef.current) return;
+      if (typeof event.data === "string" && event.data.startsWith("{")) {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "error") {
+            setStatus("error");
+            setError(msg.message || "SSH connection failed");
+            return;
+          }
+        } catch {
+          // fallthrough to terminal output
+        }
+      }
       if (event.data instanceof ArrayBuffer) {
         termRef.current.write(new Uint8Array(event.data));
-      } else {
-        termRef.current.write(event.data);
+        return;
       }
+      termRef.current.write(event.data);
     };
     ws.onerror = () => {
       setStatus("error");
-      setError("SSH connection failed");
+      setError((prev) => prev || "SSH connection failed");
     };
     ws.onclose = (event) => {
       setStatus("disconnected");

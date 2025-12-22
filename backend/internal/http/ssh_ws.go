@@ -49,7 +49,11 @@ func (h *Handler) SSHWebsocket(c *gin.Context) {
 	ws.SetReadLimit(wsReadLimit)
 
 	writeClose := func(reason string) {
-		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, sanitizeReason(reason)))
+		reason = sanitizeReason(reason)
+		if reason != "" {
+			_ = ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"error","message":%q}`, reason)))
+		}
+		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason))
 		_ = ws.Close()
 	}
 
