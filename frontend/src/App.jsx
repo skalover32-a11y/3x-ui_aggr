@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, setToken, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole } from "./api.js";
+import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole } from "./api.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 
 function formatTS(ts) {
@@ -219,6 +219,7 @@ function LoginPage() {
 }
 
 function NodesPage() {
+  const navigate = useNavigate();
   const role = getRole();
   const isAdmin = role === "admin";
   const isOperator = role === "operator";
@@ -612,7 +613,7 @@ function NodesPage() {
             </div>
           )}
         </div>
-        <button onClick={() => { clearAuth(); window.location.href = "/login"; }}>Logout</button>
+        <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>Logout</button>
       </header>
 
       {error && <div className="error">{error}</div>}
