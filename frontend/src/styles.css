@@ -286,6 +286,12 @@ button.danger:hover {
   padding: 6px 4px;
 }
 
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .nodes-cards-head h3 {
   margin: 0;
 }
@@ -653,6 +659,30 @@ button.ghost:hover {
   background: #0b1220;
 }
 
+.ssh-modal-content {
+  height: min(80vh, 820px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.terminal-container {
+  flex: 1;
+  border-radius: 10px;
+  border: 1px solid #1f2937;
+  background: #0b1220;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}
+
+.ssh-status .badge {
+  text-transform: uppercase;
+}
+
 .plan-steps ul {
   margin: 6px 0 0;
   padding-left: 18px;
@@ -1002,6 +1032,26 @@ button.ghost:hover {
 .badge.offline {
   background: #7f1d1d;
   color: #fecaca;
+}
+
+.badge.connected {
+  background: #1d4ed8;
+  color: #dbeafe;
+}
+
+.badge.connecting {
+  background: #0f766e;
+  color: #ccfbf1;
+}
+
+.badge.disconnected {
+  background: #475569;
+  color: #e2e8f0;
+}
+
+.badge.error {
+  background: #991b1b;
+  color: #fee2e2;
 }
 
 .list-editor {

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole } from "./api.js";
+import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser } from "./api.js";
 import InboundEditor from "./components/InboundEditor.jsx";
+import NodeSSHModal from "./components/NodeSSHModal.jsx";
 
 function formatTS(ts) {
   if (!ts) return "";
@@ -253,6 +254,7 @@ function LoginPage() {
 function NodesPage() {
   const navigate = useNavigate();
   const role = getRole();
+  const user = getUser();
   const isAdmin = role === "admin";
   const isOperator = role === "operator";
   const isViewer = role === "viewer";
@@ -298,6 +300,7 @@ function NodesPage() {
   const [totpDisableCode, setTotpDisableCode] = useState("");
   const [totpRecoveryCode, setTotpRecoveryCode] = useState("");
   const [totpMessage, setTotpMessage] = useState("");
+  const [sshModal, setSshModal] = useState({ open: false, node: null });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -442,6 +445,10 @@ function NodesPage() {
     setEditModal({ open: true, node });
     setEditValidation(null);
     setEditValidating(false);
+  }
+
+  function openSSH(node) {
+    setSshModal({ open: true, node });
   }
 
   async function onUpdate(e) {
@@ -708,7 +715,10 @@ function NodesPage() {
             </div>
           )}
         </div>
-        <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>Logout</button>
+        <div className="header-user">
+          {user && <span className="muted small">Signed in: {user}</span>}
+          <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>Logout</button>
+        </div>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -831,6 +841,7 @@ function NodesPage() {
                     <button className="primary" onClick={() => onTest(node.id)}>Test</button>
                     <Link to={`/nodes/${node.id}/inbounds`} className="link-button">Inbounds</Link>
                     <button className="secondary" onClick={() => openEdit(node)}>Edit</button>
+                    {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>SSH</button>}
                     <button className="warning" onClick={() => onRestart(node.id)}>Restart Xray</button>
                     <button className="danger" onClick={() => onReboot(node.id)}>Reboot</button>
                   </>
@@ -1275,6 +1286,12 @@ function NodesPage() {
           </div>
         </div>
       )}
+
+      <NodeSSHModal
+        open={sshModal.open}
+        node={sshModal.node}
+        onClose={() => setSshModal({ open: false, node: null })}
+      />
     </div>
   );
 }

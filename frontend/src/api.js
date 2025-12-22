@@ -32,6 +32,10 @@ export function getRole() {
   return localStorage.getItem("agg_role") || "admin";
 }
 
+export function getUser() {
+  return localStorage.getItem("agg_user") || "";
+}
+
 export async function request(method, path, body) {
   const headers = { "Content-Type": "application/json" };
   const token = getToken();
