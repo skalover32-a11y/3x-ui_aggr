@@ -249,6 +249,7 @@ function NodesPage() {
   const [telegramSaved, setTelegramSaved] = useState("");
   const [telegramTestMsg, setTelegramTestMsg] = useState("");
   const [telegramTestStatus, setTelegramTestStatus] = useState("");
+  const [telegramTestResults, setTelegramTestResults] = useState([]);
   const [usersOpen, setUsersOpen] = useState(false);
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator" });
   const [usersList, setUsersList] = useState([]);
@@ -530,6 +531,7 @@ function NodesPage() {
                 setTelegramSaved("");
                 setTelegramTestMsg("");
                 setTelegramTestStatus("");
+                setTelegramTestResults([]);
                 setTelegramOpen(true);
                 try {
                   const data = await getTelegramSettings();
@@ -870,8 +872,17 @@ function NodesPage() {
                 onClick={async () => {
                   setTelegramTestStatus("");
                   try {
-                    await request("POST", "/telegram/test", { message: telegramTestMsg });
-                    setTelegramTestStatus("Test message sent");
+                    const res = await request("POST", "/telegram/test", {
+                      message: telegramTestMsg,
+                      admin_chat_ids: telegramForm.admin_chat_ids,
+                      bot_token: telegramForm.bot_token,
+                    });
+                    if (res.ok && res.sent === res.total) {
+                      setTelegramTestStatus(`Sent to ${res.sent}/${res.total}`);
+                    } else {
+                      setTelegramTestStatus(`Sent to ${res.sent}/${res.total} (some failed)`);
+                    }
+                    setTelegramTestResults(res.results || []);
                   } catch (err) {
                     setError(err.message);
                   }
@@ -882,6 +893,22 @@ function NodesPage() {
             </div>
             {telegramSaved && <div className="hint">{telegramSaved}</div>}
             {telegramTestStatus && <div className="hint">{telegramTestStatus}</div>}
+            {telegramTestResults.length > 0 && (
+              <div className="table compact">
+                <div className="table-row head">
+                  <div>Chat ID</div>
+                  <div>Status</div>
+                  <div>Error</div>
+                </div>
+                {telegramTestResults.map((row) => (
+                  <div className="table-row" key={row.chat_id}>
+                    <div>{row.chat_id}</div>
+                    <div>{row.ok ? "ok" : "error"}</div>
+                    <div>{row.error || "-"}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="actions">
               <button
                 type="button"

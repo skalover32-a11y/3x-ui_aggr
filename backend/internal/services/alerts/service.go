@@ -3,6 +3,8 @@ package alerts
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -42,6 +44,12 @@ type Settings struct {
 	AlertCPU        bool
 	AlertMemory     bool
 	AlertDisk       bool
+}
+
+type SendResult struct {
+	ChatID string
+	OK     bool
+	Error  string
 }
 
 func New(dbConn *gorm.DB, enc *security.Encryptor) *Service {
@@ -150,6 +158,7 @@ func (s *Service) maybeSend(ctx context.Context, key string, settings *Settings,
 	}
 	for _, chatID := range settings.AdminChatIDs {
 		if err := s.sendMessage(ctx, settings.BotToken, chatID, msg); err != nil {
+			log.Printf("telegram alert failed chat_id=%s error=%v", chatID, err)
 			continue
 		}
 	}
@@ -175,7 +184,12 @@ func (s *Service) sendMessage(ctx context.Context, token, chatID, text string) e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("telegram send failed: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("telegram send failed: %s", msg)
 	}
 	return nil
 }
@@ -202,6 +216,22 @@ func (s *Service) SendTest(ctx context.Context, settings *Settings, msg string) 
 		}
 	}
 	return nil
+}
+
+func (s *Service) SendTestDetailed(ctx context.Context, settings *Settings, msg string) []SendResult {
+	results := make([]SendResult, 0, len(settings.AdminChatIDs))
+	if settings == nil {
+		return results
+	}
+	for _, chatID := range settings.AdminChatIDs {
+		err := s.sendMessage(ctx, settings.BotToken, chatID, msg)
+		if err != nil {
+			results = append(results, SendResult{ChatID: chatID, OK: false, Error: err.Error()})
+			continue
+		}
+		results = append(results, SendResult{ChatID: chatID, OK: true})
+	}
+	return results
 }
 
 func splitChatIDs(raw string) []string {

@@ -8,7 +8,9 @@ import (
 )
 
 type telegramTestRequest struct {
-	Message string `json:"message"`
+	Message      string   `json:"message"`
+	AdminChatIDs []string `json:"admin_chat_ids"`
+	BotToken     string   `json:"bot_token"`
 }
 
 func (h *Handler) SendTelegramTest(c *gin.Context) {
@@ -20,28 +22,39 @@ func (h *Handler) SendTelegramTest(c *gin.Context) {
 	if msg == "" {
 		msg = "3x-ui Aggregator test message"
 	}
-	settingsRow, err := h.getTelegramSettings(c)
-	if err != nil {
-		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "telegram settings not configured")
-		return
+	settingsRow, _ := h.getTelegramSettings(c)
+	ids := req.AdminChatIDs
+	if len(ids) == 0 {
+		ids = splitChatIDs(settingsRow.AdminChatID)
 	}
-	if settingsRow.BotTokenEnc == "" || strings.TrimSpace(settingsRow.AdminChatID) == "" {
-		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "telegram settings not configured")
-		return
-	}
-	token, err := h.Encryptor.DecryptString(settingsRow.BotTokenEnc)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "TELEGRAM_TOKEN", "failed to decrypt token")
-		return
-	}
-	ids := splitChatIDs(settingsRow.AdminChatID)
 	if len(ids) == 0 {
 		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "admin chat ids missing")
 		return
 	}
-	if err := sendTelegramMessage(c, token, ids, msg); err != nil {
-		respondError(c, http.StatusBadGateway, "TELEGRAM_SEND", err.Error())
+	token := strings.TrimSpace(req.BotToken)
+	if token == "" && settingsRow.BotTokenEnc != "" {
+		dec, err := h.Encryptor.DecryptString(settingsRow.BotTokenEnc)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "TELEGRAM_TOKEN", "failed to decrypt token")
+			return
+		}
+		token = strings.TrimSpace(dec)
+	}
+	if token == "" {
+		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "bot token missing")
 		return
 	}
-	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+	results := sendTelegramMessage(c, token, ids, msg)
+	okCount := 0
+	for _, res := range results {
+		if res.OK {
+			okCount++
+		}
+	}
+	respondStatus(c, http.StatusOK, gin.H{
+		"ok":      okCount == len(results),
+		"sent":    okCount,
+		"total":   len(results),
+		"results": results,
+	})
 }

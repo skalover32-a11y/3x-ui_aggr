@@ -140,11 +140,11 @@ func (h *Handler) getTelegramSettings(c *gin.Context) (db.TelegramSettings, erro
 	return row, nil
 }
 
-func sendTelegramMessage(c *gin.Context, token string, chatIDs []string, msg string) error {
+func sendTelegramMessage(c *gin.Context, token string, chatIDs []string, msg string) []alerts.SendResult {
 	settings := &alerts.Settings{
 		BotToken:     token,
 		AdminChatIDs: chatIDs,
 	}
 	svc := alerts.New(nil, nil)
-	return svc.SendTest(c.Request.Context(), settings, msg)
+	return svc.SendTestDetailed(c.Request.Context(), settings, msg)
 }
