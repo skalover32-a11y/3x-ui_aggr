@@ -287,12 +287,16 @@ func (h *Handler) verifyTOTPCode(c *gin.Context, user *db.User, code string) boo
 		return false
 	}
 	code = strings.TrimSpace(code)
-	return totp.ValidateCustom(code, strings.TrimSpace(dec), time.Now(), totp.ValidateOpts{
+	ok, err := totp.ValidateCustom(code, strings.TrimSpace(dec), time.Now(), totp.ValidateOpts{
 		Period:    30,
 		Skew:      1,
 		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	})
+	if err != nil {
+		return false
+	}
+	return ok
 }
 
 func (h *Handler) verifyRecoveryCode(c *gin.Context, user *db.User, code string) bool {
