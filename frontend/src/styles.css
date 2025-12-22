@@ -345,7 +345,7 @@ button.danger:hover {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -361,12 +361,27 @@ button.danger:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .metric-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.metric-header span {
+  min-width: 0;
+}
+
+.metric-header .muted.small {
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .metric-bars {
@@ -375,6 +390,8 @@ button.danger:hover {
   grid-auto-columns: 4px;
   gap: 3px;
   align-items: end;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .metric-bar {
