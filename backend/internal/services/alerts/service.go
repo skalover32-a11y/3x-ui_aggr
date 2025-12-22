@@ -192,6 +192,18 @@ func DiskThreshold() float64 {
 	return diskFreeLow
 }
 
+func (s *Service) SendTest(ctx context.Context, settings *Settings, msg string) error {
+	if settings == nil || strings.TrimSpace(settings.BotToken) == "" || len(settings.AdminChatIDs) == 0 {
+		return fmt.Errorf("telegram settings not configured")
+	}
+	for _, chatID := range settings.AdminChatIDs {
+		if err := s.sendMessage(ctx, settings.BotToken, chatID, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func splitChatIDs(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil

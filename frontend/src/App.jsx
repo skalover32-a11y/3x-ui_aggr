@@ -247,6 +247,8 @@ function NodesPage() {
   });
   const [telegramTokenSet, setTelegramTokenSet] = useState(false);
   const [telegramSaved, setTelegramSaved] = useState("");
+  const [telegramTestMsg, setTelegramTestMsg] = useState("");
+  const [telegramTestStatus, setTelegramTestStatus] = useState("");
   const [usersOpen, setUsersOpen] = useState(false);
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator" });
   const [usersList, setUsersList] = useState([]);
@@ -526,6 +528,8 @@ function NodesPage() {
               <button type="button" onClick={async () => {
                 setMenuOpen(false);
                 setTelegramSaved("");
+                setTelegramTestMsg("");
+                setTelegramTestStatus("");
                 setTelegramOpen(true);
                 try {
                   const data = await getTelegramSettings();
@@ -853,7 +857,31 @@ function NodesPage() {
                 Low disk space
               </label>
             </div>
+            <div className="audit-controls">
+              <input
+                name="telegram_test_message"
+                autoComplete="off"
+                placeholder="Test message (optional)"
+                value={telegramTestMsg}
+                onChange={(e) => setTelegramTestMsg(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  setTelegramTestStatus("");
+                  try {
+                    await request("POST", "/telegram/test", { message: telegramTestMsg });
+                    setTelegramTestStatus("Test message sent");
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}
+              >
+                Send test
+              </button>
+            </div>
             {telegramSaved && <div className="hint">{telegramSaved}</div>}
+            {telegramTestStatus && <div className="hint">{telegramTestStatus}</div>}
             <div className="actions">
               <button
                 type="button"

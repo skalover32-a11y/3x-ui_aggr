@@ -39,6 +39,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/audit", h.ListAuditLogs)
 	auth.GET("/telegram/settings", h.GetTelegramSettings)
 	auth.PUT("/telegram/settings", h.UpdateTelegramSettings)
+	auth.POST("/telegram/test", h.SendTelegramTest)
 
 	auth.GET("/nodes/:id/inbounds", h.ListInbounds)
 	auth.POST("/nodes/:id/inbounds", h.AddInbound)

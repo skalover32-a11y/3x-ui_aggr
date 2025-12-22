@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/services/alerts"
 )
 
 type telegramSettingsResponse struct {
@@ -31,8 +32,7 @@ type telegramSettingsRequest struct {
 }
 
 func (h *Handler) GetTelegramSettings(c *gin.Context) {
-	var row db.TelegramSettings
-	err := h.DB.WithContext(c.Request.Context()).Order("created_at desc").First(&row).Error
+	row, err := h.getTelegramSettings(c)
 	if err != nil {
 		respondStatus(c, http.StatusOK, telegramSettingsResponse{
 			BotTokenSet: false,
@@ -61,8 +61,7 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	}
 	botToken := strings.TrimSpace(req.BotToken)
 
-	var current db.TelegramSettings
-	_ = h.DB.WithContext(c.Request.Context()).Order("created_at desc").First(&current).Error
+	current, _ := h.getTelegramSettings(c)
 
 	if botToken == "" && current.BotTokenEnc == "" {
 		respondError(c, http.StatusBadRequest, "TELEGRAM_TOKEN", "bot token required")
@@ -130,4 +129,22 @@ func splitChatIDs(raw string) []string {
 		}
 	}
 	return out
+}
+
+func (h *Handler) getTelegramSettings(c *gin.Context) (db.TelegramSettings, error) {
+	var row db.TelegramSettings
+	err := h.DB.WithContext(c.Request.Context()).Order("created_at desc").First(&row).Error
+	if err != nil {
+		return db.TelegramSettings{}, err
+	}
+	return row, nil
+}
+
+func sendTelegramMessage(c *gin.Context, token string, chatIDs []string, msg string) error {
+	settings := &alerts.Settings{
+		BotToken:     token,
+		AdminChatIDs: chatIDs,
+	}
+	svc := alerts.New(nil, nil)
+	return svc.SendTest(c.Request.Context(), settings, msg)
 }
