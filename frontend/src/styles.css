@@ -64,6 +64,65 @@ a {
   margin-bottom: 16px;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.icon-button {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  color: #e2e8f0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.menu {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  background: #0f1724;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  z-index: 10;
+}
+
+.menu button {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  padding: 10px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu button:hover {
+  background: #1e293b;
+}
+
+.audit-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 16px;
+}
+
+.audit-controls input {
+  flex: 1;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: #e2e8f0;
+  padding: 8px 10px;
+}
+
 .form-grid {
   display: grid;
   gap: 12px;

@@ -196,6 +196,12 @@ function NodesPage() {
   const [editValidation, setEditValidation] = useState(null);
   const [editValidating, setEditValidating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditNodeID, setAuditNodeID] = useState("");
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [telegramOpen, setTelegramOpen] = useState(false);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -268,6 +274,7 @@ function NodesPage() {
       setForm({ ...form, name: "", tags: "" });
       setKeyPassphrase("");
       setKeyFingerprint("");
+      setAddOpen(false);
       loadNodes();
     } catch (err) {
       setError(err.message);
@@ -429,81 +436,51 @@ function NodesPage() {
 
   function openAddForm() {
     setAddOpen(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setMenuOpen(false);
+  }
+
+  async function openAudit() {
+    setMenuOpen(false);
+    setAuditOpen(true);
+    setAuditOffset(0);
+    try {
+      const data = await request("GET", "/audit?limit=100");
+      setAuditLogs(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function loadAudit({ offset = auditOffset, nodeID = auditNodeID } = {}) {
+    const params = new URLSearchParams();
+    params.set("limit", "100");
+    params.set("offset", String(offset));
+    if (nodeID) {
+      params.set("node_id", nodeID);
+    }
+    const data = await request("GET", `/audit?${params.toString()}`);
+    setAuditLogs(data);
+    setAuditOffset(offset);
   }
 
   return (
     <div className="page">
       <header className="header">
-        <h2>Nodes</h2>
+        <div className="header-left">
+          <button className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label="Menu">
+            ☰
+          </button>
+          <h2>Nodes</h2>
+          {menuOpen && (
+            <div className="menu">
+              <button type="button" onClick={openAddForm}>Add node</button>
+              <button type="button" onClick={() => { setTelegramOpen(true); setMenuOpen(false); }}>Telegram alerts</button>
+              <button type="button" onClick={openAudit}>Audit log</button>
+            </div>
+          )}
+        </div>
         <button onClick={() => { setToken(""); window.location.href = "/login"; }}>Logout</button>
       </header>
-
-      <div className="card add-node-panel">
-        <button className="add-node-toggle" type="button" onClick={() => setAddOpen((v) => !v)}>
-          {addOpen ? "Hide Add Node" : "Add Node"}
-        </button>
-        {addOpen && (
-          <>
-            <form className="form-grid" onSubmit={onCreate}>
-              <h3>Add Node</h3>
-              <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <input placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              <input placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-              <input placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-              <input placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
-              <input placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
-              <input placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
-              <input placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
-              <input placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
-              <label className="file-input">
-                Upload SSH Key (.ppk/.pem/.key)
-                <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
-              </label>
-              <textarea placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
-              <div className="hint">Paste OpenSSH private key or upload .ppk</div>
-              {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
-              <label className="checkbox">
-                <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
-                Verify TLS
-              </label>
-              <button type="button" onClick={onValidateCreate} disabled={validating}>
-                {validating ? "Validating..." : "Validate"}
-              </button>
-              <button type="submit">Create</button>
-            </form>
-
-            {validation && (
-              <div className="validation-summary">
-                {validation.error && <div className="error">{validation.error}</div>}
-                <ValidationBadge
-                  label="SSH"
-                  status={validation.ssh?.ok ? "ok" : "error"}
-                  detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
-                />
-                <ValidationBadge
-                  label="Base URL"
-                  status={validation.base_url?.ok ? "ok" : "error"}
-                  detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
-                />
-                <ValidationBadge
-                  label="Panel"
-                  status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.panel_version || "unknown"}
-                />
-                <ValidationBadge
-                  label="Xray"
-                  status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.xray_version || "unknown"}
-                />
-                {validation.ssh?.passphrase_required && (
-                  <span className="muted small">Passphrase required for SSH key</span>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -685,6 +662,126 @@ function NodesPage() {
                 <button type="submit">Save</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {addOpen && (
+        <div className="modal">
+          <div className="modal-content wide">
+            <h3>Add Node</h3>
+            <form className="form-grid" onSubmit={onCreate}>
+              <input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input placeholder="Tags (comma)" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+              <input placeholder="Base URL" value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+              <input placeholder="Panel Username" value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+              <input placeholder="Panel Password" type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+              <input placeholder="SSH Host" value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
+              <input placeholder="SSH Port" type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
+              <input placeholder="SSH User" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
+              <input placeholder="Key Passphrase (optional)" type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
+              <label className="file-input">
+                Upload SSH Key (.ppk/.pem/.key)
+                <input type="file" accept=".ppk,.pem,.key" onChange={onKeyUpload} />
+              </label>
+              <textarea placeholder="SSH Private Key" rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
+              <div className="hint">Paste OpenSSH private key or upload .ppk</div>
+              {keyFingerprint && <div className="hint">Fingerprint: {keyFingerprint}</div>}
+              <label className="checkbox">
+                <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
+                Verify TLS
+              </label>
+              <div className="actions">
+                <button type="button" onClick={onValidateCreate} disabled={validating}>
+                  {validating ? "Validating..." : "Validate"}
+                </button>
+                <button type="submit">Create</button>
+                <button type="button" onClick={() => setAddOpen(false)}>Close</button>
+              </div>
+            </form>
+
+            {validation && (
+              <div className="validation-summary">
+                {validation.error && <div className="error">{validation.error}</div>}
+                <ValidationBadge
+                  label="SSH"
+                  status={validation.ssh?.ok ? "ok" : "error"}
+                  detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
+                />
+                <ValidationBadge
+                  label="Base URL"
+                  status={validation.base_url?.ok ? "ok" : "error"}
+                  detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
+                />
+                <ValidationBadge
+                  label="Panel"
+                  status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
+                  detail={validation.panel_version || "unknown"}
+                />
+                <ValidationBadge
+                  label="Xray"
+                  status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
+                  detail={validation.xray_version || "unknown"}
+                />
+                {validation.ssh?.passphrase_required && (
+                  <span className="muted small">Passphrase required for SSH key</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {telegramOpen && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Telegram alerts</h3>
+            <div className="hint">Coming soon. This section will configure bot tokens, chat ids, and alert rules.</div>
+            <div className="actions">
+              <button type="button" onClick={() => setTelegramOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {auditOpen && (
+        <div className="modal">
+          <div className="modal-content wide">
+            <h3>Audit log</h3>
+            <div className="audit-controls">
+              <input
+                placeholder="Filter by node_id"
+                value={auditNodeID}
+                onChange={(e) => setAuditNodeID(e.target.value)}
+              />
+              <button type="button" onClick={() => loadAudit({ offset: 0, nodeID: auditNodeID })}>Apply</button>
+              <button type="button" onClick={() => { setAuditNodeID(""); loadAudit({ offset: 0, nodeID: "" }); }}>Clear</button>
+            </div>
+            <div className="table compact">
+              <div className="table-row head">
+                <div>Time</div>
+                <div>Actor</div>
+                <div>Action</div>
+                <div>Status</div>
+                <div>Node</div>
+                <div>Message</div>
+              </div>
+              {auditLogs.map((row) => (
+                <div className="table-row" key={row.id}>
+                  <div>{formatTS(row.ts || row.created_at)}</div>
+                  <div>{row.actor_user || row.actor}</div>
+                  <div>{row.action}</div>
+                  <div>{row.status}</div>
+                  <div>{row.node_id || "-"}</div>
+                  <div>{row.message || row.error || "-"}</div>
+                </div>
+              ))}
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => loadAudit({ offset: Math.max(0, auditOffset - 100) })} disabled={auditOffset === 0}>Prev</button>
+              <button type="button" onClick={() => loadAudit({ offset: auditOffset + 100 })} disabled={auditLogs.length < 100}>Next</button>
+              <button type="button" onClick={() => setAuditOpen(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}
