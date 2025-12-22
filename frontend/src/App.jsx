@@ -252,6 +252,7 @@ function LoginPage() {
 }
 
 function NodesPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const role = getRole();
   const user = getUser();
@@ -300,7 +301,9 @@ function NodesPage() {
   const [totpDisableCode, setTotpDisableCode] = useState("");
   const [totpRecoveryCode, setTotpRecoveryCode] = useState("");
   const [totpMessage, setTotpMessage] = useState("");
-  const [sshModal, setSshModal] = useState({ open: false, node: null });
+  const [sshModal, setSshModal] = useState({ open: false, node: null, confirmClose: false });
+  const [sshChoice, setSshChoice] = useState({ open: false, node: null });
+  const [sshAutoOpened, setSshAutoOpened] = useState("");
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -332,6 +335,15 @@ function NodesPage() {
 
   useEffect(() => {
     if (nodes.length === 0) return;
+    const params = new URLSearchParams(location.search);
+    const sshId = params.get("ssh");
+    if (sshId && sshAutoOpened !== sshId) {
+      const node = nodes.find((n) => n.id === sshId);
+      if (node) {
+        setSshModal({ open: true, node, confirmClose: false });
+        setSshAutoOpened(sshId);
+      }
+    }
     const fetchChecks = async () => {
       try {
         const statusEntries = await Promise.all(
@@ -359,7 +371,7 @@ function NodesPage() {
       }
     };
     fetchChecks();
-  }, [nodes]);
+  }, [nodes, location.search, sshAutoOpened]);
 
   async function onCreate(e) {
     e.preventDefault();
@@ -448,7 +460,7 @@ function NodesPage() {
   }
 
   function openSSH(node) {
-    setSshModal({ open: true, node });
+    setSshChoice({ open: true, node });
   }
 
   async function onUpdate(e) {
@@ -1290,8 +1302,41 @@ function NodesPage() {
       <NodeSSHModal
         open={sshModal.open}
         node={sshModal.node}
-        onClose={() => setSshModal({ open: false, node: null })}
+        onClose={() => {
+          if (sshModal.confirmClose && !confirm("Вы уверены?")) return;
+          setSshModal({ open: false, node: null, confirmClose: false });
+        }}
       />
+
+      {sshChoice.open && sshChoice.node && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Открыть SSH</h3>
+            <div className="hint">Открыть здесь или в новом окне?</div>
+            <div className="actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setSshModal({ open: true, node: sshChoice.node, confirmClose: true });
+                  setSshChoice({ open: false, node: null });
+                }}
+              >
+                Здесь
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(`/nodes?ssh=${sshChoice.node.id}`, "_blank");
+                  setSshChoice({ open: false, node: null });
+                }}
+              >
+                В новом окне
+              </button>
+              <button type="button" onClick={() => setSshChoice({ open: false, node: null })}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
