@@ -25,6 +25,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.POST("/auth/login", h.Login)
 	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
 	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
+	api.POST("/telegram/webhook", h.TelegramWebhook)
 
 	auth := api.Group("")
 	auth.Use(middleware.JWTAuth(h.JWTSecret))

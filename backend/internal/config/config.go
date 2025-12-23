@@ -17,6 +17,7 @@ type Config struct {
 	JWTExpiry      time.Duration
 	SSHMaxSessions int
 	SSHIdleTimeout time.Duration
+	PublicBaseURL  string
 }
 
 func Load() (*Config, error) {
@@ -26,6 +27,7 @@ func Load() (*Config, error) {
 		AdminPass:    strings.TrimSpace(os.Getenv("ADMIN_PASS")),
 		JWTSecret:    strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		MasterKeyB64: strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
+		PublicBaseURL: strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
 	}
 	expHours := strings.TrimSpace(os.Getenv("JWT_EXP_HOURS"))
 	if expHours == "" {

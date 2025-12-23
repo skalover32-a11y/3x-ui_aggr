@@ -92,15 +92,15 @@ func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
 		settings, _ := w.Alerts.LoadSettings(ctx)
 		if settings != nil {
 			if loads[0] != nil {
-				w.Alerts.NotifyCPU(ctx, settings, node.Name, *loads[0])
+				w.Alerts.NotifyCPU(ctx, settings, node, *loads[0])
 			}
 			if memTotal != nil && memAvail != nil && *memTotal > 0 {
 				usedPercent := (float64(*memTotal-*memAvail) / float64(*memTotal)) * 100
-				w.Alerts.NotifyMemory(ctx, settings, node.Name, usedPercent)
+				w.Alerts.NotifyMemory(ctx, settings, node, usedPercent)
 			}
 			if diskTotal != nil && diskUsed != nil && *diskTotal > 0 {
 				freePercent := (float64(*diskTotal-*diskUsed) / float64(*diskTotal)) * 100
-				w.Alerts.NotifyDisk(ctx, settings, node.Name, freePercent)
+				w.Alerts.NotifyDisk(ctx, settings, node, freePercent)
 			}
 		}
 	}

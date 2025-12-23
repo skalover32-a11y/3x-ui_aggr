@@ -38,10 +38,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("encryptor error: %v", err)
 	}
+	alertsSvc := alerts.New(dbConn, enc, cfg.PublicBaseURL)
 	handler := &httpapi.Handler{
 		DB:             dbConn,
 		Encryptor:      enc,
 		Audit:          audit.New(dbConn),
+		Alerts:         alertsSvc,
 		AdminUser:      cfg.AdminUser,
 		AdminPass:      cfg.AdminPass,
 		JWTSecret:      []byte(cfg.JWTSecret),
@@ -50,7 +52,6 @@ func main() {
 		SSHManager:     sshws.NewManager(cfg.SSHMaxSessions),
 		SSHIdleTimeout: cfg.SSHIdleTimeout,
 	}
-	alertsSvc := alerts.New(dbConn, enc)
 	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())
 	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
 	router := httpapi.NewRouter(handler)

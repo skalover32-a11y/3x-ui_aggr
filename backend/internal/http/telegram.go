@@ -145,6 +145,6 @@ func sendTelegramMessage(c *gin.Context, token string, chatIDs []string, msg str
 		BotToken:     token,
 		AdminChatIDs: chatIDs,
 	}
-	svc := alerts.New(nil, nil)
+	svc := alerts.New(nil, nil, "")
 	return svc.SendTestDetailed(c.Request.Context(), settings, msg)
 }

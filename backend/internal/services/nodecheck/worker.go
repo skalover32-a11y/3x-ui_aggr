@@ -63,7 +63,7 @@ func (w *Worker) runOnce(ctx context.Context) {
 		}
 		_ = w.DB.WithContext(ctx).Create(&entry).Error
 		if w.Alerts != nil {
-			w.Alerts.NotifyConnection(ctx, settings, node.Name, panelOK, sshOK, errMsg)
+			w.Alerts.NotifyConnection(ctx, settings, &node, panelOK, sshOK, errMsg)
 		}
 	}
 }

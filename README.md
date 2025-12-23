@@ -44,6 +44,7 @@ make run
 - `PORT` (optional, default 8080)
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
+- `PUBLIC_BASE_URL` (optional, for Telegram alert buttons, example: `https://aggr.example.com`)
 
 ## DB reset
 ```bash
@@ -149,3 +150,18 @@ curl -s http://localhost:8080/api/nodes \
 - SSH key upload: use the UI "Upload SSH Key (.ppk/.pem/.key)" and optionally enter a passphrase for encrypted PPKs; the backend converts to an OpenSSH-compatible private key and shows a fingerprint.
 - Web SSH: use the "SSH" button on a node card (admin only). The browser terminal connects via WebSocket; SSH keys never leave the server.
 - Web SSH limits: global max sessions (`GLOBAL_MAX_SSH_SESSIONS`) and idle timeout (`SSH_IDLE_TIMEOUT_SECONDS`).
+
+## Telegram alerts
+Alerts are sent in Telegram HTML format with inline buttons (open node, metrics, retry, mute).
+To enable callback buttons, set the webhook to:
+```bash
+curl -s "https://api.telegram.org/bot<token>/setWebhook?url=https://<PUBLIC_BASE_URL>/api/telegram/webhook"
+```
+
+Example alert:
+```
+🔥 High CPU — NODE-1
+load1: 2.16 (threshold 2.00) • 2025-01-02 03:04:05
+Host: 1.2.3.4
+Severity: WARNING
+```
