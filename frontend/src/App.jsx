@@ -345,13 +345,6 @@ function NodesPage() {
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      window.location.reload();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e) {
       if (menuRef.current && menuRef.current.contains(e.target)) return;
@@ -382,6 +375,10 @@ function NodesPage() {
         setSshAutoOpened(sshId);
       }
     }
+  }, [nodes, location.search, sshAutoOpened]);
+
+  useEffect(() => {
+    if (nodes.length === 0) return;
     const fetchChecks = async () => {
       try {
         const statusEntries = await Promise.all(
@@ -409,7 +406,9 @@ function NodesPage() {
       }
     };
     fetchChecks();
-  }, [nodes, location.search, sshAutoOpened]);
+    const interval = setInterval(fetchChecks, 30000);
+    return () => clearInterval(interval);
+  }, [nodes]);
 
   async function onCreate(e) {
     e.preventDefault();
