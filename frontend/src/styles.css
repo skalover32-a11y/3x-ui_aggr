@@ -652,6 +652,18 @@ button.ghost:hover {
   overflow: auto;
 }
 
+.node-details-content {
+  width: min(860px, 92vw);
+}
+
+.node-details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .modal-content textarea {
   width: 100%;
   background: #0f172a;

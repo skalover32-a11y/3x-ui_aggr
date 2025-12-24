@@ -314,7 +314,7 @@ function NodesPage() {
   const [sshModal, setSshModal] = useState({ open: false, node: null, confirmClose: false });
   const [sshChoice, setSshChoice] = useState({ open: false, node: null });
   const [sshAutoOpened, setSshAutoOpened] = useState("");
-  const [collapsedNodes, setCollapsedNodes] = useState({});
+  const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -357,15 +357,6 @@ function NodesPage() {
 
   useEffect(() => {
     if (nodes.length === 0) return;
-    setCollapsedNodes((prev) => {
-      const next = { ...prev };
-      nodes.forEach((node) => {
-        if (next[node.id] === undefined) {
-          next[node.id] = true;
-        }
-      });
-      return next;
-    });
     const params = new URLSearchParams(location.search);
     const sshId = params.get("ssh");
     if (sshId && sshAutoOpened !== sshId) {
@@ -589,6 +580,51 @@ function NodesPage() {
   function openAddForm() {
     setAddOpen(true);
     setMenuOpen(false);
+  }
+
+  function renderNodeDetails(node, uptimePoints, metrics) {
+    const { success, total } = computeUptime(uptimePoints);
+    return (
+      <>
+        <div className="node-availability">
+          <div className="availability-header">
+            <div className="muted small">{t("Last {total} checks", { total: total || 0 })}</div>
+            <div className="muted small">{t("{success}/{total} successful", { success, total: total || 0 })}</div>
+          </div>
+          <Sparkline points={uptimePoints} />
+        </div>
+
+        <MetricSparks metrics={metrics} />
+
+        <div className="node-meta-grid">
+          <div className="meta-box">
+            <div className="meta-label">{t("SSH Host")}</div>
+            <div className="meta-value">{node.ssh_host || "-"}</div>
+          </div>
+          <div className="meta-box">
+            <div className="meta-label">{t("SSH Port")}</div>
+            <div className="meta-value">{node.ssh_port || "-"}</div>
+          </div>
+          <div className="meta-box">
+            <div className="meta-label">{t("Panel Username")}</div>
+            <div className="meta-value">{node.panel_username || "-"}</div>
+          </div>
+        </div>
+
+        <div className="node-actions">
+          {!isViewer && (
+            <>
+              <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>
+              <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
+              {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
+              <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>
+              <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
+            </>
+          )}
+          {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
+        </div>
+      </>
+    );
   }
 
   async function openAudit() {
@@ -827,9 +863,8 @@ function NodesPage() {
 
         {nodes.map((node) => {
           const uptimePoints = uptimeMap[node.id] || [];
-          const { percent, success, total } = computeUptime(uptimePoints);
+          const { percent } = computeUptime(uptimePoints);
           const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
-          const isCollapsed = collapsedNodes[node.id] !== false;
 
           return (
             <div className="node-card" key={node.id}>
@@ -869,59 +904,37 @@ function NodesPage() {
                   <button
                     type="button"
                     className="icon-button"
-                    onClick={() => setCollapsedNodes((prev) => ({ ...prev, [node.id]: !isCollapsed }))}
+                    onClick={() => setNodeDetails({ open: true, node })}
                     aria-label={t("Toggle node details")}
                   >
-                    {isCollapsed ? "▸" : "▾"}
+                    v
                   </button>
                 </div>
               </div>
 
-              {!isCollapsed && (
-                <>
-                  <div className="node-availability">
-                  <div className="availability-header">
-                      <div className="muted small">{t("Last {total} checks", { total: total || 0 })}</div>
-                      <div className="muted small">{t("{success}/{total} successful", { success, total: total || 0 })}</div>
-                  </div>
-                    <Sparkline points={uptimePoints} />
-                  </div>
-
-                  <MetricSparks metrics={metricsMap[node.id]} />
-
-                  <div className="node-meta-grid">
-                    <div className="meta-box">
-                      <div className="meta-label">{t("SSH Host")}</div>
-                      <div className="meta-value">{node.ssh_host || "-"}</div>
-                    </div>
-                    <div className="meta-box">
-                      <div className="meta-label">{t("SSH Port")}</div>
-                      <div className="meta-value">{node.ssh_port || "-"}</div>
-                    </div>
-                    <div className="meta-box">
-                      <div className="meta-label">{t("Panel Username")}</div>
-                      <div className="meta-value">{node.panel_username || "-"}</div>
-                    </div>
-                  </div>
-
-                  <div className="node-actions">
-                    {!isViewer && (
-                      <>
-                        <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>
-                        <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
-                        {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
-                        <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>
-                        <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
-                      </>
-                    )}
-                    {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
-                  </div>
-                </>
-              )}
             </div>
           );
         })}
       </div>
+
+      {nodeDetails.open && nodeDetails.node && (
+        <div className="modal node-details-modal">
+          <div className="modal-content node-details-content">
+            <div className="node-details-header">
+              <div>
+                <div className="node-name">{nodeDetails.node.name || t("Unnamed node")}</div>
+                <div className="muted small">{nodeDetails.node.base_url || t("No base URL")}</div>
+              </div>
+              <button type="button" onClick={() => setNodeDetails({ open: false, node: null })}>{t("Close")}</button>
+            </div>
+            {renderNodeDetails(
+              nodeDetails.node,
+              uptimeMap[nodeDetails.node.id] || [],
+              metricsMap[nodeDetails.node.id] || []
+            )}
+          </div>
+        </div>
+      )}
 
       {editModal.open && editModal.node && (
         <div className="modal">
