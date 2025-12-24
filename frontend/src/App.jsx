@@ -905,9 +905,9 @@ function NodesPage() {
                     type="button"
                     className="icon-button"
                     onClick={() => setNodeDetails({ open: true, node })}
-                    aria-label={t("Toggle node details")}
+                    aria-label={t("Expand")}
                   >
-                    v
+                    {t("Expand")}
                   </button>
                 </div>
               </div>
