@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser } from "./api.js";
 import { useI18n } from "./i18n.js";
@@ -280,6 +280,8 @@ function NodesPage() {
   const [editValidating, setEditValidating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const menuButtonRef = useRef(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditNodeID, setAuditNodeID] = useState("");
@@ -341,6 +343,24 @@ function NodesPage() {
   useEffect(() => {
     loadNodes();
   }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      window.location.reload();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e) {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (menuButtonRef.current && menuButtonRef.current.contains(e.target)) return;
+      setMenuOpen(false);
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (nodes.length === 0) return;
@@ -707,12 +727,12 @@ function NodesPage() {
     <div className="page">
       <header className="header">
         <div className="header-left">
-          <button className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
+          <button ref={menuButtonRef} className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
             ☰
           </button>
           <h2>{t("Nodes")}</h2>
           {menuOpen && (
-            <div className="menu">
+            <div className="menu" ref={menuRef}>
               {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>{t("Add node")}</button>}
               {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>{t("Users & roles")}</button>}
               {!isViewer && <button type="button" onClick={openTOTP}>{t("2FA settings")}</button>}
@@ -742,23 +762,22 @@ function NodesPage() {
                 }}>{t("Telegram alerts")}</button>
               )}
               {isAdmin && <button type="button" onClick={openAudit}>{t("Audit log")}</button>}
-              <div className="menu-section">
-                <div className="muted small">{t("Language")}</div>
-                <select
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value)}
-                >
-                  <option value="en">{t("English")}</option>
-                  <option value="ru">{t("Russian")}</option>
-                  <option value="fa">{t("Persian")}</option>
-                </select>
-              </div>
             </div>
           )}
         </div>
-        <div className="header-user">
-          {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
-          <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>{t("Logout")}</button>
+        <div className="header-right">
+          <div className="language-card">
+            <div className="muted small">{t("Language")}</div>
+            <select value={lang} onChange={(e) => setLang(e.target.value)}>
+              <option value="en">{t("English")}</option>
+              <option value="ru">{t("Russian")}</option>
+              <option value="fa">{t("Persian")}</option>
+            </select>
+          </div>
+          <div className="header-user">
+            {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+            <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>{t("Logout")}</button>
+          </div>
         </div>
       </header>
 
@@ -1435,6 +1454,7 @@ function InboundsPage() {
         <div className="actions">
           <button onClick={() => navigate("/nodes")}>{t("Back")}</button>
           <button onClick={openAdd}>{t("Add")}</button>
+        </div>
         </div>
       </header>
 
