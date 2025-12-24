@@ -436,6 +436,10 @@ button.danger:hover {
   gap: 2px;
 }
 
+.node-uptime .icon-button {
+  align-self: center;
+}
+
 .uptime-value {
   font-size: 24px;
   font-weight: 700;
