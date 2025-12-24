@@ -315,9 +315,10 @@ button.danger:hover {
 }
 
 .nodes-cards {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 20px;
+  align-items: stretch;
 }
 
 .nodes-cards-head {
@@ -325,6 +326,7 @@ button.danger:hover {
   justify-content: space-between;
   align-items: center;
   padding: 6px 4px;
+  grid-column: 1 / -1;
 }
 
 .header-user {
@@ -885,6 +887,10 @@ button.ghost:hover {
 }
 
 @media (max-width: 900px) {
+  .nodes-cards {
+    grid-template-columns: 1fr;
+  }
+
   .tabs {
     flex-wrap: wrap;
     gap: 6px;
