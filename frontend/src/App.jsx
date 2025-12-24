@@ -1455,7 +1455,6 @@ function InboundsPage() {
           <button onClick={() => navigate("/nodes")}>{t("Back")}</button>
           <button onClick={openAdd}>{t("Add")}</button>
         </div>
-        </div>
       </header>
 
       {error && <div className="error">{error}</div>}
