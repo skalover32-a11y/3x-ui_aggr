@@ -456,6 +456,8 @@ func (h *Handler) TestNode(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
+	ctx, cancel := h.withTimeout(context.Background())
+	defer cancel()
 	if isPanelNode(node) {
 		panel, err := h.newPanelClient(node)
 		if err != nil {
@@ -464,8 +466,6 @@ func (h *Handler) TestNode(c *gin.Context) {
 			respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
 			return
 		}
-		ctx, cancel := h.withTimeout(context.Background())
-		defer cancel()
 		if err := panel.Login(); err != nil {
 			msg := "panel login failed"
 			h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
