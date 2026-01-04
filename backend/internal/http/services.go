@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,7 +137,11 @@ func (h *Handler) CreateService(c *gin.Context) {
 }
 
 func (h *Handler) UpdateService(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("serviceId"))
+	param := c.Param("service_id")
+	if param == "" {
+		param = c.Param("serviceId")
+	}
+	service, err := h.getService(c.Request.Context(), param)
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -189,16 +194,111 @@ func (h *Handler) UpdateService(c *gin.Context) {
 }
 
 func (h *Handler) DeleteService(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("serviceId"))
+	param := c.Param("service_id")
+	if param == "" {
+		param = c.Param("serviceId")
+	}
+	service, err := h.getService(c.Request.Context(), param)
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
 	}
-	if err := h.DB.WithContext(c.Request.Context()).Delete(&db.Service{}, "id = ?", service.ID).Error; err != nil {
+	ctx := c.Request.Context()
+	if err := h.DB.WithContext(ctx).Exec(`
+		DELETE FROM check_results
+		WHERE check_id IN (
+			SELECT id FROM checks WHERE target_type = 'service' AND target_id = ?
+		)
+	`, service.ID).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service results")
+		return
+	}
+	if err := h.DB.WithContext(ctx).Delete(&db.Check{}, "target_type = ? AND target_id = ?", "service", service.ID).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service checks")
+		return
+	}
+	if err := h.DB.WithContext(ctx).Delete(&db.AlertState{}, "service_id = ?", service.ID).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service alerts")
+		return
+	}
+	if err := h.DB.WithContext(ctx).Delete(&db.Service{}, "id = ?", service.ID).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service")
 		return
 	}
 	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *Handler) RunServiceCheck(c *gin.Context) {
+	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	if err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
+		return
+	}
+	if h.Checks == nil {
+		respondError(c, http.StatusServiceUnavailable, "CHECKS_DISABLED", "checks worker not configured")
+		return
+	}
+	result, err := h.Checks.RunNowService(c.Request.Context(), service.ID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "RUN_FAILED", "failed to run check")
+		return
+	}
+	resp := checkResultResponse{
+		ID:        result.ID.String(),
+		CheckID:   result.CheckID.String(),
+		TS:        result.TS,
+		Status:    result.Status,
+		Metrics:   json.RawMessage(result.Metrics),
+		Error:     result.Error,
+		LatencyMS: result.LatencyMS,
+	}
+	respondStatus(c, http.StatusOK, resp)
+}
+
+func (h *Handler) ListServiceResults(c *gin.Context) {
+	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	if err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
+		return
+	}
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		if val, err := strconv.Atoi(raw); err == nil {
+			limit = val
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	var rows []db.CheckResult
+	if err := h.DB.WithContext(c.Request.Context()).Raw(`
+		SELECT cr.id, cr.check_id, cr.ts, cr.status, cr.metrics, cr.error, cr.latency_ms
+		FROM check_results cr
+		JOIN checks c ON c.id = cr.check_id
+		WHERE c.target_type = 'service' AND c.target_id = ?
+		ORDER BY cr.ts DESC
+		LIMIT ?
+	`, service.ID, limit).Scan(&rows).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list service results")
+		return
+	}
+	resp := make([]checkResultResponse, 0, len(rows))
+	for i := range rows {
+		row := rows[i]
+		resp = append(resp, checkResultResponse{
+			ID:        row.ID.String(),
+			CheckID:   row.CheckID.String(),
+			TS:        row.TS,
+			Status:    row.Status,
+			Metrics:   json.RawMessage(row.Metrics),
+			Error:     row.Error,
+			LatencyMS: row.LatencyMS,
+		})
+	}
+	respondStatus(c, http.StatusOK, resp)
 }
 
 func headersToJSON(values map[string]string) (datatypes.JSON, error) {

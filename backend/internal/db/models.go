@@ -87,7 +87,7 @@ type AlertState struct {
 	FirstSeen      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"first_seen"`
 	LastSeen       time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"last_seen"`
 	Occurrences    int            `gorm:"not null;default:1" json:"occurrences"`
-	LastMessageIDs datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"last_message_ids"`
+	LastMessageIDs datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb" json:"last_message_ids"`
 	MutedUntil     *time.Time     `gorm:"type:timestamptz" json:"muted_until"`
 	UpdatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
 }

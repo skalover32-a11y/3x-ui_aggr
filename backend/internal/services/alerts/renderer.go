@@ -26,6 +26,31 @@ type InlineKeyboard struct {
 	InlineKeyboard [][]InlineButton `json:"inline_keyboard"`
 }
 
+
+func RenderRecovery(alert Alert, publicBaseURL string) (string, *InlineKeyboard) {
+	lines := []string{renderRecoveryTitle(alert), renderRecoveryPrimary(alert)}
+	lines = append(lines, renderMeta(alert)...)
+	msg := strings.Join(lines, "\n")
+	return msg, buildKeyboard(alert, publicBaseURL)
+}
+
+func renderRecoveryTitle(alert Alert) string {
+	title := escapeHTML(alert.NodeName)
+	if strings.TrimSpace(alert.ServiceKind) != "" {
+		return fmt.Sprintf("<b>?? Recovered - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
+	}
+	return fmt.Sprintf("<b>?? Recovered - %s</b>", title)
+}
+
+func renderRecoveryPrimary(alert Alert) string {
+	ts := formatTime(alert.TS)
+	label := strings.TrimSpace(alert.CheckType)
+	if label == "" {
+		label = "check"
+	}
+	return fmt.Sprintf("%s: <b>ok</b> | %s", escapeHTML(label), ts)
+}
+
 func RenderAlert(alert Alert, publicBaseURL string) (string, *InlineKeyboard) {
 	lines := []string{renderTitle(alert), renderPrimary(alert)}
 	lines = append(lines, renderMeta(alert)...)
@@ -64,13 +89,13 @@ func renderPrimary(alert Alert) string {
 	ts := formatTime(alert.TS)
 	switch alert.Type {
 	case AlertCPU:
-		return fmt.Sprintf("load1: <b>%.2f</b> (threshold %.2f) \a %s", alert.Metrics.Load1, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("load1: <b>%.2f</b> (threshold %.2f) | %s", alert.Metrics.Load1, alert.Metrics.Threshold, ts)
 	case AlertMemory:
-		return fmt.Sprintf("used: <b>%.1f%%</b> (threshold %.1f%%) \a %s", alert.Metrics.UsedPct, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("used: <b>%.1f%%</b> (threshold %.1f%%) | %s", alert.Metrics.UsedPct, alert.Metrics.Threshold, ts)
 	case AlertDisk:
-		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) \a %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) | %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
 	case AlertConnection:
-		return fmt.Sprintf("PANEL: %s \a SSH: %s \a %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
+		return fmt.Sprintf("PANEL: %s | SSH: %s | %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
 	case AlertGeneric:
 		label := strings.TrimSpace(alert.CheckType)
 		if label == "" {
@@ -80,7 +105,7 @@ func renderPrimary(alert Alert) string {
 		if status == "" {
 			status = "unknown"
 		}
-		return fmt.Sprintf("%s: <b>%s</b> \a %s", escapeHTML(label), escapeHTML(status), ts)
+		return fmt.Sprintf("%s: <b>%s</b> | %s", escapeHTML(label), escapeHTML(status), ts)
 	default:
 		return fmt.Sprintf("Time: %s", ts)
 	}
@@ -116,21 +141,32 @@ func renderReason(alert Alert) string {
 }
 
 func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
-	callbackRow := []InlineButton{
-		{Text: "🔁 Retry", CallbackData: fmt.Sprintf("retry:%s", alert.AlertID)},
-		{Text: "🔕 Mute 1h", CallbackData: fmt.Sprintf("mute:1h:%s", alert.NodeID.String())},
+	fingerprint := strings.TrimSpace(alert.Fingerprint)
+	callbackRow := []InlineButton{}
+	if fingerprint != "" {
+		callbackRow = []InlineButton{
+			{Text: "?? Retry", CallbackData: fmt.Sprintf("retry:%s", fingerprint)},
+			{Text: "?? Mute 1h", CallbackData: fmt.Sprintf("mute:1h:%s", fingerprint)},
+		}
 	}
 	if strings.TrimSpace(publicBaseURL) == "" || alert.NodeID == uuid.Nil {
+		if len(callbackRow) == 0 {
+			return nil
+		}
 		return &InlineKeyboard{InlineKeyboard: [][]InlineButton{callbackRow}}
 	}
 	base := strings.TrimRight(publicBaseURL, "/")
 	nodeURL := fmt.Sprintf("%s/nodes?node=%s", base, alert.NodeID.String())
 	metricsURL := fmt.Sprintf("%s/nodes?node=%s&tab=metrics", base, alert.NodeID.String())
 	linkRow := []InlineButton{
-		{Text: "🔎 Открыть ноду", URL: nodeURL},
-		{Text: "📊 Метрики", URL: metricsURL},
+		{Text: "?? Открыть ноду", URL: nodeURL},
+		{Text: "?? Метрики", URL: metricsURL},
 	}
-	return &InlineKeyboard{InlineKeyboard: [][]InlineButton{linkRow, callbackRow}}
+	rows := [][]InlineButton{linkRow}
+	if len(callbackRow) > 0 {
+		rows = append(rows, callbackRow)
+	}
+	return &InlineKeyboard{InlineKeyboard: rows}
 }
 
 func statusBadge(ok bool) string {

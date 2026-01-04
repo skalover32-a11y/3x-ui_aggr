@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +28,19 @@ type alertStateResponse struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+type alertMuteRequest struct {
+	DurationSec int `json:"duration"`
+}
+
+type retryError struct {
+	status int
+	msg    string
+}
+
+func (e retryError) Error() string {
+	return e.msg
+}
+
 func (h *Handler) ListAlerts(c *gin.Context) {
 	limit := 200
 	if raw := c.Query("limit"); raw != "" {
@@ -45,7 +60,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		query = query.Where("last_status = ?", status)
 	}
 	if active := strings.TrimSpace(c.Query("active")); active == "true" || active == "1" {
-		query = query.Where("last_status = ?", "active")
+		query = query.Where("last_status <> ?", "ok")
 	}
 	if raw := strings.TrimSpace(c.Query("node_id")); raw != "" {
 		if id, err := uuid.Parse(raw); err == nil {
@@ -81,6 +96,86 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		})
 	}
 	respondStatus(c, http.StatusOK, resp)
+}
+
+func (h *Handler) MuteAlert(c *gin.Context) {
+	fingerprint := strings.TrimSpace(c.Param("fingerprint"))
+	if fingerprint == "" {
+		respondError(c, http.StatusBadRequest, "INVALID_FINGERPRINT", "fingerprint required")
+		return
+	}
+	durationSec := 3600
+	if raw := c.Query("duration"); raw != "" {
+		if val, err := strconv.Atoi(raw); err == nil {
+			durationSec = val
+		}
+	}
+	if c.Request.ContentLength > 0 {
+		var req alertMuteRequest
+		if !parseJSONBody(c, &req) {
+			return
+		}
+		if req.DurationSec > 0 {
+			durationSec = req.DurationSec
+		}
+	}
+	if durationSec <= 0 {
+		durationSec = 3600
+	}
+	if h.Alerts == nil {
+		respondError(c, http.StatusServiceUnavailable, "ALERTS_DISABLED", "alerts service not configured")
+		return
+	}
+	if err := h.Alerts.MuteFingerprint(c.Request.Context(), fingerprint, time.Duration(durationSec)*time.Second); err != nil {
+		respondError(c, http.StatusInternalServerError, "MUTE_FAILED", "failed to mute alert")
+		return
+	}
+	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *Handler) RetryAlert(c *gin.Context) {
+	fingerprint := strings.TrimSpace(c.Param("fingerprint"))
+	if fingerprint == "" {
+		respondError(c, http.StatusBadRequest, "INVALID_FINGERPRINT", "fingerprint required")
+		return
+	}
+	result, err := h.runRetry(c.Request.Context(), fingerprint)
+	if err != nil {
+		status := http.StatusBadRequest
+		if typed, ok := err.(retryError); ok {
+			status = typed.status
+		}
+		respondError(c, status, "RETRY_FAILED", err.Error())
+		return
+	}
+	resp := checkResultResponse{
+		ID:        result.ID.String(),
+		CheckID:   result.CheckID.String(),
+		TS:        result.TS,
+		Status:    result.Status,
+		Metrics:   json.RawMessage(result.Metrics),
+		Error:     result.Error,
+		LatencyMS: result.LatencyMS,
+	}
+	respondStatus(c, http.StatusOK, resp)
+}
+
+func (h *Handler) runRetry(ctx context.Context, fingerprint string) (*db.CheckResult, error) {
+	if h.Checks == nil {
+		return nil, retryError{status: http.StatusServiceUnavailable, msg: "checks worker not configured"}
+	}
+	var state db.AlertState
+	if err := h.DB.WithContext(ctx).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
+		return nil, retryError{status: http.StatusNotFound, msg: "alert not found"}
+	}
+	if state.ServiceID == nil {
+		return nil, retryError{status: http.StatusBadRequest, msg: "alert has no service target"}
+	}
+	result, err := h.Checks.RunNowService(ctx, *state.ServiceID)
+	if err != nil {
+		return nil, retryError{status: http.StatusInternalServerError, msg: "failed to run check"}
+	}
+	return result, nil
 }
 
 func uuidToStringPtr(id *uuid.UUID) *string {

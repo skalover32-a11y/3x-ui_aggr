@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -177,7 +180,7 @@ func (w *Worker) runNodeCheck(ctx context.Context, settings *alerts.Settings, no
 				break
 			}
 		}
-		w.storeResult(ctx, check.ID, ok, latency, nil, errMsg)
+		_ = w.storeResult(ctx, check.ID, ok, latency, nil, errMsg)
 		w.notifyGeneric(ctx, settings, node, nil, check, ok, latency, 0, errMsg)
 	case "tcp":
 		target := net.JoinHostPort(node.SSHHost, fmt.Sprintf("%d", node.SSHPort))
@@ -190,12 +193,12 @@ func (w *Worker) runNodeCheck(ctx context.Context, settings *alerts.Settings, no
 				break
 			}
 		}
-		w.storeResult(ctx, check.ID, ok, latency, nil, errMsg)
+		_ = w.storeResult(ctx, check.ID, ok, latency, nil, errMsg)
 		w.notifyGeneric(ctx, settings, node, nil, check, ok, latency, 0, errMsg)
 	}
 }
 
-func (w *Worker) runServiceCheck(ctx context.Context, settings *alerts.Settings, node *db.Node, service *db.Service, check *db.Check) {
+func (w *Worker) executeServiceCheck(ctx context.Context, node *db.Node, service *db.Service, check *db.Check) (bool, int, int, int64, *string) {
 	tries := retriesFor(check)
 	checkType := strings.ToLower(check.Type)
 	if checkType == "" {
@@ -204,7 +207,8 @@ func (w *Worker) runServiceCheck(ctx context.Context, settings *alerts.Settings,
 	if checkType == "tcp" {
 		target := serviceHostPort(service, node)
 		if target == "" {
-			return
+			msg := "service target missing"
+			return false, 0, 0, 0, &msg
 		}
 		var ok bool
 		var latency int
@@ -215,27 +219,35 @@ func (w *Worker) runServiceCheck(ctx context.Context, settings *alerts.Settings,
 				break
 			}
 		}
-		w.storeResult(ctx, check.ID, ok, latency, nil, errMsg)
-		w.notifyGeneric(ctx, settings, node, service, check, ok, latency, 0, errMsg)
-		return
+		if ok {
+			return true, latency, 0, 0, nil
+		}
+		return false, latency, 0, 0, errMsg
 	}
 	url := serviceURL(service, node, checkType)
 	if url == "" {
-		return
+		msg := "service url missing"
+		return false, 0, 0, 0, &msg
 	}
 	var statusCode int
 	var latency int
+	var bytes int64
 	var errMsg *string
 	ok := false
 	for i := 0; i < tries; i++ {
-		statusCode, latency, errMsg = checkHTTP(ctx, url, node.VerifyTLS, serviceHeaders(service), w.timeoutFor(check))
+		statusCode, latency, bytes, errMsg = checkHTTP(ctx, url, node.VerifyTLS, serviceHeaders(service), w.timeoutFor(check))
 		ok = statusCode > 0 && isExpectedStatus(service, statusCode)
 		if ok {
 			break
 		}
 	}
-	metrics := map[string]any{"status_code": statusCode}
-	w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
+	return ok, latency, statusCode, bytes, errMsg
+}
+
+func (w *Worker) runServiceCheck(ctx context.Context, settings *alerts.Settings, node *db.Node, service *db.Service, check *db.Check) {
+	ok, latency, statusCode, bytes, errMsg := w.executeServiceCheck(ctx, node, service, check)
+	metrics := map[string]any{"status_code": statusCode, "bytes": bytes}
+	_ = w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
 	w.notifyGeneric(ctx, settings, node, service, check, ok, latency, statusCode, errMsg)
 }
 
@@ -270,7 +282,7 @@ func (w *Worker) checkSSH(ctx context.Context, node *db.Node) (bool, int, *strin
 	return true, latency, nil
 }
 
-func (w *Worker) storeResult(ctx context.Context, checkID uuid.UUID, ok bool, latency int, metrics map[string]any, errMsg *string) {
+func (w *Worker) storeResult(ctx context.Context, checkID uuid.UUID, ok bool, latency int, metrics map[string]any, errMsg *string) *db.CheckResult {
 	status := "ok"
 	if !ok {
 		status = "fail"
@@ -295,6 +307,7 @@ func (w *Worker) storeResult(ctx context.Context, checkID uuid.UUID, ok bool, la
 		LatencyMS: latencyPtr,
 	}
 	_ = w.DB.WithContext(ctx).Create(&row).Error
+	return &row
 }
 
 func (w *Worker) notifyGeneric(ctx context.Context, settings *alerts.Settings, node *db.Node, service *db.Service, check *db.Check, ok bool, latency int, statusCode int, errMsg *string) {
@@ -324,7 +337,20 @@ func serviceURL(service *db.Service, node *db.Node, checkType string) string {
 		return ""
 	}
 	if service.URL != nil && strings.TrimSpace(*service.URL) != "" {
-		return strings.TrimSpace(*service.URL)
+		raw := strings.TrimSpace(*service.URL)
+		path := strings.TrimSpace(valueOrEmpty(service.HealthPath))
+		if path != "" {
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+			if parsed, err := url.Parse(raw); err == nil {
+				if strings.TrimSpace(parsed.Path) == "" || parsed.Path == "/" {
+					parsed.Path = path
+					return parsed.String()
+				}
+			}
+		}
+		return raw
 	}
 	schema := "http"
 	mode := strings.ToLower(strings.TrimSpace(valueOrEmpty(service.TLSMode)))
@@ -390,18 +416,21 @@ func valueOrEmpty(ptr *string) string {
 	return *ptr
 }
 
-func checkHTTP(ctx context.Context, url string, verifyTLS bool, headers map[string]string, timeout time.Duration) (int, int, *string) {
+func checkHTTP(ctx context.Context, url string, verifyTLS bool, headers map[string]string, timeout time.Duration) (int, int, int64, *string) {
 	client := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !verifyTLS},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		msg := err.Error()
-		return 0, 0, &msg
+		return 0, 0, 0, &msg
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -409,11 +438,16 @@ func checkHTTP(ctx context.Context, url string, verifyTLS bool, headers map[stri
 	resp, err := client.Do(req)
 	if err != nil {
 		msg := err.Error()
-		return 0, 0, &msg
+		return 0, 0, 0, &msg
 	}
 	defer resp.Body.Close()
 	latency := int(time.Since(start).Milliseconds())
-	return resp.StatusCode, latency, nil
+	bytes := resp.ContentLength
+	if bytes < 0 {
+		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		bytes = int64(len(limited))
+	}
+	return resp.StatusCode, latency, bytes, nil
 }
 
 func checkTCP(ctx context.Context, addr string, timeout time.Duration) (bool, int, *string) {
@@ -439,4 +473,34 @@ func isExpectedStatus(service *db.Service, statusCode int) bool {
 		}
 	}
 	return false
+}
+
+func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.CheckResult, error) {
+	if w == nil || w.DB == nil {
+		return nil, errors.New("db not configured")
+	}
+	var service db.Service
+	if err := w.DB.WithContext(ctx).First(&service, "id = ?", serviceID).Error; err != nil {
+		return nil, err
+	}
+	var node db.Node
+	if err := w.DB.WithContext(ctx).First(&node, "id = ?", service.NodeID).Error; err != nil {
+		return nil, err
+	}
+	var check db.Check
+	if err := w.DB.WithContext(ctx).
+		Where("target_type = ? AND target_id = ? AND enabled = true", "service", service.ID).
+		Order("created_at desc").
+		First(&check).Error; err != nil {
+		return nil, err
+	}
+	var settings *alerts.Settings
+	if w.Alerts != nil {
+		settings, _ = w.Alerts.LoadSettings(ctx)
+	}
+	ok, latency, statusCode, bytes, errMsg := w.executeServiceCheck(ctx, &node, &service, &check)
+	metrics := map[string]any{"status_code": statusCode, "bytes": bytes}
+	result := w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
+	w.notifyGeneric(ctx, settings, &node, &service, &check, ok, latency, statusCode, errMsg)
+	return result, nil
 }

@@ -315,6 +315,25 @@ function NodesPage() {
   const [sshChoice, setSshChoice] = useState({ open: false, node: null });
   const [sshAutoOpened, setSshAutoOpened] = useState("");
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
+  const [nodeTab, setNodeTab] = useState("overview");
+  const [servicesMap, setServicesMap] = useState({});
+  const [serviceResults, setServiceResults] = useState({});
+  const [servicesBusy, setServicesBusy] = useState(false);
+  const [servicesError, setServicesError] = useState("");
+  const [serviceEditor, setServiceEditor] = useState({ open: false, mode: "add", node: null, service: null });
+  const [serviceForm, setServiceForm] = useState({
+    kind: "CUSTOM_HTTP",
+    url: "",
+    health_path: "/",
+    expected_status: ["200"],
+    headers_json: "{}",
+    is_enabled: true,
+    create_check: true,
+    interval_sec: 60,
+    timeout_ms: 3000,
+    retries: 1,
+    check_enabled: true,
+  });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -337,6 +356,31 @@ function NodesPage() {
       setNodes(data);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function loadServices(nodeID) {
+    if (!nodeID) return;
+    setServicesBusy(true);
+    setServicesError("");
+    try {
+      const data = await request("GET", `/nodes/${nodeID}/services`);
+      setServicesMap((prev) => ({ ...prev, [nodeID]: data }));
+      const resultEntries = await Promise.all(
+        data.map((svc) => request("GET", `/services/${svc.id}/results?limit=1`).catch(() => []))
+      );
+      const resultsNext = {};
+      data.forEach((svc, idx) => {
+        const rows = resultEntries[idx] || [];
+        if (rows.length > 0) {
+          resultsNext[svc.id] = rows[0];
+        }
+      });
+      setServiceResults((prev) => ({ ...prev, ...resultsNext }));
+    } catch (err) {
+      setServicesError(err.message);
+    } finally {
+      setServicesBusy(false);
     }
   }
 
@@ -400,6 +444,12 @@ function NodesPage() {
     const interval = setInterval(fetchChecks, 30000);
     return () => clearInterval(interval);
   }, [nodes]);
+
+  useEffect(() => {
+    if (!nodeDetails.open || !nodeDetails.node) return;
+    if (nodeTab !== "services") return;
+    loadServices(nodeDetails.node.id);
+  }, [nodeDetails.open, nodeDetails.node, nodeTab]);
 
   async function onCreate(e) {
     e.preventDefault();
@@ -582,6 +632,126 @@ function NodesPage() {
     setMenuOpen(false);
   }
 
+  function openServiceAdd(node) {
+    setServicesError("");
+    setServiceForm({
+      kind: "CUSTOM_HTTP",
+      url: "",
+      health_path: "/",
+      expected_status: ["200"],
+      headers_json: "{}",
+      is_enabled: true,
+      create_check: true,
+      interval_sec: 60,
+      timeout_ms: 3000,
+      retries: 1,
+      check_enabled: true,
+    });
+    setServiceEditor({ open: true, mode: "add", node, service: null });
+  }
+
+  function openServiceEdit(node, service) {
+    setServicesError("");
+    const expected = Array.isArray(service.expected_status)
+      ? service.expected_status.map((val) => `${val}`)
+      : [];
+    const headers = service.headers ? JSON.stringify(service.headers, null, 2) : "{}";
+    setServiceForm({
+      kind: service.kind || "CUSTOM_HTTP",
+      url: service.url || "",
+      health_path: service.health_path || "/",
+      expected_status: expected.length > 0 ? expected : ["200"],
+      headers_json: headers,
+      is_enabled: service.is_enabled !== false,
+      create_check: false,
+      interval_sec: 60,
+      timeout_ms: 3000,
+      retries: 1,
+      check_enabled: true,
+    });
+    setServiceEditor({ open: true, mode: "edit", node, service });
+  }
+
+  function parseExpected(values) {
+    return (values || [])
+      .map((val) => parseInt(val, 10))
+      .filter((val) => !Number.isNaN(val));
+  }
+
+  async function saveService() {
+    if (!serviceEditor.node) return;
+    setServicesError("");
+    let headers = {};
+    const rawHeaders = serviceForm.headers_json?.trim();
+    if (rawHeaders) {
+      try {
+        headers = JSON.parse(rawHeaders);
+      } catch (err) {
+        setServicesError(err.message);
+        return;
+      }
+    }
+    const payload = {
+      kind: serviceForm.kind,
+      url: serviceForm.url || null,
+      health_path: serviceForm.health_path || null,
+      expected_status: parseExpected(serviceForm.expected_status),
+      headers,
+      is_enabled: !!serviceForm.is_enabled,
+    };
+    try {
+      if (serviceEditor.mode === "add") {
+        const created = await request("POST", `/nodes/${serviceEditor.node.id}/services`, payload);
+        if (serviceForm.create_check) {
+          await request("POST", `/services/${created.id}/checks`, {
+            type: "HTTP",
+            interval_sec: serviceForm.interval_sec,
+            timeout_ms: serviceForm.timeout_ms,
+            retries: serviceForm.retries,
+            enabled: serviceForm.check_enabled,
+          });
+        }
+      } else if (serviceEditor.service) {
+        await request("PUT", `/services/${serviceEditor.service.id}`, payload);
+      }
+      setServiceEditor({ open: false, mode: "add", node: null, service: null });
+      loadServices(serviceEditor.node.id);
+    } catch (err) {
+      setServicesError(err.message);
+    }
+  }
+
+  async function runService(service) {
+    setServicesError("");
+    try {
+      const res = await request("POST", `/services/${service.id}/run`, {});
+      setServiceResults((prev) => ({ ...prev, [service.id]: res }));
+    } catch (err) {
+      setServicesError(err.message);
+    }
+  }
+
+  async function toggleService(service, enabled) {
+    setServicesError("");
+    try {
+      await request("PUT", `/services/${service.id}`, { is_enabled: enabled });
+      loadServices(service.node_id);
+    } catch (err) {
+      setServicesError(err.message);
+    }
+  }
+
+  async function deleteService(service) {
+    if (!confirm(t("Delete service?"))) return;
+    setServicesError("");
+    try {
+      await request("DELETE", `/services/${service.id}`, {});
+      loadServices(service.node_id);
+    } catch (err) {
+      setServicesError(err.message);
+    }
+  }
+
   function renderNodeDetails(node, uptimePoints, metrics) {
     const { success, total } = computeUptime(uptimePoints);
     return (
@@ -622,6 +792,74 @@ function NodesPage() {
             </>
           )}
           {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
+        </div>
+      </>
+    );
+  }
+
+  function renderServicesTab(node) {
+    const services = servicesMap[node.id] || [];
+    return (
+      <>
+        <div className="services-header">
+          <div className="muted small">
+            {servicesBusy ? t("Loading...") : t("{count} services", { count: services.length })}
+          </div>
+          <div className="actions">
+            {!isViewer && <button type="button" onClick={() => openServiceAdd(node)}>{t("Add")}</button>}
+            <button type="button" className="secondary" onClick={() => loadServices(node.id)}>{t("Refresh")}</button>
+          </div>
+        </div>
+        {servicesError && <div className="error">{servicesError}</div>}
+        <div className="table services">
+          <div className="table-row head">
+            <div>{t("Kind")}</div>
+            <div>{t("URL")}</div>
+            <div>{t("Path")}</div>
+            <div>{t("Expected")}</div>
+            <div>{t("Enabled")}</div>
+            <div>{t("Last status")}</div>
+            <div>{t("Last seen")}</div>
+            <div>{t("Latency")}</div>
+            <div>{t("Actions")}</div>
+          </div>
+          {services.map((service) => {
+            const last = serviceResults[service.id];
+            const expected = (service.expected_status || []).join(", ") || "-";
+            return (
+              <div className="table-row" key={service.id}>
+                <div>{service.kind || "-"}</div>
+                <div>{service.url || "-"}</div>
+                <div>{service.health_path || "-"}</div>
+                <div>{expected}</div>
+                <div>{service.is_enabled ? t("On") : t("Off")}</div>
+                <div>{last?.status || "-"}</div>
+                <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+                <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+                <div className="actions">
+                  {!isViewer && (
+                    <>
+                      <button type="button" onClick={() => runService(service)}>{t("Run now")}</button>
+                      <button type="button" className="secondary" onClick={() => openServiceEdit(node, service)}>{t("Edit")}</button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => toggleService(service, !service.is_enabled)}
+                      >
+                        {service.is_enabled ? t("Disable") : t("Enable")}
+                      </button>
+                      <button type="button" className="danger" onClick={() => deleteService(service)}>{t("Delete")}</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {services.length === 0 && (
+            <div className="table-row">
+              <div className="muted small">{t("No services yet")}</div>
+            </div>
+          )}
         </div>
       </>
     );
@@ -904,7 +1142,11 @@ function NodesPage() {
                   <button
                     type="button"
                     className="icon-button"
-                    onClick={() => setNodeDetails({ open: true, node })}
+                    onClick={() => {
+                      setNodeTab("overview");
+                      setServicesError("");
+                      setNodeDetails({ open: true, node });
+                    }}
                     aria-label={t("Expand")}
                   >
                     {t("Expand")}
@@ -927,11 +1169,120 @@ function NodesPage() {
               </div>
               <button type="button" onClick={() => setNodeDetails({ open: false, node: null })}>{t("Close")}</button>
             </div>
-            {renderNodeDetails(
-              nodeDetails.node,
-              uptimeMap[nodeDetails.node.id] || [],
-              metricsMap[nodeDetails.node.id] || []
+            <div className="tabs">
+              <button
+                type="button"
+                className={`tab ${nodeTab === "overview" ? "active" : ""}`}
+                onClick={() => setNodeTab("overview")}
+              >
+                {t("Overview")}
+              </button>
+              <button
+                type="button"
+                className={`tab ${nodeTab === "services" ? "active" : ""}`}
+                onClick={() => setNodeTab("services")}
+              >
+                {t("Services")}
+              </button>
+            </div>
+            {nodeTab === "overview"
+              ? renderNodeDetails(
+                  nodeDetails.node,
+                  uptimeMap[nodeDetails.node.id] || [],
+                  metricsMap[nodeDetails.node.id] || []
+                )
+              : renderServicesTab(nodeDetails.node)}
+          </div>
+        </div>
+      )}
+
+      {serviceEditor.open && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>{serviceEditor.mode === "add" ? t("Add Service") : t("Edit Service")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <select
+                value={serviceForm.kind}
+                onChange={(e) => setServiceForm({ ...serviceForm, kind: e.target.value })}
+              >
+                <option value="CUSTOM_HTTP">CUSTOM_HTTP</option>
+              </select>
+              <input
+                placeholder={t("URL")}
+                value={serviceForm.url}
+                onChange={(e) => setServiceForm({ ...serviceForm, url: e.target.value })}
+              />
+              <input
+                placeholder={t("Health path")}
+                value={serviceForm.health_path}
+                onChange={(e) => setServiceForm({ ...serviceForm, health_path: e.target.value })}
+              />
+              <ListInput
+                label={t("Expected status")}
+                values={serviceForm.expected_status}
+                placeholder="200"
+                onChange={(values) => setServiceForm({ ...serviceForm, expected_status: values })}
+              />
+              <textarea
+                rows="4"
+                placeholder={t("Headers (JSON)")}
+                value={serviceForm.headers_json}
+                onChange={(e) => setServiceForm({ ...serviceForm, headers_json: e.target.value })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={serviceForm.is_enabled}
+                  onChange={(e) => setServiceForm({ ...serviceForm, is_enabled: e.target.checked })}
+                />
+                {t("Enabled")}
+              </label>
+              {serviceEditor.mode === "add" && (
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={serviceForm.create_check}
+                    onChange={(e) => setServiceForm({ ...serviceForm, create_check: e.target.checked })}
+                  />
+                  {t("Create HTTP check")}
+                </label>
+              )}
+            </div>
+            {serviceEditor.mode === "add" && serviceForm.create_check && (
+              <div className="form-grid" autoComplete="off">
+                <input
+                  type="number"
+                  placeholder={t("Interval (sec)")}
+                  value={serviceForm.interval_sec}
+                  onChange={(e) => setServiceForm({ ...serviceForm, interval_sec: Number(e.target.value) })}
+                />
+                <input
+                  type="number"
+                  placeholder={t("Timeout (ms)")}
+                  value={serviceForm.timeout_ms}
+                  onChange={(e) => setServiceForm({ ...serviceForm, timeout_ms: Number(e.target.value) })}
+                />
+                <input
+                  type="number"
+                  placeholder={t("Retries")}
+                  value={serviceForm.retries}
+                  onChange={(e) => setServiceForm({ ...serviceForm, retries: Number(e.target.value) })}
+                />
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={serviceForm.check_enabled}
+                    onChange={(e) => setServiceForm({ ...serviceForm, check_enabled: e.target.checked })}
+                  />
+                  {t("Check enabled")}
+                </label>
+              </div>
             )}
+            {servicesError && <div className="error">{servicesError}</div>}
+            <div className="actions">
+              <button type="button" onClick={() => saveService()}>{t("Save")}</button>
+              <button type="button" onClick={() => setServiceEditor({ open: false, mode: "add", node: null, service: null })}>{t("Cancel")}</button>
+            </div>
           </div>
         </div>
       )}

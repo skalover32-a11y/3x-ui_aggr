@@ -44,6 +44,10 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/nodes/:id/services", middleware.RequireRoles(writeRoles...), h.CreateService)
 	auth.PATCH("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.UpdateService)
 	auth.DELETE("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.DeleteService)
+	auth.PUT("/services/:service_id", middleware.RequireRoles(writeRoles...), h.UpdateService)
+	auth.DELETE("/services/:service_id", middleware.RequireRoles(writeRoles...), h.DeleteService)
+	auth.POST("/services/:service_id/run", middleware.RequireRoles(writeRoles...), h.RunServiceCheck)
+	auth.GET("/services/:service_id/results", middleware.RequireRoles(readRoles...), h.ListServiceResults)
 
 	auth.GET("/nodes/:id/checks", middleware.RequireRoles(readRoles...), h.ListNodeChecks)
 	auth.POST("/nodes/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateNodeCheck)
@@ -76,6 +80,8 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.GetTelegramSettings)
 	auth.PUT("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateTelegramSettings)
 	auth.POST("/telegram/test", middleware.RequireRoles(middleware.RoleAdmin), h.SendTelegramTest)
+	auth.POST("/alerts/:fingerprint/mute", middleware.RequireRoles(writeRoles...), h.MuteAlert)
+	auth.POST("/alerts/:fingerprint/retry", middleware.RequireRoles(writeRoles...), h.RetryAlert)
 
 	auth.GET("/users", middleware.RequireRoles(middleware.RoleAdmin), h.ListUsers)
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)

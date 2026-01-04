@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	dedupTTL         = 10 * time.Minute
+	dedupTTL         = 5 * time.Minute
 	cpuLoadThreshold = 2.0
 	memPercentHigh   = 90.0
 	diskFreeLow      = 10.0
@@ -41,6 +41,11 @@ type Settings struct {
 	AlertCPU        bool
 	AlertMemory     bool
 	AlertDisk       bool
+}
+
+type alertMessageID struct {
+	ChatID    string `json:"chat_id"`
+	MessageID int    `json:"message_id"`
 }
 
 type SendResult struct {
@@ -241,45 +246,77 @@ func serviceTarget(node *db.Node, service *db.Service) string {
 }
 
 func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active bool, alert Alert) {
-	if s == nil || s.client == nil || s.dedup == nil {
+	if s == nil || s.client == nil || settings == nil {
 		return
 	}
-	if !active {
-		s.dedup.ClearByPrefix(fmt.Sprintf("%s|%s", alert.Type, strings.ToLower(alert.NodeName)))
-		return
-	}
-	if s.isMuted(ctx, alert.NodeID.String()) {
-		return
-	}
-	alert.AlertID = uuid.NewString()
-	alert.Fingerprint = fingerprintFor(alert)
-	send, entry := s.dedup.Track(alert, time.Now())
-	if entry != nil {
-		alert.Occurrences = entry.occurrences
-	}
-	text, keyboard := RenderAlert(alert, s.publicBaseURL)
-	if send {
-		messageIDs := map[string]int{}
-		for _, chatID := range settings.AdminChatIDs {
-			msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
-			if err != nil {
-				log.Printf("telegram alert failed chat_id=%s error=%v", chatID, err)
-				continue
+	status := strings.ToLower(strings.TrimSpace(alert.Status))
+	if status == "" {
+		if active {
+			if alert.Severity == SeverityWarning {
+				status = "warn"
+			} else {
+				status = "fail"
 			}
-			messageIDs[chatID] = msgID
-		}
-		s.dedup.RecordSend(alert.Fingerprint, messageIDs)
-		return
-	}
-	messageIDs := s.dedup.MessageIDs(alert.Fingerprint)
-	if len(messageIDs) == 0 {
-		return
-	}
-	for chatID, msgID := range messageIDs {
-		if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
-			log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
+		} else {
+			status = "ok"
 		}
 	}
+	alert.Status = status
+	alert.Fingerprint = fingerprintFor(alert)
+	now := time.Now()
+	state := s.loadState(ctx, alert.Fingerprint)
+
+	if status == "ok" {
+		if state != nil && state.LastStatus != nil && *state.LastStatus != "ok" {
+			alert.Occurrences = state.Occurrences
+			s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSON(state.LastMessageIDs))
+			s.sendRecovery(ctx, settings, alert, state)
+		}
+		return
+	}
+
+	if state != nil {
+		alert.Occurrences = state.Occurrences + 1
+	} else {
+		alert.Occurrences = 1
+	}
+
+	if s.isMuted(ctx, alert.Fingerprint) {
+		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
+		return
+	}
+
+	messageIDs := map[string]int{}
+	if state != nil {
+		messageIDs = messageIDsFromJSON(state.LastMessageIDs)
+	}
+	shouldNotify := true
+	if state != nil && state.LastStatus != nil && *state.LastStatus == status && len(messageIDs) > 0 {
+		if now.Sub(state.UpdatedAt) < dedupTTL {
+			shouldNotify = false
+		}
+	}
+	if shouldNotify {
+		text, keyboard := RenderAlert(alert, s.publicBaseURL)
+		if len(messageIDs) == 0 {
+			for _, chatID := range settings.AdminChatIDs {
+				msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
+				if err != nil {
+					log.Printf("telegram alert failed chat_id=%s error=%v", chatID, err)
+					continue
+				}
+				messageIDs[chatID] = msgID
+			}
+		} else {
+			for chatID, msgID := range messageIDs {
+				if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
+					log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
+				}
+			}
+		}
+	}
+
+	s.updateState(ctx, alert, state, status, now, shouldNotify, messageIDs)
 }
 
 func (s *Service) SendTest(ctx context.Context, settings *Settings, msg string) error {
@@ -322,9 +359,17 @@ func (s *Service) HandleCallback(ctx context.Context, token, data string) (strin
 		return "Mute updated", nil
 	}
 	if strings.HasPrefix(data, "retry:") {
-		return "Retry requested", nil
+		return "Retry queued", nil
 	}
 	return "OK", nil
+}
+
+func (s *Service) MuteFingerprint(ctx context.Context, fingerprint string, dur time.Duration) error {
+	if strings.TrimSpace(fingerprint) == "" {
+		return fmt.Errorf("fingerprint required")
+	}
+	s.setMute(fingerprint, dur)
+	return nil
 }
 
 func (s *Service) AnswerCallback(ctx context.Context, token, callbackID, text string) error {
@@ -334,43 +379,41 @@ func (s *Service) AnswerCallback(ctx context.Context, token, callbackID, text st
 	return s.client.AnswerCallback(ctx, token, callbackID, text)
 }
 
-func (s *Service) setMute(nodeID string, dur time.Duration) {
+func (s *Service) setMute(fingerprint string, dur time.Duration) {
+	if strings.TrimSpace(fingerprint) == "" {
+		return
+	}
 	s.mu.Lock()
-	s.mutedUntil[nodeID] = time.Now().Add(dur)
+	s.mutedUntil[fingerprint] = time.Now().Add(dur)
 	s.mu.Unlock()
 	if s == nil || s.db == nil {
 		return
 	}
-	id, err := uuid.Parse(nodeID)
-	if err != nil {
-		return
-	}
 	until := time.Now().Add(dur)
-	_ = s.db.Model(&db.AlertState{}).Where("node_id = ?", id).Updates(map[string]any{
+	_ = s.db.Model(&db.AlertState{}).Where("fingerprint = ?", fingerprint).Updates(map[string]any{
 		"muted_until": until,
 		"updated_at":  time.Now(),
 	}).Error
 }
-func (s *Service) isMuted(ctx context.Context, nodeID string) bool {
+func (s *Service) isMuted(ctx context.Context, fingerprint string) bool {
+	if strings.TrimSpace(fingerprint) == "" {
+		return false
+	}
 	s.mu.Lock()
-	until, ok := s.mutedUntil[nodeID]
+	until, ok := s.mutedUntil[fingerprint]
 	if ok && time.Now().Before(until) {
 		s.mu.Unlock()
 		return true
 	}
 	if ok {
-		delete(s.mutedUntil, nodeID)
+		delete(s.mutedUntil, fingerprint)
 	}
 	s.mu.Unlock()
 	if s == nil || s.db == nil {
 		return false
 	}
-	id, err := uuid.Parse(nodeID)
-	if err != nil {
-		return false
-	}
 	var state db.AlertState
-	err = s.db.WithContext(ctx).Where("node_id = ? AND muted_until > ?", id, time.Now()).Order("muted_until desc").First(&state).Error
+	err := s.db.WithContext(ctx).Where("fingerprint = ? AND muted_until > ?", fingerprint, time.Now()).First(&state).Error
 	if err != nil {
 		return false
 	}
@@ -378,7 +421,7 @@ func (s *Service) isMuted(ctx context.Context, nodeID string) bool {
 		return false
 	}
 	s.mu.Lock()
-	s.mutedUntil[nodeID] = *state.MutedUntil
+	s.mutedUntil[fingerprint] = *state.MutedUntil
 	s.mu.Unlock()
 	return true
 }
@@ -436,37 +479,25 @@ func (s *Service) loadState(ctx context.Context, fingerprint string) *db.AlertSt
 	return &state
 }
 
-func (s *Service) resolveState(ctx context.Context, alert Alert) {
+func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertState, status string, now time.Time, notified bool, messageIDs map[string]int) {
 	if s == nil || s.db == nil {
 		return
 	}
-	status := "resolved"
-	now := time.Now()
-	_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(map[string]any{
+	payload := map[string]any{
+		"alert_type":  string(alert.Type),
+		"node_id":     nullableUUID(alert.NodeID),
+		"service_id":  nullableUUID(alert.ServiceID),
+		"check_type":  nullableString(alert.CheckType),
 		"last_status": status,
 		"last_seen":   now,
-		"updated_at":  now,
-	}).Error
-}
-
-func (s *Service) saveState(ctx context.Context, alert Alert, messageIDs map[string]int, now time.Time) {
-	if s == nil || s.db == nil {
-		return
+		"occurrences": alert.Occurrences,
 	}
-	status := "active"
-	payload := map[string]any{
-		"alert_type":       string(alert.Type),
-		"node_id":          nullableUUID(alert.NodeID),
-		"service_id":       nullableUUID(alert.ServiceID),
-		"check_type":       nullableString(alert.CheckType),
-		"last_status":      status,
-		"last_seen":        now,
-		"updated_at":       now,
-		"occurrences":      alert.Occurrences,
-		"last_message_ids": messageIDsToJSON(messageIDs),
+	if notified {
+		payload["updated_at"] = now
+		payload["last_message_ids"] = messageIDsToJSON(messageIDs)
 	}
-	_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(payload).Error
-	if err := s.db.WithContext(ctx).First(&db.AlertState{}, "fingerprint = ?", alert.Fingerprint).Error; err == nil {
+	if state != nil {
+		_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(payload).Error
 		return
 	}
 	row := db.AlertState{
@@ -485,26 +516,75 @@ func (s *Service) saveState(ctx context.Context, alert Alert, messageIDs map[str
 	_ = s.db.WithContext(ctx).Create(&row).Error
 }
 
+func (s *Service) sendRecovery(ctx context.Context, settings *Settings, alert Alert, state *db.AlertState) {
+	if settings == nil || state == nil {
+		return
+	}
+	messageIDs := messageIDsFromJSON(state.LastMessageIDs)
+	text, keyboard := RenderRecovery(alert, s.publicBaseURL)
+	if len(messageIDs) == 0 {
+		for _, chatID := range settings.AdminChatIDs {
+			msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
+			if err != nil {
+				log.Printf("telegram recovery failed chat_id=%s error=%v", chatID, err)
+				continue
+			}
+			messageIDs[chatID] = msgID
+		}
+		return
+	}
+	for chatID, msgID := range messageIDs {
+		if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
+			log.Printf("telegram recovery edit failed chat_id=%s error=%v", chatID, err)
+		}
+	}
+}
+
 func messageIDsFromJSON(raw datatypes.JSON) map[string]int {
 	if len(raw) == 0 {
-		return nil
+		return map[string]int{}
 	}
-	var out map[string]int
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil
+	var list []alertMessageID
+	if err := json.Unmarshal(raw, &list); err != nil {
+		var legacy map[string]int
+		if err := json.Unmarshal(raw, &legacy); err != nil {
+			return map[string]int{}
+		}
+		return legacy
+	}
+	out := map[string]int{}
+	for _, item := range list {
+		if strings.TrimSpace(item.ChatID) == "" || item.MessageID == 0 {
+			continue
+		}
+		out[item.ChatID] = item.MessageID
 	}
 	return out
 }
 
 func messageIDsToJSON(values map[string]int) datatypes.JSON {
 	if values == nil {
-		return datatypes.JSON([]byte("{}"))
+		return datatypes.JSON([]byte("[]"))
 	}
-	b, err := json.Marshal(values)
+	list := make([]alertMessageID, 0, len(values))
+	for chatID, msgID := range values {
+		if strings.TrimSpace(chatID) == "" || msgID == 0 {
+			continue
+		}
+		list = append(list, alertMessageID{ChatID: chatID, MessageID: msgID})
+	}
+	b, err := json.Marshal(list)
 	if err != nil {
-		return datatypes.JSON([]byte("{}"))
+		return datatypes.JSON([]byte("[]"))
 	}
 	return datatypes.JSON(b)
+}
+
+func messageIDsFromJSONOrEmpty(state *db.AlertState) map[string]int {
+	if state == nil {
+		return map[string]int{}
+	}
+	return messageIDsFromJSON(state.LastMessageIDs)
 }
 
 func nullableString(value string) *string {

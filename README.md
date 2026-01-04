@@ -151,17 +151,38 @@ curl -s http://localhost:8080/api/nodes \
 - Web SSH: use the "SSH" button on a node card (admin only). The browser terminal connects via WebSocket; SSH keys never leave the server.
 - Web SSH limits: global max sessions (`GLOBAL_MAX_SSH_SESSIONS`) and idle timeout (`SSH_IDLE_TIMEOUT_SECONDS`).
 
+## Services & checks (UI)
+1. Open a node and switch to the **Services** tab.
+2. Click **Add** and fill:
+   - `URL` (base or full URL)
+   - `Health path` (e.g. `/` or `/health`)
+   - `Expected status` list (defaults to `200`)
+3. Leave **Create HTTP check** enabled to auto-create the check with defaults:
+   - interval: 60 sec
+   - timeout: 3000 ms
+   - retries: 1
+4. Use **Run now** to trigger an immediate check; results update in the table.
+5. Use **Disable/Enable** to stop/resume checks for a service.
+
+## Alerts: mute / retry / run-now
+- **Mute 1h** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.
+- **Retry** triggers an immediate run-now check for the related service.
+- When a failed check becomes **ok**, a recovery message is sent/edited.
+- Telegram notifications are deduplicated per fingerprint (same status) for 5 minutes.
+
 ## Telegram alerts
 Alerts are sent in Telegram HTML format with inline buttons (open node, metrics, retry, mute).
 To enable callback buttons, set the webhook to:
 ```bash
 curl -s "https://api.telegram.org/bot<token>/setWebhook?url=https://<PUBLIC_BASE_URL>/api/telegram/webhook"
 ```
+Required env for links/buttons:
+- `PUBLIC_BASE_URL` (example: `https://aggr.example.com`)
 
 Example alert:
 ```
 🔥 High CPU — NODE-1
-load1: 2.16 (threshold 2.00) • 2025-01-02 03:04:05
+load1: 2.16 (threshold 2.00) | 2025-01-02 03:04:05
 Host: 1.2.3.4
 Severity: WARNING
 ```

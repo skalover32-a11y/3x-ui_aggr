@@ -51,7 +51,20 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 		return
 	}
-	msg, _ := h.Alerts.HandleCallback(c.Request.Context(), token, update.CallbackQuery.Data)
+	data := strings.TrimSpace(update.CallbackQuery.Data)
+	msg := "OK"
+	if strings.HasPrefix(data, "retry:") {
+		fingerprint := strings.TrimSpace(strings.TrimPrefix(data, "retry:"))
+		if fingerprint != "" {
+			if _, err := h.runRetry(c.Request.Context(), fingerprint); err != nil {
+				msg = "Retry failed"
+			} else {
+				msg = "Retry queued"
+			}
+		}
+	} else {
+		msg, _ = h.Alerts.HandleCallback(c.Request.Context(), token, data)
+	}
 	_ = h.Alerts.AnswerCallback(c.Request.Context(), token, update.CallbackQuery.ID, msg)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

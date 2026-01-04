@@ -15,6 +15,7 @@ import (
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/alerts"
+	"agr_3x_ui/internal/services/checks"
 	"agr_3x_ui/internal/services/panelclient"
 	"agr_3x_ui/internal/services/sshclient"
 	"agr_3x_ui/internal/services/sshws"
@@ -25,6 +26,7 @@ type Handler struct {
 	Encryptor      *security.Encryptor
 	Audit          *audit.Service
 	Alerts         *alerts.Service
+	Checks         *checks.Worker
 	AdminUser      string
 	AdminPass      string
 	JWTSecret      []byte
