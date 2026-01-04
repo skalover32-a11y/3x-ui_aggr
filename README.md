@@ -104,6 +104,32 @@ curl -s http://localhost:8080/api/nodes/<node_id>/status \
   -H "Authorization: Bearer <token>"
 ```
 
+
+Health check:
+```bash
+curl -s http://localhost:8080/api/healthz
+```
+
+List services:
+```bash
+curl -s http://localhost:8080/api/services \
+  -H "Authorization: Bearer <token>"
+```
+
+Create service (global):
+```bash
+curl -s http://localhost:8080/api/services \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"node_id":"<node_id>","kind":"CUSTOM_HTTP","url":"https://example.com","health_path":"/","expected_status":[200]}'
+```
+
+Run service check now:
+```bash
+curl -s -X POST http://localhost:8080/api/services/<service_id>/run \
+  -H "Authorization: Bearer <token>"
+```
+
 Node uptime (last 60 minutes):
 ```bash
 curl -s "http://localhost:8080/api/nodes/<node_id>/uptime?minutes=60" \
@@ -163,6 +189,7 @@ curl -s http://localhost:8080/api/nodes \
    - retries: 1
 4. Use **Run now** to trigger an immediate check; results update in the table.
 5. Use **Disable/Enable** to stop/resume checks for a service.
+6. Runner starts automatically with the backend (no extra ENV required).
 
 ## Alerts: mute / retry / run-now
 - **Mute 1h** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.

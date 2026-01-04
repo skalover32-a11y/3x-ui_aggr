@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"io"
 	"net"
 	"net/http"
@@ -25,11 +26,12 @@ import (
 
 // Worker runs generic checks for nodes and services.
 type Worker struct {
-	DB        *gorm.DB
-	Alerts    *alerts.Service
-	SSH       *sshclient.Client
-	Encryptor *security.Encryptor
-	Interval  time.Duration
+	DB          *gorm.DB
+	Alerts      *alerts.Service
+	SSH         *sshclient.Client
+	Encryptor   *security.Encryptor
+	Interval    time.Duration
+	loggedStart bool
 }
 
 func New(dbConn *gorm.DB, alertsSvc *alerts.Service, ssh *sshclient.Client, enc *security.Encryptor, interval time.Duration) *Worker {
@@ -60,11 +62,21 @@ func (w *Worker) runOnce(ctx context.Context) {
 		return
 	}
 	var checks []db.Check
-	if err := w.DB.WithContext(ctx).Where("enabled = true").Find(&checks).Error; err != nil {
+	if err := w.DB.WithContext(ctx).Where("enabled = true AND lower(target_type) = ?", "service").Find(&checks).Error; err != nil {
 		return
 	}
 	if len(checks) == 0 {
+		if !w.loggedStart {
+			log.Printf("service checks runner started: checks=0")
+			w.loggedStart = true
+		}
 		return
+	}
+
+	serviceCheckCount := len(checks)
+	if !w.loggedStart {
+		log.Printf("service checks runner started: checks=%d", serviceCheckCount)
+		w.loggedStart = true
 	}
 
 	nodeMap := map[string]db.Node{}

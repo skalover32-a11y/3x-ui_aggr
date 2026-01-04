@@ -26,6 +26,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
 	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
 	api.POST("/telegram/webhook", h.TelegramWebhook)
+	api.GET("/healthz", h.Healthz)
 
 	auth := api.Group("")
 	auth.Use(middleware.JWTAuth(h.JWTSecret))
@@ -42,6 +43,8 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.GET("/nodes/:id/services", middleware.RequireRoles(readRoles...), h.ListServices)
 	auth.POST("/nodes/:id/services", middleware.RequireRoles(writeRoles...), h.CreateService)
+	auth.GET("/services", middleware.RequireRoles(readRoles...), h.ListAllServices)
+	auth.POST("/services", middleware.RequireRoles(writeRoles...), h.CreateServiceGlobal)
 	auth.PATCH("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.UpdateService)
 	auth.DELETE("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.DeleteService)
 	auth.PUT("/services/:service_id", middleware.RequireRoles(writeRoles...), h.UpdateService)

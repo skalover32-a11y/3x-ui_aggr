@@ -17,6 +17,7 @@ import (
 )
 
 type serviceRequest struct {
+	NodeID         *string           `json:"node_id"`
 	Kind           string            `json:"kind"`
 	URL            *string           `json:"url"`
 	Host           *string           `json:"host"`
@@ -77,6 +78,73 @@ func toServiceResponse(service *db.Service) serviceResponse {
 	}
 }
 
+func (h *Handler) buildServiceFromRequest(nodeID uuid.UUID, req *serviceRequest) (*db.Service, error) {
+	headers, err := headersToJSON(req.Headers)
+	if err != nil {
+		return nil, err
+	}
+	enabled := true
+	if req.IsEnabled != nil {
+		enabled = *req.IsEnabled
+	}
+	service := &db.Service{
+		NodeID:         nodeID,
+		Kind:           strings.TrimSpace(req.Kind),
+		URL:            trimPtr(req.URL),
+		Host:           trimPtr(req.Host),
+		Port:           req.Port,
+		TLSMode:        trimPtr(req.TLSMode),
+		HealthPath:     trimPtr(req.HealthPath),
+		ExpectedStatus: int64Array(req.ExpectedStatus),
+		Headers:        headers,
+		AuthRef:        trimPtr(req.AuthRef),
+		IsEnabled:      enabled,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	return service, nil
+}
+
+
+func (h *Handler) ListAllServices(c *gin.Context) {
+	var rows []db.Service
+	if err := h.DB.WithContext(c.Request.Context()).Find(&rows).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list services")
+		return
+	}
+	resp := make([]serviceResponse, 0, len(rows))
+	for i := range rows {
+		resp = append(resp, toServiceResponse(&rows[i]))
+	}
+	respondStatus(c, http.StatusOK, resp)
+}
+
+func (h *Handler) CreateServiceGlobal(c *gin.Context) {
+	var req serviceRequest
+	if !parseJSONBody(c, &req) {
+		return
+	}
+	if req.NodeID == nil || strings.TrimSpace(*req.NodeID) == "" {
+		respondError(c, http.StatusBadRequest, "INVALID_NODE", "node_id required")
+		return
+	}
+	node, err := h.getNode(c.Request.Context(), strings.TrimSpace(*req.NodeID))
+	if err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
+		return
+	}
+	service, err := h.buildServiceFromRequest(node.ID, &req)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
+		return
+	}
+	if err := h.DB.WithContext(c.Request.Context()).Create(service).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
+		return
+	}
+	respondStatus(c, http.StatusCreated, toServiceResponse(service))
+}
+
 func (h *Handler) ListServices(c *gin.Context) {
 	node, err := h.getNode(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -105,35 +173,16 @@ func (h *Handler) CreateService(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
-	headers, err := headersToJSON(req.Headers)
+	service, err := h.buildServiceFromRequest(node.ID, &req)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
 		return
 	}
-	enabled := true
-	if req.IsEnabled != nil {
-		enabled = *req.IsEnabled
-	}
-	service := db.Service{
-		NodeID:         node.ID,
-		Kind:           strings.TrimSpace(req.Kind),
-		URL:            trimPtr(req.URL),
-		Host:           trimPtr(req.Host),
-		Port:           req.Port,
-		TLSMode:        trimPtr(req.TLSMode),
-		HealthPath:     trimPtr(req.HealthPath),
-		ExpectedStatus: int64Array(req.ExpectedStatus),
-		Headers:        headers,
-		AuthRef:        trimPtr(req.AuthRef),
-		IsEnabled:      enabled,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
-	if err := h.DB.WithContext(c.Request.Context()).Create(&service).Error; err != nil {
+	if err := h.DB.WithContext(c.Request.Context()).Create(service).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
 		return
 	}
-	respondStatus(c, http.StatusCreated, toServiceResponse(&service))
+	respondStatus(c, http.StatusCreated, toServiceResponse(service))
 }
 
 func (h *Handler) UpdateService(c *gin.Context) {
