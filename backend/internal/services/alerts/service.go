@@ -1,6 +1,7 @@
 package alerts
 
 import (
+	"encoding/json"
 	"context"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/datatypes"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
@@ -177,6 +179,67 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 	s.maybeSendAlert(ctx, settings, active, alert)
 }
 
+func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *db.Node, service *db.Service, check *db.Check, status string, latency int, statusCode int, errMsg *string) {
+	if settings == nil || node == nil || check == nil {
+		return
+	}
+	active := strings.ToLower(strings.TrimSpace(status)) != "ok"
+	alert := Alert{
+		Type:        AlertGeneric,
+		NodeID:      node.ID,
+		NodeName:    nodeLabel(node),
+		TS:          time.Now(),
+		Severity:    SeverityCritical,
+		ServiceKind: "",
+		CheckType:   strings.TrimSpace(check.Type),
+		Target:      serviceTarget(node, service),
+		Status:      status,
+		PanelURL:    node.BaseURL,
+		IP:          node.SSHHost,
+	}
+	alert.Metrics.LatencyMS = latency
+	alert.Metrics.StatusCode = statusCode
+	alert.CheckID = check.ID
+	if service != nil {
+		alert.ServiceID = service.ID
+		alert.ServiceKind = strings.TrimSpace(service.Kind)
+	}
+	if errMsg != nil {
+		alert.Error = strings.TrimSpace(*errMsg)
+	}
+	s.maybeSendAlert(ctx, settings, active, alert)
+}
+
+func serviceTarget(node *db.Node, service *db.Service) string {
+	if service == nil {
+		return ""
+	}
+	if service.URL != nil && strings.TrimSpace(*service.URL) != "" {
+		return strings.TrimSpace(*service.URL)
+	}
+	host := ""
+	if service.Host != nil {
+		host = strings.TrimSpace(*service.Host)
+	}
+	if host == "" && node != nil {
+		host = strings.TrimSpace(node.Host)
+		if host == "" {
+			host = strings.TrimSpace(node.SSHHost)
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	port := 0
+	if service.Port != nil {
+		port = *service.Port
+	}
+	if port > 0 {
+		return fmt.Sprintf("%s:%d", host, port)
+	}
+	return host
+}
+
 func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active bool, alert Alert) {
 	if s == nil || s.client == nil || s.dedup == nil {
 		return
@@ -273,24 +336,52 @@ func (s *Service) AnswerCallback(ctx context.Context, token, callbackID, text st
 
 func (s *Service) setMute(nodeID string, dur time.Duration) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.mutedUntil[nodeID] = time.Now().Add(dur)
+	s.mu.Unlock()
+	if s == nil || s.db == nil {
+		return
+	}
+	id, err := uuid.Parse(nodeID)
+	if err != nil {
+		return
+	}
+	until := time.Now().Add(dur)
+	_ = s.db.Model(&db.AlertState{}).Where("node_id = ?", id).Updates(map[string]any{
+		"muted_until": until,
+		"updated_at":  time.Now(),
+	}).Error
 }
-
-func (s *Service) isMuted(nodeID string) bool {
+func (s *Service) isMuted(ctx context.Context, nodeID string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	until, ok := s.mutedUntil[nodeID]
-	if !ok {
-		return false
+	if ok && time.Now().Before(until) {
+		s.mu.Unlock()
+		return true
 	}
-	if time.Now().After(until) {
+	if ok {
 		delete(s.mutedUntil, nodeID)
+	}
+	s.mu.Unlock()
+	if s == nil || s.db == nil {
 		return false
 	}
+	id, err := uuid.Parse(nodeID)
+	if err != nil {
+		return false
+	}
+	var state db.AlertState
+	err = s.db.WithContext(ctx).Where("node_id = ? AND muted_until > ?", id, time.Now()).Order("muted_until desc").First(&state).Error
+	if err != nil {
+		return false
+	}
+	if state.MutedUntil == nil {
+		return false
+	}
+	s.mu.Lock()
+	s.mutedUntil[nodeID] = *state.MutedUntil
+	s.mu.Unlock()
 	return true
 }
-
 func splitChatIDs(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -331,4 +422,103 @@ func MemThreshold() float64 {
 
 func DiskThreshold() float64 {
 	return diskFreeLow
+}
+
+func (s *Service) loadState(ctx context.Context, fingerprint string) *db.AlertState {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	var state db.AlertState
+	err := s.db.WithContext(ctx).First(&state, "fingerprint = ?", fingerprint).Error
+	if err != nil {
+		return nil
+	}
+	return &state
+}
+
+func (s *Service) resolveState(ctx context.Context, alert Alert) {
+	if s == nil || s.db == nil {
+		return
+	}
+	status := "resolved"
+	now := time.Now()
+	_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(map[string]any{
+		"last_status": status,
+		"last_seen":   now,
+		"updated_at":  now,
+	}).Error
+}
+
+func (s *Service) saveState(ctx context.Context, alert Alert, messageIDs map[string]int, now time.Time) {
+	if s == nil || s.db == nil {
+		return
+	}
+	status := "active"
+	payload := map[string]any{
+		"alert_type":       string(alert.Type),
+		"node_id":          nullableUUID(alert.NodeID),
+		"service_id":       nullableUUID(alert.ServiceID),
+		"check_type":       nullableString(alert.CheckType),
+		"last_status":      status,
+		"last_seen":        now,
+		"updated_at":       now,
+		"occurrences":      alert.Occurrences,
+		"last_message_ids": messageIDsToJSON(messageIDs),
+	}
+	_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(payload).Error
+	if err := s.db.WithContext(ctx).First(&db.AlertState{}, "fingerprint = ?", alert.Fingerprint).Error; err == nil {
+		return
+	}
+	row := db.AlertState{
+		Fingerprint:    alert.Fingerprint,
+		AlertType:      string(alert.Type),
+		NodeID:         nullableUUID(alert.NodeID),
+		ServiceID:      nullableUUID(alert.ServiceID),
+		CheckType:      nullableString(alert.CheckType),
+		LastStatus:     &status,
+		FirstSeen:      now,
+		LastSeen:       now,
+		Occurrences:    alert.Occurrences,
+		LastMessageIDs: messageIDsToJSON(messageIDs),
+		UpdatedAt:      now,
+	}
+	_ = s.db.WithContext(ctx).Create(&row).Error
+}
+
+func messageIDsFromJSON(raw datatypes.JSON) map[string]int {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out map[string]int
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func messageIDsToJSON(values map[string]int) datatypes.JSON {
+	if values == nil {
+		return datatypes.JSON([]byte("{}"))
+	}
+	b, err := json.Marshal(values)
+	if err != nil {
+		return datatypes.JSON([]byte("{}"))
+	}
+	return datatypes.JSON(b)
+}
+
+func nullableString(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	v := strings.TrimSpace(value)
+	return &v
+}
+
+func nullableUUID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	v := id
+	return &v
 }

@@ -2,58 +2,84 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/datatypes"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/services/sshclient"
 )
 
 type nodeCreateRequest struct {
-	Name          string   `json:"name"`
-	Tags          []string `json:"tags"`
-	BaseURL       string   `json:"base_url"`
-	PanelUsername string   `json:"panel_username"`
-	PanelPassword string   `json:"panel_password"`
-	SSHHost       string   `json:"ssh_host"`
-	SSHPort       int      `json:"ssh_port"`
-	SSHUser       string   `json:"ssh_user"`
-	SSHKey        string   `json:"ssh_key"`
-	VerifyTLS     *bool    `json:"verify_tls"`
+	Name          string          `json:"name"`
+	Tags          []string        `json:"tags"`
+	Host          string          `json:"host"`
+	Region        string          `json:"region"`
+	Provider      string          `json:"provider"`
+	Capabilities  json.RawMessage `json:"capabilities"`
+	IsEnabled     *bool           `json:"is_enabled"`
+	SSHEnabled    *bool           `json:"ssh_enabled"`
+	SSHAuthMethod string          `json:"ssh_auth_method"`
+	SSHPassword   string          `json:"ssh_password"`
+	BaseURL       string          `json:"base_url"`
+	PanelUsername string          `json:"panel_username"`
+	PanelPassword string          `json:"panel_password"`
+	SSHHost       string          `json:"ssh_host"`
+	SSHPort       int             `json:"ssh_port"`
+	SSHUser       string          `json:"ssh_user"`
+	SSHKey        string          `json:"ssh_key"`
+	VerifyTLS     *bool           `json:"verify_tls"`
 }
 
 type nodeUpdateRequest struct {
-	Name          *string   `json:"name"`
-	Tags          *[]string `json:"tags"`
-	BaseURL       *string   `json:"base_url"`
-	PanelUsername *string   `json:"panel_username"`
-	PanelPassword *string   `json:"panel_password"`
-	SSHHost       *string   `json:"ssh_host"`
-	SSHPort       *int      `json:"ssh_port"`
-	SSHUser       *string   `json:"ssh_user"`
-	SSHKey        *string   `json:"ssh_key"`
-	VerifyTLS     *bool     `json:"verify_tls"`
+	Name          *string          `json:"name"`
+	Tags          *[]string        `json:"tags"`
+	Host          *string          `json:"host"`
+	Region        *string          `json:"region"`
+	Provider      *string          `json:"provider"`
+	Capabilities  *json.RawMessage `json:"capabilities"`
+	IsEnabled     *bool            `json:"is_enabled"`
+	SSHEnabled    *bool            `json:"ssh_enabled"`
+	SSHAuthMethod *string          `json:"ssh_auth_method"`
+	SSHPassword   *string          `json:"ssh_password"`
+	BaseURL       *string          `json:"base_url"`
+	PanelUsername *string          `json:"panel_username"`
+	PanelPassword *string          `json:"panel_password"`
+	SSHHost       *string          `json:"ssh_host"`
+	SSHPort       *int             `json:"ssh_port"`
+	SSHUser       *string          `json:"ssh_user"`
+	SSHKey        *string          `json:"ssh_key"`
+	VerifyTLS     *bool            `json:"verify_tls"`
 }
 
 type nodeResponse struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Tags              []string   `json:"tags"`
-	BaseURL           string     `json:"base_url"`
-	PanelUsername     string     `json:"panel_username"`
-	SSHHost           string     `json:"ssh_host"`
-	SSHPort           int        `json:"ssh_port"`
-	SSHUser           string     `json:"ssh_user"`
-	VerifyTLS         bool       `json:"verify_tls"`
-	XrayVersion       *string    `json:"xray_version"`
-	PanelVersion      *string    `json:"panel_version"`
-	VersionsCheckedAt *time.Time `json:"versions_checked_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	Tags              []string        `json:"tags"`
+	Host              string          `json:"host"`
+	Region            string          `json:"region"`
+	Provider          string          `json:"provider"`
+	Capabilities      json.RawMessage `json:"capabilities"`
+	IsEnabled         bool            `json:"is_enabled"`
+	SSHEnabled        bool            `json:"ssh_enabled"`
+	SSHAuthMethod     string          `json:"ssh_auth_method"`
+	BaseURL           string          `json:"base_url"`
+	PanelUsername     string          `json:"panel_username"`
+	SSHHost           string          `json:"ssh_host"`
+	SSHPort           int             `json:"ssh_port"`
+	SSHUser           string          `json:"ssh_user"`
+	VerifyTLS         bool            `json:"verify_tls"`
+	XrayVersion       *string         `json:"xray_version"`
+	PanelVersion      *string         `json:"panel_version"`
+	VersionsCheckedAt *time.Time      `json:"versions_checked_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
 func toNodeResponse(node *db.Node) nodeResponse {
@@ -61,6 +87,13 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		ID:                node.ID.String(),
 		Name:              node.Name,
 		Tags:              []string(node.Tags),
+		Host:              node.Host,
+		Region:            node.Region,
+		Provider:          node.Provider,
+		Capabilities:      json.RawMessage(node.Capabilities),
+		IsEnabled:         node.IsEnabled,
+		SSHEnabled:        node.SSHEnabled,
+		SSHAuthMethod:     node.SSHAuthMethod,
 		BaseURL:           node.BaseURL,
 		PanelUsername:     node.PanelUsername,
 		SSHHost:           node.SSHHost,
@@ -120,9 +153,48 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	if req.VerifyTLS != nil {
 		verifyTLS = *req.VerifyTLS
 	}
+	isEnabled := true
+	if req.IsEnabled != nil {
+		isEnabled = *req.IsEnabled
+	}
+	sshEnabled := true
+	if req.SSHEnabled != nil {
+		sshEnabled = *req.SSHEnabled
+	}
+	authMethod := strings.TrimSpace(req.SSHAuthMethod)
+	if authMethod == "" {
+		authMethod = "key"
+	}
+	caps, err := parseCapabilities(req.Capabilities)
+	if err != nil {
+		msg := "invalid capabilities"
+		h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name}, errString(err))
+		respondError(c, http.StatusBadRequest, "INVALID_CAPS", "invalid capabilities")
+		return
+	}
+	var sshPassEnc *string
+	if strings.TrimSpace(req.SSHPassword) != "" {
+		encPass, err := h.Encryptor.EncryptString(req.SSHPassword)
+		if err != nil {
+			msg := "failed to encrypt ssh password"
+			h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name}, errString(err))
+			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt ssh password")
+			return
+		}
+		sshPassEnc = &encPass
+	}
+
 	node := db.Node{
 		Name:             req.Name,
 		Tags:             req.Tags,
+		Host:             req.Host,
+		Region:           req.Region,
+		Provider:         req.Provider,
+		Capabilities:     caps,
+		IsEnabled:        isEnabled,
+		SSHEnabled:       sshEnabled,
+		SSHAuthMethod:    authMethod,
+		SSHPasswordEnc:   sshPassEnc,
 		BaseURL:          req.BaseURL,
 		PanelUsername:    req.PanelUsername,
 		PanelPasswordEnc: encPass,
@@ -157,6 +229,52 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	}
 	if req.Tags != nil {
 		node.Tags = *req.Tags
+	}
+	if req.Host != nil {
+		node.Host = *req.Host
+	}
+	if req.Region != nil {
+		node.Region = *req.Region
+	}
+	if req.Provider != nil {
+		node.Provider = *req.Provider
+	}
+	if req.Capabilities != nil {
+		caps, err := parseCapabilities(*req.Capabilities)
+		if err != nil {
+			msg := "invalid capabilities"
+			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
+			respondError(c, http.StatusBadRequest, "INVALID_CAPS", "invalid capabilities")
+			return
+		}
+		node.Capabilities = caps
+	}
+	if req.IsEnabled != nil {
+		node.IsEnabled = *req.IsEnabled
+	}
+	if req.SSHEnabled != nil {
+		node.SSHEnabled = *req.SSHEnabled
+	}
+	if req.SSHAuthMethod != nil {
+		val := strings.TrimSpace(*req.SSHAuthMethod)
+		if val == "" {
+			val = "key"
+		}
+		node.SSHAuthMethod = val
+	}
+	if req.SSHPassword != nil {
+		if strings.TrimSpace(*req.SSHPassword) == "" {
+			node.SSHPasswordEnc = nil
+		} else {
+			encPass, err := h.Encryptor.EncryptString(*req.SSHPassword)
+			if err != nil {
+				msg := "failed to encrypt ssh password"
+				h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
+				respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt ssh password")
+				return
+			}
+			node.SSHPasswordEnc = &encPass
+		}
 	}
 	if req.BaseURL != nil {
 		node.BaseURL = *req.BaseURL
@@ -206,6 +324,16 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	respondStatus(c, http.StatusOK, toNodeResponse(node))
 }
 
+func parseCapabilities(raw json.RawMessage) (datatypes.JSON, error) {
+	if len(raw) == 0 {
+		return datatypes.JSON([]byte("{}")), nil
+	}
+	if !json.Valid(raw) {
+		return nil, errors.New("invalid json")
+	}
+	return datatypes.JSON(raw), nil
+}
+
 func (h *Handler) DeleteNode(c *gin.Context) {
 	node, err := h.getNode(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -224,6 +352,30 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 
 func (h *Handler) deleteNodeRecords(ctx context.Context, node *db.Node) error {
 	tx := h.DB.WithContext(ctx).Begin()
+	if err := tx.Exec("DELETE FROM check_results WHERE check_id IN (SELECT id FROM checks WHERE target_type = 'node' AND target_id = ?)", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Exec("DELETE FROM check_results WHERE check_id IN (SELECT id FROM checks WHERE target_type = 'service' AND target_id IN (SELECT id FROM services WHERE node_id = ?))", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Exec("DELETE FROM alert_states WHERE node_id = ? OR service_id IN (SELECT id FROM services WHERE node_id = ?)", node.ID, node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Exec("DELETE FROM checks WHERE target_type = 'service' AND target_id IN (SELECT id FROM services WHERE node_id = ?)", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Exec("DELETE FROM checks WHERE target_type = 'node' AND target_id = ?", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Delete(&db.Service{}, "node_id = ?", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
 	if err := tx.Delete(&db.NodeCheck{}, "node_id = ?", node.ID).Error; err != nil {
 		tx.Rollback()
 		return err

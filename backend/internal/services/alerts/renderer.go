@@ -44,34 +44,47 @@ func renderTitle(alert Alert) string {
 	title := escapeHTML(alert.NodeName)
 	switch alert.Type {
 	case AlertCPU:
-		return fmt.Sprintf("<b>🔥 High CPU — %s</b>", title)
+		return fmt.Sprintf("<b>?? High CPU - %s</b>", title)
 	case AlertMemory:
-		return fmt.Sprintf("<b>🔥 High memory — %s</b>", title)
+		return fmt.Sprintf("<b>?? High memory - %s</b>", title)
 	case AlertDisk:
-		return fmt.Sprintf("<b>⚠️ Low disk space — %s</b>", title)
+		return fmt.Sprintf("<b>?? Low disk space - %s</b>", title)
 	case AlertConnection:
-		return fmt.Sprintf("<b>🚨 Connection issue — %s</b>", title)
+		return fmt.Sprintf("<b>?? Connection issue - %s</b>", title)
+	case AlertGeneric:
+		if strings.TrimSpace(alert.ServiceKind) != "" {
+			return fmt.Sprintf("<b>?? Service alert - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
+		}
+		return fmt.Sprintf("<b>?? Service alert - %s</b>", title)
 	default:
-		return fmt.Sprintf("<b>⚠️ Alert — %s</b>", title)
+		return fmt.Sprintf("<b>?? Alert - %s</b>", title)
 	}
 }
-
 func renderPrimary(alert Alert) string {
 	ts := formatTime(alert.TS)
 	switch alert.Type {
 	case AlertCPU:
-		return fmt.Sprintf("load1: <b>%.2f</b> (threshold %.2f) • %s", alert.Metrics.Load1, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("load1: <b>%.2f</b> (threshold %.2f) \a %s", alert.Metrics.Load1, alert.Metrics.Threshold, ts)
 	case AlertMemory:
-		return fmt.Sprintf("used: <b>%.1f%%</b> (threshold %.1f%%) • %s", alert.Metrics.UsedPct, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("used: <b>%.1f%%</b> (threshold %.1f%%) \a %s", alert.Metrics.UsedPct, alert.Metrics.Threshold, ts)
 	case AlertDisk:
-		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) • %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
+		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) \a %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
 	case AlertConnection:
-		return fmt.Sprintf("PANEL: %s • SSH: %s • %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
+		return fmt.Sprintf("PANEL: %s \a SSH: %s \a %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
+	case AlertGeneric:
+		label := strings.TrimSpace(alert.CheckType)
+		if label == "" {
+			label = "check"
+		}
+		status := strings.TrimSpace(alert.Status)
+		if status == "" {
+			status = "unknown"
+		}
+		return fmt.Sprintf("%s: <b>%s</b> \a %s", escapeHTML(label), escapeHTML(status), ts)
 	default:
 		return fmt.Sprintf("Time: %s", ts)
 	}
 }
-
 func renderMeta(alert Alert) []string {
 	lines := []string{}
 	if alert.PanelURL != "" {
@@ -80,12 +93,23 @@ func renderMeta(alert Alert) []string {
 	if alert.IP != "" {
 		lines = append(lines, fmt.Sprintf("Host: <code>%s</code>", escapeHTML(alert.IP)))
 	}
+	if strings.TrimSpace(alert.ServiceKind) != "" {
+		lines = append(lines, fmt.Sprintf("Service: <code>%s</code>", escapeHTML(alert.ServiceKind)))
+	}
+	if strings.TrimSpace(alert.Target) != "" {
+		lines = append(lines, fmt.Sprintf("Target: <code>%s</code>", escapeHTML(alert.Target)))
+	}
+	if strings.TrimSpace(alert.CheckType) != "" {
+		lines = append(lines, fmt.Sprintf("Check: <code>%s</code>", escapeHTML(alert.CheckType)))
+	}
+	if alert.Metrics.StatusCode != 0 {
+		lines = append(lines, fmt.Sprintf("HTTP status: <code>%d</code>", alert.Metrics.StatusCode))
+	}
 	lines = append(lines, "Channel: <code>Telegram</code>")
 	lines = append(lines, fmt.Sprintf("Severity: <b>%s</b>", severityLabel(alert.Severity)))
 	lines = append(lines, recommendationLine(alert.Type))
 	return lines
 }
-
 func renderReason(alert Alert) string {
 	short := shortReason(alert.Error)
 	return fmt.Sprintf("Reason: <code>%s</code>", escapeHTML(short))
@@ -137,11 +161,12 @@ func recommendationLine(alertType AlertType) string {
 		return "Recommendation: free disk space or grow the volume."
 	case AlertConnection:
 		return "Recommendation: verify panel URL and network connectivity."
+	case AlertGeneric:
+		return "Recommendation: inspect service health and check configuration."
 	default:
 		return "Recommendation: inspect logs for details."
 	}
 }
-
 func formatTime(ts time.Time) string {
 	if ts.IsZero() {
 		return time.Now().Format("2006-01-02 15:04:05")
@@ -187,12 +212,21 @@ func fingerprintFor(alert Alert) string {
 		root = fmt.Sprintf("mem>=%.1f", alert.Metrics.Threshold)
 	case AlertDisk:
 		root = fmt.Sprintf("disk<=%.1f", alert.Metrics.Threshold)
+	case AlertGeneric:
+		if alert.CheckID != uuid.Nil {
+			root = fmt.Sprintf("check:%s", alert.CheckID.String())
+		} else {
+			root = fmt.Sprintf("check:%s|target:%s", strings.ToLower(alert.CheckType), strings.ToLower(alert.Target))
+		}
 	}
 	root = digitRe.ReplaceAllString(root, "0")
 	root = strings.TrimSpace(root)
 	statusBits := ""
 	if alert.Type == AlertConnection {
 		statusBits = fmt.Sprintf("panel=%t,ssh=%t", alert.PanelOK, alert.SSHOK)
+	}
+	if alert.Type == AlertGeneric {
+		statusBits = fmt.Sprintf("status=%s", strings.ToLower(alert.Status))
 	}
 	return fmt.Sprintf("%s|%s|%s|%s", alert.Type, strings.ToLower(alert.NodeName), statusBits, root)
 }

@@ -45,13 +45,13 @@ func (w *Worker) Start(ctx context.Context) {
 
 func (w *Worker) runOnce(ctx context.Context) {
 	var nodes []db.Node
-	if err := w.DB.WithContext(ctx).Find(&nodes).Error; err != nil {
+	if err := w.DB.WithContext(ctx).Where("is_enabled = true").Find(&nodes).Error; err != nil {
 		return
 	}
 	settings, _ := w.Alerts.LoadSettings(ctx)
 	for _, node := range nodes {
 		panelOK, latency, panelErr := checkPanel(ctx, node.BaseURL, node.VerifyTLS)
-		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort)
+		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort, node.SSHEnabled)
 		errMsg := joinErrors(panelErr, sshErr)
 		entry := db.NodeCheck{
 			NodeID:    node.ID,
@@ -104,7 +104,10 @@ func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int,
 	return false, 0, &msg
 }
 
-func checkSSH(ctx context.Context, host string, port int) (bool, *string) {
+func checkSSH(ctx context.Context, host string, port int, enabled bool) (bool, *string) {
+	if !enabled {
+		return true, nil
+	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	dialer := net.Dialer{Timeout: 3 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)

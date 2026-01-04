@@ -54,7 +54,7 @@ func (w *Worker) Start(ctx context.Context) {
 
 func (w *Worker) runOnce(ctx context.Context) {
 	var nodes []db.Node
-	if err := w.DB.WithContext(ctx).Find(&nodes).Error; err != nil {
+	if err := w.DB.WithContext(ctx).Where("is_enabled = true AND ssh_enabled = true").Find(&nodes).Error; err != nil {
 		return
 	}
 	now := time.Now()
@@ -69,6 +69,12 @@ func (w *Worker) runOnce(ctx context.Context) {
 }
 
 func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
+	if strings.TrimSpace(node.SSHAuthMethod) != "" && strings.ToLower(node.SSHAuthMethod) != "key" {
+		msg := "unsupported ssh auth method"
+		w.saveMetric(ctx, node.ID, nil, nil, nil, nil, nil, nil, nil, &msg)
+		return
+	}
+
 	key, err := w.Encryptor.DecryptString(node.SSHKeyEnc)
 	if err != nil {
 		msg := fmt.Sprintf("decrypt key: %v", err)

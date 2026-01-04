@@ -39,6 +39,20 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/nodes/:id/uptime", middleware.RequireRoles(readRoles...), h.GetNodeUptime)
 	auth.GET("/nodes/:id/metrics", middleware.RequireRoles(readRoles...), h.GetNodeMetrics)
 
+
+	auth.GET("/nodes/:id/services", middleware.RequireRoles(readRoles...), h.ListServices)
+	auth.POST("/nodes/:id/services", middleware.RequireRoles(writeRoles...), h.CreateService)
+	auth.PATCH("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.UpdateService)
+	auth.DELETE("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.DeleteService)
+
+	auth.GET("/nodes/:id/checks", middleware.RequireRoles(readRoles...), h.ListNodeChecks)
+	auth.POST("/nodes/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateNodeCheck)
+	auth.GET("/services/:id/checks", middleware.RequireRoles(readRoles...), h.ListServiceChecks)
+	auth.POST("/services/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateServiceCheck)
+	auth.PATCH("/checks/:id", middleware.RequireRoles(writeRoles...), h.UpdateCheck)
+	auth.DELETE("/checks/:id", middleware.RequireRoles(writeRoles...), h.DeleteCheck)
+	auth.GET("/checks/:id/results", middleware.RequireRoles(readRoles...), h.ListCheckResults)
+
 	auth.POST("/nodes", middleware.RequireRoles(writeRoles...), h.CreateNode)
 	auth.PATCH("/nodes/:id", middleware.RequireRoles(writeRoles...), h.UpdateNode)
 	auth.POST("/nodes/:id/test", middleware.RequireRoles(writeRoles...), h.TestNode)
@@ -58,6 +72,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/nodes/:id/actions/:action/run", middleware.RequireRoles(writeRoles...), h.RunNodeAction)
 
 	auth.GET("/audit", middleware.RequireRoles(middleware.RoleAdmin), h.ListAuditLogs)
+	auth.GET("/alerts", middleware.RequireRoles(readRoles...), h.ListAlerts)
 	auth.GET("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.GetTelegramSettings)
 	auth.PUT("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateTelegramSettings)
 	auth.POST("/telegram/test", middleware.RequireRoles(middleware.RoleAdmin), h.SendTelegramTest)

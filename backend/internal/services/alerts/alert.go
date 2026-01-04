@@ -30,12 +30,18 @@ type AlertMetrics struct {
 	UsedPct    float64
 	FreePct    float64
 	LatencyMS  int
+	StatusCode int
 }
-
 type Alert struct {
 	Type        AlertType
 	NodeID      uuid.UUID
+	ServiceID   uuid.UUID
+	CheckID     uuid.UUID
 	NodeName    string
+	ServiceKind string
+	CheckType   string
+	Target      string
+	Status      string
 	TS          time.Time
 	Severity    Severity
 	Metrics     AlertMetrics

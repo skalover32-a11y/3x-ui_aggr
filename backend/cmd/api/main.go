@@ -16,6 +16,7 @@ import (
 	httpapi "agr_3x_ui/internal/http"
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/alerts"
+	"agr_3x_ui/internal/services/checks"
 	"agr_3x_ui/internal/services/metrics"
 	"agr_3x_ui/internal/services/nodecheck"
 	"agr_3x_ui/internal/services/sshclient"
@@ -54,6 +55,7 @@ func main() {
 	}
 	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())
 	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
+	checks.New(dbConn, alertsSvc, handler.SSHClient, enc, 10*time.Second).Start(context.Background())
 	router := httpapi.NewRouter(handler)
 
 	port := os.Getenv("PORT")

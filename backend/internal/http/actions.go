@@ -112,7 +112,7 @@ func (h *Handler) PlanNodeAction(c *gin.Context) {
 	case "delete_node":
 		steps = []string{
 			"Will delete node record",
-			"Will delete related checks and audit logs",
+			"Will delete related services, checks, check results, alerts, and audit logs",
 		}
 	default:
 		respondError(c, http.StatusBadRequest, "INVALID_ACTION", "unknown action")
