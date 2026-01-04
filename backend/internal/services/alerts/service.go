@@ -248,7 +248,7 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		s.dedup.ClearByPrefix(fmt.Sprintf("%s|%s", alert.Type, strings.ToLower(alert.NodeName)))
 		return
 	}
-	if s.isMuted(alert.NodeID.String()) {
+	if s.isMuted(ctx, alert.NodeID.String()) {
 		return
 	}
 	alert.AlertID = uuid.NewString()
