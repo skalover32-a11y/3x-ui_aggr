@@ -340,6 +340,32 @@ button.danger:hover {
   margin: 0;
 }
 
+.node-type-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toggle-pill {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  color: #cbd5f5;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.toggle-pill.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.25);
+}
+
 .muted {
   color: #94a3b8;
 }
@@ -398,12 +424,15 @@ button.danger:hover {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .node-name {
   font-size: 20px;
   font-weight: 700;
   color: #f8fafc;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 
 .tag-row {

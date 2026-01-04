@@ -316,6 +316,7 @@ function NodesPage() {
   const [sshAutoOpened, setSshAutoOpened] = useState("");
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [nodeTab, setNodeTab] = useState("overview");
+  const [nodeTypeFilter, setNodeTypeFilter] = useState("PANEL");
   const [servicesMap, setServicesMap] = useState({});
   const [serviceResults, setServiceResults] = useState({});
   const [servicesBusy, setServicesBusy] = useState(false);
@@ -441,6 +442,13 @@ function NodesPage() {
     const interval = setInterval(fetchChecks, 30000);
     return () => clearInterval(interval);
   }, [nodes]);
+
+  const filteredNodes = useMemo(() => {
+    if (nodeTypeFilter === "HOST") {
+      return nodes.filter((node) => (node.kind || "PANEL") === "HOST");
+    }
+    return nodes.filter((node) => (node.kind || "PANEL") === "PANEL");
+  }, [nodes, nodeTypeFilter]);
 
   useEffect(() => {
     if (!nodeDetails.open || !nodeDetails.node) return;
@@ -1081,11 +1089,27 @@ function NodesPage() {
         <div className="nodes-cards-head">
           <div>
             <h3>{t("Nodes Manager")}</h3>
-            <div className="muted">{t("Servers configured: {count}", { count: nodes.length })}</div>
+            <div className="muted">{t("Servers configured: {count}", { count: filteredNodes.length })}</div>
+          </div>
+          <div className="node-type-toggle">
+            <button
+              type="button"
+              className={`toggle-pill ${nodeTypeFilter === "PANEL" ? "active" : ""}`}
+              onClick={() => setNodeTypeFilter("PANEL")}
+            >
+              {t("3x-ui Panels")}
+            </button>
+            <button
+              type="button"
+              className={`toggle-pill ${nodeTypeFilter === "HOST" ? "active" : ""}`}
+              onClick={() => setNodeTypeFilter("HOST")}
+            >
+              {t("Hosts")}
+            </button>
           </div>
         </div>
 
-        {nodes.map((node) => {
+        {filteredNodes.map((node) => {
           const uptimePoints = uptimeMap[node.id] || [];
           const { percent } = computeUptime(uptimePoints);
           const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
