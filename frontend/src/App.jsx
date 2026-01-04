@@ -328,11 +328,6 @@ function NodesPage() {
     expected_status: ["200"],
     headers_json: "{}",
     is_enabled: true,
-    create_check: true,
-    interval_sec: 60,
-    timeout_ms: 3000,
-    retries: 1,
-    check_enabled: true,
   });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
@@ -641,11 +636,6 @@ function NodesPage() {
       expected_status: ["200"],
       headers_json: "{}",
       is_enabled: true,
-      create_check: true,
-      interval_sec: 60,
-      timeout_ms: 3000,
-      retries: 1,
-      check_enabled: true,
     });
     setServiceEditor({ open: true, mode: "add", node, service: null });
   }
@@ -663,11 +653,6 @@ function NodesPage() {
       expected_status: expected.length > 0 ? expected : ["200"],
       headers_json: headers,
       is_enabled: service.is_enabled !== false,
-      create_check: false,
-      interval_sec: 60,
-      timeout_ms: 3000,
-      retries: 1,
-      check_enabled: true,
     });
     setServiceEditor({ open: true, mode: "edit", node, service });
   }
@@ -702,15 +687,7 @@ function NodesPage() {
     try {
       if (serviceEditor.mode === "add") {
         const created = await request("POST", `/nodes/${serviceEditor.node.id}/services`, payload);
-        if (serviceForm.create_check) {
-          await request("POST", `/services/${created.id}/checks`, {
-            type: "HTTP",
-            interval_sec: serviceForm.interval_sec,
-            timeout_ms: serviceForm.timeout_ms,
-            retries: serviceForm.retries,
-            enabled: serviceForm.check_enabled,
-          });
-        }
+        setServiceResults((prev) => ({ ...prev, [created.id]: null }));
       } else if (serviceEditor.service) {
         await request("PUT", `/services/${serviceEditor.service.id}`, payload);
       }
@@ -1237,47 +1214,7 @@ function NodesPage() {
                 />
                 {t("Enabled")}
               </label>
-              {serviceEditor.mode === "add" && (
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={serviceForm.create_check}
-                    onChange={(e) => setServiceForm({ ...serviceForm, create_check: e.target.checked })}
-                  />
-                  {t("Create HTTP check")}
-                </label>
-              )}
             </div>
-            {serviceEditor.mode === "add" && serviceForm.create_check && (
-              <div className="form-grid" autoComplete="off">
-                <input
-                  type="number"
-                  placeholder={t("Interval (sec)")}
-                  value={serviceForm.interval_sec}
-                  onChange={(e) => setServiceForm({ ...serviceForm, interval_sec: Number(e.target.value) })}
-                />
-                <input
-                  type="number"
-                  placeholder={t("Timeout (ms)")}
-                  value={serviceForm.timeout_ms}
-                  onChange={(e) => setServiceForm({ ...serviceForm, timeout_ms: Number(e.target.value) })}
-                />
-                <input
-                  type="number"
-                  placeholder={t("Retries")}
-                  value={serviceForm.retries}
-                  onChange={(e) => setServiceForm({ ...serviceForm, retries: Number(e.target.value) })}
-                />
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={serviceForm.check_enabled}
-                    onChange={(e) => setServiceForm({ ...serviceForm, check_enabled: e.target.checked })}
-                  />
-                  {t("Check enabled")}
-                </label>
-              </div>
-            )}
             {servicesError && <div className="error">{servicesError}</div>}
             <div className="actions">
               <button type="button" onClick={() => saveService()}>{t("Save")}</button>

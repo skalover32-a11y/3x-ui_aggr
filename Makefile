@@ -1,6 +1,6 @@
 DB_DSN ?= postgres://agg:agg@localhost:5432/agg?sslmode=disable
 
-.PHONY: run migrate-up migrate-down migrate-status lint
+.PHONY: run migrate-up migrate-down migrate-status lint cleanup-services
 
 run:
 	cd backend && go run ./cmd/api
@@ -16,3 +16,6 @@ migrate-status:
 
 lint:
 	cd backend && go vet ./...
+
+cleanup-services:
+	psql "$(DB_DSN)" -v pattern='$(PATTERN)' -f backend/scripts/cleanup_services.sql

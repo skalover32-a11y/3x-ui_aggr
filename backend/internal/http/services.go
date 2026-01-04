@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 )
@@ -105,6 +106,30 @@ func (h *Handler) buildServiceFromRequest(nodeID uuid.UUID, req *serviceRequest)
 	return service, nil
 }
 
+func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID uuid.UUID) error {
+	var count int64
+	if err := tx.WithContext(ctx).Model(&db.Check{}).
+		Where("target_type = ? AND target_id = ?", "service", serviceID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	row := db.Check{
+		TargetType:    "service",
+		TargetID:      serviceID,
+		Type:          "HTTP",
+		IntervalSec:   60,
+		TimeoutMS:     3000,
+		Retries:       1,
+		Enabled:       true,
+		SeverityRules: datatypes.JSON([]byte("{}")),
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+	return tx.WithContext(ctx).Create(&row).Error
+}
 
 func (h *Handler) ListAllServices(c *gin.Context) {
 	var rows []db.Service
@@ -138,7 +163,13 @@ func (h *Handler) CreateServiceGlobal(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
 		return
 	}
-	if err := h.DB.WithContext(c.Request.Context()).Create(service).Error; err != nil {
+	ctx := c.Request.Context()
+	if err := h.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Create(service).Error; err != nil {
+			return err
+		}
+		return h.createDefaultCheck(ctx, tx, service.ID)
+	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
 		return
 	}
@@ -178,7 +209,13 @@ func (h *Handler) CreateService(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
 		return
 	}
-	if err := h.DB.WithContext(c.Request.Context()).Create(service).Error; err != nil {
+	ctx := c.Request.Context()
+	if err := h.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Create(service).Error; err != nil {
+			return err
+		}
+		return h.createDefaultCheck(ctx, tx, service.ID)
+	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
 		return
 	}
@@ -253,24 +290,26 @@ func (h *Handler) DeleteService(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	if err := h.DB.WithContext(ctx).Exec(`
-		DELETE FROM check_results
-		WHERE check_id IN (
-			SELECT id FROM checks WHERE target_type = 'service' AND target_id = ?
-		)
-	`, service.ID).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service results")
-		return
-	}
-	if err := h.DB.WithContext(ctx).Delete(&db.Check{}, "target_type = ? AND target_id = ?", "service", service.ID).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service checks")
-		return
-	}
-	if err := h.DB.WithContext(ctx).Delete(&db.AlertState{}, "service_id = ?", service.ID).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service alerts")
-		return
-	}
-	if err := h.DB.WithContext(ctx).Delete(&db.Service{}, "id = ?", service.ID).Error; err != nil {
+	if err := h.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Exec(`
+			DELETE FROM check_results
+			WHERE check_id IN (
+				SELECT id FROM checks WHERE target_type = 'service' AND target_id = ?
+			)
+		`, service.ID).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Delete(&db.Check{}, "target_type = ? AND target_id = ?", "service", service.ID).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Delete(&db.AlertState{}, "service_id = ?", service.ID).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).Delete(&db.Service{}, "id = ?", service.ID).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_DELETE", "failed to delete service")
 		return
 	}
@@ -322,15 +361,26 @@ func (h *Handler) ListServiceResults(c *gin.Context) {
 	if limit > 1000 {
 		limit = 1000
 	}
+	minutes := 0
+	if raw := c.Query("minutes"); raw != "" {
+		if val, err := strconv.Atoi(raw); err == nil {
+			minutes = val
+		}
+	}
+	var since time.Time
+	if minutes > 0 {
+		since = time.Now().Add(-time.Duration(minutes) * time.Minute)
+	}
 	var rows []db.CheckResult
-	if err := h.DB.WithContext(c.Request.Context()).Raw(`
-		SELECT cr.id, cr.check_id, cr.ts, cr.status, cr.metrics, cr.error, cr.latency_ms
-		FROM check_results cr
-		JOIN checks c ON c.id = cr.check_id
-		WHERE c.target_type = 'service' AND c.target_id = ?
-		ORDER BY cr.ts DESC
-		LIMIT ?
-	`, service.ID, limit).Scan(&rows).Error; err != nil {
+	query := h.DB.WithContext(c.Request.Context()).
+		Table("check_results cr").
+		Select("cr.id, cr.check_id, cr.ts, cr.status, cr.metrics, cr.error, cr.latency_ms").
+		Joins("JOIN checks c ON c.id = cr.check_id").
+		Where("c.target_type = 'service' AND c.target_id = ?", service.ID)
+	if !since.IsZero() {
+		query = query.Where("cr.ts >= ?", since)
+	}
+	if err := query.Order("cr.ts desc").Limit(limit).Scan(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list service results")
 		return
 	}

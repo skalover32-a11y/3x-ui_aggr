@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
-	"gorm.io/datatypes"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/http/middleware"
@@ -55,34 +54,6 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	if err := dbConn.Create(&node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
-	service := db.Service{
-		ID:             uuid.New(),
-		NodeID:         node.ID,
-		Kind:           "CUSTOM_HTTP",
-		URL:            stringPtr(srv.URL),
-		HealthPath:     stringPtr("/"),
-		ExpectedStatus: pq.Int64Array{200},
-		Headers:        datatypes.JSON([]byte("{}")),
-		IsEnabled:      true,
-	}
-	if err := dbConn.Create(&service).Error; err != nil {
-		t.Fatalf("create service: %v", err)
-	}
-	check := db.Check{
-		ID:            uuid.New(),
-		TargetType:    "service",
-		TargetID:      service.ID,
-		Type:          "HTTP",
-		IntervalSec:   60,
-		TimeoutMS:     1000,
-		Retries:       0,
-		Enabled:       true,
-		SeverityRules: datatypes.JSON([]byte("{}")),
-	}
-	if err := dbConn.Create(&check).Error; err != nil {
-		t.Fatalf("create check: %v", err)
-	}
-
 	secret := []byte("test")
 	claims := middleware.Claims{
 		Role: "admin",
@@ -103,8 +74,39 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	}
 	r := NewRouter(h)
 
+	createBody := map[string]any{
+		"node_id":         node.ID.String(),
+		"kind":            "CUSTOM_HTTP",
+		"url":             srv.URL,
+		"health_path":     "/",
+		"expected_status": []int{200},
+	}
+	bodyBytes, _ := json.Marshal(createBody)
 	resp := httptest.NewRecorder()
-	request, _ := http.NewRequest(http.MethodPost, "/api/services/"+service.ID.String()+"/run", bytes.NewReader([]byte("{}")))
+	req, _ := http.NewRequest(http.MethodPost, "/api/services", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var created serviceResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("parse service response: %v", err)
+	}
+
+	serviceID, err := uuid.Parse(created.ID)
+	if err != nil {
+		t.Fatalf("parse service id: %v", err)
+	}
+
+	var check db.Check
+	if err := dbConn.Where("target_type = ? AND target_id = ?", "service", serviceID).First(&check).Error; err != nil {
+		t.Fatalf("expected auto-created check: %v", err)
+	}
+
+	resp := httptest.NewRecorder()
+	request, _ := http.NewRequest(http.MethodPost, "/api/services/"+created.ID+"/run", bytes.NewReader([]byte("{}")))
 	request.Header.Set("Authorization", "Bearer "+jwtToken)
 	request.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(resp, request)

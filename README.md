@@ -130,6 +130,17 @@ curl -s -X POST http://localhost:8080/api/services/<service_id>/run \
   -H "Authorization: Bearer <token>"
 ```
 
+Service results (last 60 minutes):
+```bash
+curl -s "http://localhost:8080/api/services/<service_id>/results?minutes=60" \
+  -H "Authorization: Bearer <token>"
+```
+
+Cleanup test services by URL pattern:
+```bash
+make cleanup-services PATTERN='%example.com%'
+```
+
 Node uptime (last 60 minutes):
 ```bash
 curl -s "http://localhost:8080/api/nodes/<node_id>/uptime?minutes=60" \
@@ -183,13 +194,13 @@ curl -s http://localhost:8080/api/nodes \
    - `URL` (base or full URL)
    - `Health path` (e.g. `/` or `/health`)
    - `Expected status` list (defaults to `200`)
-3. Leave **Create HTTP check** enabled to auto-create the check with defaults:
+3. Backend auto-creates a default HTTP check for each service:
    - interval: 60 sec
    - timeout: 3000 ms
    - retries: 1
 4. Use **Run now** to trigger an immediate check; results update in the table.
 5. Use **Disable/Enable** to stop/resume checks for a service.
-6. Runner starts automatically with the backend (no extra ENV required).
+6. Runner starts automatically with the backend (no extra ENV required). On startup it backfills checks for services without one.
 
 ## Alerts: mute / retry / run-now
 - **Mute 1h** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.

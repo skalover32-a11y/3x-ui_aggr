@@ -43,6 +43,7 @@ func (w *Worker) Start(ctx context.Context) {
 		return
 	}
 	go func() {
+		w.backfillServiceChecks(ctx)
 		w.runOnce(ctx)
 		ticker := time.NewTicker(w.Interval)
 		defer ticker.Stop()
@@ -100,13 +101,19 @@ func (w *Worker) runOnce(ctx context.Context) {
 	}
 
 	now := time.Now()
+	dueCount := 0
+	runCount := 0
 	for _, check := range checks {
 		last := lastMap[check.ID.String()]
 		if !isDue(now, check.IntervalSec, last) {
 			continue
 		}
-		w.runCheck(ctx, settings, &check, nodeMap, serviceMap)
+		dueCount++
+		if w.runCheck(ctx, settings, &check, nodeMap, serviceMap) {
+			runCount++
+		}
 	}
+	log.Printf("service checks tick: total=%d due=%d executed=%d", serviceCheckCount, dueCount, runCount)
 }
 
 func isDue(now time.Time, intervalSec int, last *db.CheckResult) bool {
@@ -150,27 +157,51 @@ func retriesFor(check *db.Check) int {
 	return check.Retries + 1
 }
 
-func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service) {
+func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service) bool {
 	if check == nil {
-		return
+		return false
 	}
 	switch strings.ToLower(check.TargetType) {
 	case "node":
 		node, ok := nodeMap[check.TargetID.String()]
 		if !ok || !node.IsEnabled {
-			return
+			return false
 		}
 		w.runNodeCheck(ctx, settings, &node, check)
+		return true
 	case "service":
 		service, ok := serviceMap[check.TargetID.String()]
 		if !ok || !service.IsEnabled {
-			return
+			return false
 		}
 		node, ok := nodeMap[service.NodeID.String()]
 		if !ok || !node.IsEnabled {
-			return
+			return false
 		}
 		w.runServiceCheck(ctx, settings, &node, &service, check)
+		return true
+	}
+	return false
+}
+
+func (w *Worker) backfillServiceChecks(ctx context.Context) {
+	if w == nil || w.DB == nil {
+		return
+	}
+	res := w.DB.WithContext(ctx).Exec(`
+		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, enabled, severity_rules, created_at, updated_at)
+		SELECT 'service', s.id, 'HTTP', 60, 3000, 1, true, '{}'::jsonb, now(), now()
+		FROM services s
+		WHERE NOT EXISTS (
+			SELECT 1 FROM checks c WHERE c.target_type = 'service' AND c.target_id = s.id
+		)
+	`)
+	if res.Error != nil {
+		log.Printf("service checks backfill failed: %v", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("service checks backfill: created=%d", res.RowsAffected)
 	}
 }
 
@@ -504,7 +535,26 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 		Where("target_type = ? AND target_id = ? AND enabled = true", "service", service.ID).
 		Order("created_at desc").
 		First(&check).Error; err != nil {
-		return nil, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			backfill := db.Check{
+				TargetType:    "service",
+				TargetID:      service.ID,
+				Type:          "HTTP",
+				IntervalSec:   60,
+				TimeoutMS:     3000,
+				Retries:       1,
+				Enabled:       true,
+				SeverityRules: datatypes.JSON([]byte("{}")),
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}
+			if err := w.DB.WithContext(ctx).Create(&backfill).Error; err != nil {
+				return nil, err
+			}
+			check = backfill
+		} else {
+			return nil, err
+		}
 	}
 	var settings *alerts.Settings
 	if w.Alerts != nil {
