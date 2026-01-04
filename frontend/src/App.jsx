@@ -1215,7 +1215,7 @@ function NodesPage() {
       )}
 
       {serviceEditor.open && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content">
             <h3>{serviceEditor.mode === "add" ? t("Add Service") : t("Edit Service")}</h3>
             <div className="form-grid" autoComplete="off">
@@ -1343,7 +1343,7 @@ function NodesPage() {
       )}
 
       {addOpen && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content wide">
             <h3>{t("Add Node")}</h3>
             <form className="form-grid" onSubmit={onCreate} autoComplete="off">
@@ -1427,7 +1427,7 @@ function NodesPage() {
       )}
 
       {telegramOpen && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content">
             <h3>{t("Telegram alerts")}</h3>
             <div className="form-grid" autoComplete="off">
@@ -1551,7 +1551,7 @@ function NodesPage() {
       )}
 
       {totpOpen && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content">
             <h3>{t("2FA (TOTP)")}</h3>
             <div className="form-grid" autoComplete="off">
@@ -1616,7 +1616,7 @@ function NodesPage() {
       )}
 
       {usersOpen && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content">
             <h3>{t("Users & roles")}</h3>
             <div className="form-grid" autoComplete="off">
@@ -1693,7 +1693,7 @@ function NodesPage() {
       )}
 
       {auditOpen && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content wide">
             <h3>{t("Audit log")}</h3>
             <div className="audit-controls">
@@ -1746,7 +1746,7 @@ function NodesPage() {
       />
 
       {sshChoice.open && sshChoice.node && (
-        <div className="modal">
+        <div className="modal overlay-modal">
           <div className="modal-content">
             <h3>{t("Open SSH")}</h3>
             <div className="hint">{t("Open here or in a new tab?")}</div>

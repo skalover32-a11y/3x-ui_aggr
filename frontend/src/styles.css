@@ -673,18 +673,27 @@ button.ghost:hover {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  z-index: 30;
 }
 
 .node-details-modal {
   z-index: 40;
 }
 
-.action-plan-modal {
+.overlay-modal {
   z-index: 50;
 }
 
+.action-plan-modal {
+  z-index: 60;
+}
+
 .edit-node-modal {
-  z-index: 45;
+  z-index: 50;
+}
+
+.ssh-modal {
+  z-index: 60;
 }
 
 .modal-content {
