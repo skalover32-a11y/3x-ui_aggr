@@ -675,6 +675,14 @@ button.ghost:hover {
   padding: 20px;
 }
 
+.node-details-modal {
+  z-index: 40;
+}
+
+.action-plan-modal {
+  z-index: 50;
+}
+
 .modal-content {
   background: #0b1220;
   border: 1px solid #1f2937;

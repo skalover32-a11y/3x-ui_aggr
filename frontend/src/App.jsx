@@ -556,19 +556,19 @@ function NodesPage() {
     const formEl = e.currentTarget;
     const payload = {
       kind: formEl.node_kind?.value,
-      name: formEl.name.value,
-      tags: formEl.tags.value ? formEl.tags.value.split(",").map((t) => t.trim()).filter(Boolean) : [],
-      base_url: formEl.base_url?.value,
-      panel_username: formEl.panel_username?.value,
-      ssh_host: formEl.ssh_host.value,
-      ssh_port: Number(formEl.ssh_port.value || 22),
-      ssh_user: formEl.ssh_user.value,
+      name: formEl.node_name.value,
+      tags: formEl.node_tags.value ? formEl.node_tags.value.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      base_url: formEl.node_base_url?.value,
+      panel_username: formEl.node_panel_user?.value,
+      ssh_host: formEl.node_ssh_host.value,
+      ssh_port: Number(formEl.node_ssh_port.value || 22),
+      ssh_user: formEl.node_ssh_user.value,
     };
     if (formEl.verify_tls) {
       payload.verify_tls = formEl.verify_tls.checked;
     }
-    const panelPass = formEl.panel_password?.value;
-    const sshKey = formEl.ssh_key.value;
+    const panelPass = formEl.node_panel_password?.value;
+    const sshKey = formEl.node_ssh_key.value;
     if (panelPass) payload.panel_password = panelPass;
     if (sshKey) payload.ssh_key = sshKey;
     try {
@@ -583,13 +583,13 @@ function NodesPage() {
   async function onValidateEdit(formEl) {
     const payload = {
       kind: formEl.node_kind?.value,
-      base_url: formEl.base_url?.value,
-      ssh_host: formEl.ssh_host.value,
-      ssh_port: Number(formEl.ssh_port.value || 22),
-      ssh_user: formEl.ssh_user.value,
-      ssh_key: formEl.ssh_key.value,
-      panel_username: formEl.panel_username?.value,
-      panel_password: formEl.panel_password?.value,
+      base_url: formEl.node_base_url?.value,
+      ssh_host: formEl.node_ssh_host.value,
+      ssh_port: Number(formEl.node_ssh_port.value || 22),
+      ssh_user: formEl.node_ssh_user.value,
+      ssh_key: formEl.node_ssh_key.value,
+      panel_username: formEl.node_panel_user?.value,
+      panel_password: formEl.node_panel_password?.value,
     };
     payload.verify_tls = formEl.verify_tls ? formEl.verify_tls.checked : true;
     validateNodePayload(payload, setEditValidation, setEditValidating);
@@ -778,10 +778,10 @@ function NodesPage() {
         <div className="node-actions">
           {!isViewer && (
             <>
-              <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>
+              {node.kind !== "HOST" && <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>}
               <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
               {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
-              <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>
+              {node.kind !== "HOST" && <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>}
               <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
             </>
           )}
@@ -1051,7 +1051,7 @@ function NodesPage() {
       {error && <div className="error">{error}</div>}
 
       {actionPlan.open && (
-        <div className="modal">
+        <div className="modal action-plan-modal">
           <div className="modal-content">
             <h3>{t("Confirm action")}</h3>
             <div className="plan-steps">
