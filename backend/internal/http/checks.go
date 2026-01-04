@@ -94,7 +94,7 @@ func (h *Handler) ListNodeChecks(c *gin.Context) {
 }
 
 func (h *Handler) ListServiceChecks(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("id"))
+	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -162,7 +162,7 @@ func (h *Handler) CreateNodeCheck(c *gin.Context) {
 }
 
 func (h *Handler) CreateServiceCheck(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("id"))
+	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return

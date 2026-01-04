@@ -51,8 +51,8 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.GET("/nodes/:id/checks", middleware.RequireRoles(readRoles...), h.ListNodeChecks)
 	auth.POST("/nodes/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateNodeCheck)
-	auth.GET("/services/:id/checks", middleware.RequireRoles(readRoles...), h.ListServiceChecks)
-	auth.POST("/services/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateServiceCheck)
+	auth.GET("/services/:service_id/checks", middleware.RequireRoles(readRoles...), h.ListServiceChecks)
+	auth.POST("/services/:service_id/checks", middleware.RequireRoles(writeRoles...), h.CreateServiceCheck)
 	auth.PATCH("/checks/:id", middleware.RequireRoles(writeRoles...), h.UpdateCheck)
 	auth.DELETE("/checks/:id", middleware.RequireRoles(writeRoles...), h.DeleteCheck)
 	auth.GET("/checks/:id/results", middleware.RequireRoles(readRoles...), h.ListCheckResults)
