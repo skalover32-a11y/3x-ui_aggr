@@ -1266,7 +1266,7 @@ function NodesPage() {
       )}
 
       {editModal.open && editModal.node && (
-        <div className="modal">
+        <div className="modal edit-node-modal">
           <div className="modal-content">
             <h3>{t("Edit Node")}</h3>
             <form className="form-grid" onSubmit={onUpdate} autoComplete="off">
