@@ -18,6 +18,7 @@ import (
 
 type nodeCreateRequest struct {
 	Name          string          `json:"name"`
+	Kind          string          `json:"kind"`
 	Tags          []string        `json:"tags"`
 	Host          string          `json:"host"`
 	Region        string          `json:"region"`
@@ -39,6 +40,7 @@ type nodeCreateRequest struct {
 
 type nodeUpdateRequest struct {
 	Name          *string          `json:"name"`
+	Kind          *string          `json:"kind"`
 	Tags          *[]string        `json:"tags"`
 	Host          *string          `json:"host"`
 	Region        *string          `json:"region"`
@@ -61,6 +63,7 @@ type nodeUpdateRequest struct {
 type nodeResponse struct {
 	ID                string          `json:"id"`
 	Name              string          `json:"name"`
+	Kind              string          `json:"kind"`
 	Tags              []string        `json:"tags"`
 	Host              string          `json:"host"`
 	Region            string          `json:"region"`
@@ -86,6 +89,7 @@ func toNodeResponse(node *db.Node) nodeResponse {
 	return nodeResponse{
 		ID:                node.ID.String(),
 		Name:              node.Name,
+		Kind:              node.Kind,
 		Tags:              []string(node.Tags),
 		Host:              node.Host,
 		Region:            node.Region,
@@ -133,6 +137,15 @@ func (h *Handler) GetNode(c *gin.Context) {
 func (h *Handler) CreateNode(c *gin.Context) {
 	var req nodeCreateRequest
 	if !parseJSONBody(c, &req) {
+		return
+	}
+	kind, err := normalizeNodeKind(req.Kind)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_KIND", err.Error())
+		return
+	}
+	if err := validateNodeCreate(kind, &req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_NODE", err.Error())
 		return
 	}
 	encPass, err := h.Encryptor.EncryptString(req.PanelPassword)
@@ -186,6 +199,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 
 	node := db.Node{
 		Name:             req.Name,
+		Kind:             kind,
 		Tags:             req.Tags,
 		Host:             req.Host,
 		Region:           req.Region,
@@ -203,6 +217,18 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		SSHUser:          req.SSHUser,
 		SSHKeyEnc:        encKey,
 		VerifyTLS:        verifyTLS,
+	}
+	if kind == "HOST" {
+		node.BaseURL = ""
+		node.PanelUsername = ""
+		encEmpty, err := h.Encryptor.EncryptString("")
+		if err != nil {
+			msg := "failed to encrypt panel password"
+			h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name}, errString(err))
+			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")
+			return
+		}
+		node.PanelPasswordEnc = encEmpty
 	}
 	if err := h.DB.WithContext(c.Request.Context()).Create(&node).Error; err != nil {
 		msg := "failed to create node"
@@ -284,6 +310,35 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	}
 	if req.PanelPassword != nil {
 		encPass, err := h.Encryptor.EncryptString(*req.PanelPassword)
+		if err != nil {
+			msg := "failed to encrypt panel password"
+			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
+			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")
+			return
+		}
+		node.PanelPasswordEnc = encPass
+	}
+	kind := node.Kind
+	if strings.TrimSpace(kind) == "" {
+		kind = "PANEL"
+	}
+	if req.Kind != nil {
+		val, err := normalizeNodeKind(*req.Kind)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "INVALID_KIND", err.Error())
+			return
+		}
+		kind = val
+		node.Kind = val
+	}
+	if err := validateNodeUpdate(kind, node, &req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_NODE", err.Error())
+		return
+	}
+	if kind == "HOST" {
+		node.BaseURL = ""
+		node.PanelUsername = ""
+		encPass, err := h.Encryptor.EncryptString("")
 		if err != nil {
 			msg := "failed to encrypt panel password"
 			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
@@ -401,20 +456,22 @@ func (h *Handler) TestNode(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
-	panel, err := h.newPanelClient(node)
-	if err != nil {
-		msg := "failed to init panel client"
-		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
-		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
-		return
-	}
-	ctx, cancel := h.withTimeout(context.Background())
-	defer cancel()
-	if err := panel.Login(); err != nil {
-		msg := "panel login failed"
-		h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
-		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
-		return
+	if isPanelNode(node) {
+		panel, err := h.newPanelClient(node)
+		if err != nil {
+			msg := "failed to init panel client"
+			h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
+			respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
+			return
+		}
+		ctx, cancel := h.withTimeout(context.Background())
+		defer cancel()
+		if err := panel.Login(); err != nil {
+			msg := "panel login failed"
+			h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
+			respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
+			return
+		}
 	}
 	key, err := h.decryptSSHKey(node)
 	if err != nil {
@@ -443,4 +500,64 @@ func (h *Handler) TestNode(c *gin.Context) {
 	}
 	h.auditEvent(c, &node.ID, "NODE_TEST", "ok", nil, gin.H{}, nil)
 	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+}
+
+func normalizeNodeKind(raw string) (string, error) {
+	val := strings.ToUpper(strings.TrimSpace(raw))
+	if val == "" {
+		return "PANEL", nil
+	}
+	if val != "PANEL" && val != "HOST" {
+		return "", errors.New("kind must be PANEL or HOST")
+	}
+	return val, nil
+}
+
+func validateNodeCreate(kind string, req *nodeCreateRequest) error {
+	if kind == "PANEL" {
+		if strings.TrimSpace(req.BaseURL) == "" {
+			return errors.New("base_url required for PANEL node")
+		}
+		if strings.TrimSpace(req.PanelUsername) == "" {
+			return errors.New("panel_username required for PANEL node")
+		}
+		if strings.TrimSpace(req.PanelPassword) == "" {
+			return errors.New("panel_password required for PANEL node")
+		}
+	}
+	return nil
+}
+
+func validateNodeUpdate(kind string, node *db.Node, req *nodeUpdateRequest) error {
+	if kind != "PANEL" {
+		return nil
+	}
+	baseURL := node.BaseURL
+	if req.BaseURL != nil {
+		baseURL = strings.TrimSpace(*req.BaseURL)
+	}
+	panelUser := node.PanelUsername
+	if req.PanelUsername != nil {
+		panelUser = strings.TrimSpace(*req.PanelUsername)
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return errors.New("base_url required for PANEL node")
+	}
+	if strings.TrimSpace(panelUser) == "" {
+		return errors.New("panel_username required for PANEL node")
+	}
+	if req.PanelPassword != nil && strings.TrimSpace(*req.PanelPassword) == "" {
+		return errors.New("panel_password required for PANEL node")
+	}
+	return nil
+}
+
+func isPanelNode(node *db.Node) bool {
+	if node == nil {
+		return false
+	}
+	if strings.TrimSpace(node.Kind) == "" {
+		return strings.TrimSpace(node.BaseURL) != ""
+	}
+	return strings.EqualFold(node.Kind, "PANEL") && strings.TrimSpace(node.BaseURL) != ""
 }

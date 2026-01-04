@@ -332,7 +332,9 @@ function NodesPage() {
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
+  const [editKind, setEditKind] = useState("PANEL");
   const [form, setForm] = useState({
+    kind: "PANEL",
     name: "",
     tags: "",
     base_url: "",
@@ -451,11 +453,12 @@ function NodesPage() {
     setError("");
     try {
       const payload = {
+        kind: form.kind,
         ...form,
         tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
       };
       await request("POST", "/nodes", payload);
-      setForm({ ...form, name: "", tags: "" });
+      setForm({ ...form, kind: "PANEL", name: "", tags: "" });
       setKeyPassphrase("");
       setKeyFingerprint("");
       setAddOpen(false);
@@ -493,6 +496,7 @@ function NodesPage() {
 
   async function onValidateCreate() {
     const payload = {
+      kind: form.kind,
       base_url: form.base_url,
       verify_tls: form.verify_tls,
       ssh_host: form.ssh_host,
@@ -528,6 +532,7 @@ function NodesPage() {
 
   function openEdit(node) {
     setEditModal({ open: true, node });
+    setEditKind(node?.kind || "PANEL");
     setEditValidation(null);
     setEditValidating(false);
   }
@@ -542,16 +547,19 @@ function NodesPage() {
     if (!editModal.node) return;
     const formEl = e.currentTarget;
     const payload = {
+      kind: formEl.node_kind?.value,
       name: formEl.name.value,
       tags: formEl.tags.value ? formEl.tags.value.split(",").map((t) => t.trim()).filter(Boolean) : [],
-      base_url: formEl.base_url.value,
-      panel_username: formEl.panel_username.value,
+      base_url: formEl.base_url?.value,
+      panel_username: formEl.panel_username?.value,
       ssh_host: formEl.ssh_host.value,
       ssh_port: Number(formEl.ssh_port.value || 22),
       ssh_user: formEl.ssh_user.value,
-      verify_tls: formEl.verify_tls.checked,
     };
-    const panelPass = formEl.panel_password.value;
+    if (formEl.verify_tls) {
+      payload.verify_tls = formEl.verify_tls.checked;
+    }
+    const panelPass = formEl.panel_password?.value;
     const sshKey = formEl.ssh_key.value;
     if (panelPass) payload.panel_password = panelPass;
     if (sshKey) payload.ssh_key = sshKey;
@@ -566,15 +574,16 @@ function NodesPage() {
 
   async function onValidateEdit(formEl) {
     const payload = {
-      base_url: formEl.base_url.value,
-      verify_tls: formEl.verify_tls.checked,
+      kind: formEl.node_kind?.value,
+      base_url: formEl.base_url?.value,
       ssh_host: formEl.ssh_host.value,
       ssh_port: Number(formEl.ssh_port.value || 22),
       ssh_user: formEl.ssh_user.value,
       ssh_key: formEl.ssh_key.value,
-      panel_username: formEl.panel_username.value,
-      panel_password: formEl.panel_password.value,
+      panel_username: formEl.panel_username?.value,
+      panel_password: formEl.panel_password?.value,
     };
+    payload.verify_tls = formEl.verify_tls ? formEl.verify_tls.checked : true;
     validateNodePayload(payload, setEditValidation, setEditValidating);
   }
 
@@ -753,8 +762,8 @@ function NodesPage() {
             <div className="meta-value">{node.ssh_port || "-"}</div>
           </div>
           <div className="meta-box">
-            <div className="meta-label">{t("Panel Username")}</div>
-            <div className="meta-value">{node.panel_username || "-"}</div>
+            <div className="meta-label">{node.kind === "HOST" ? t("Panel") : t("Panel Username")}</div>
+            <div className="meta-value">{node.kind === "HOST" ? t("Not used") : (node.panel_username || "-")}</div>
           </div>
         </div>
 
@@ -1088,6 +1097,7 @@ function NodesPage() {
                   <div className="node-name-row">
                     <div className="node-name">{node.name || t("Unnamed node")}</div>
                     <StatusBadge status={statusMap[node.id]?.status} />
+                    <span className="chip subtle">{node.kind || "PANEL"}</span>
                   </div>
                   <div className="tag-row">
                     {(node.tags || []).length > 0 ? (
@@ -1099,7 +1109,9 @@ function NodesPage() {
                     )}
                   </div>
                   <div className="node-link">
-                    {node.base_url ? (
+                    {node.kind === "HOST" ? (
+                      <span className="muted small">{t("Base URL: not used")}</span>
+                    ) : node.base_url ? (
                       <a href={node.base_url} target="_blank" rel="noreferrer">
                         {node.base_url} ↗
                       </a>
@@ -1108,7 +1120,11 @@ function NodesPage() {
                     )}
                   </div>
                   <div className="node-versions">
-                    <span className="muted small">{t("Panel: {panel}", { panel: node.panel_version || t("unknown") })}</span>
+                    {node.kind === "HOST" ? (
+                      <span className="muted small">{t("Panel: not used")}</span>
+                    ) : (
+                      <span className="muted small">{t("Panel: {panel}", { panel: node.panel_version || t("unknown") })}</span>
+                    )}
                     <span className="muted small">{t("Xray: {xray}", { xray: node.xray_version || t("unknown") })}</span>
                   </div>
                   {lastTs && <div className="muted small">{t("Last check: {ts}", { ts: formatTS(lastTs) })}</div>}
@@ -1142,7 +1158,8 @@ function NodesPage() {
             <div className="node-details-header">
               <div>
                 <div className="node-name">{nodeDetails.node.name || t("Unnamed node")}</div>
-                <div className="muted small">{nodeDetails.node.base_url || t("No base URL")}</div>
+                <div className="muted small">{nodeDetails.node.kind || "PANEL"}</div>
+                <div className="muted small">{nodeDetails.node.kind === "HOST" ? t("Base URL: not used") : (nodeDetails.node.base_url || t("No base URL"))}</div>
               </div>
               <button type="button" onClick={() => setNodeDetails({ open: false, node: null })}>{t("Close")}</button>
             </div>
@@ -1229,19 +1246,33 @@ function NodesPage() {
           <div className="modal-content">
             <h3>{t("Edit Node")}</h3>
             <form className="form-grid" onSubmit={onUpdate} autoComplete="off">
+              <select
+                name="node_kind"
+                value={editKind}
+                onChange={(e) => setEditKind(e.target.value)}
+              >
+                <option value="PANEL">{t("Panel node")}</option>
+                <option value="HOST">{t("Host node")}</option>
+              </select>
               <input name="node_name" autoComplete="off" placeholder={t("Name")} defaultValue={editModal.node.name} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} defaultValue={(editModal.node.tags || []).join(", ")} />
-              <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} defaultValue={editModal.node.base_url} />
-              <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} defaultValue={editModal.node.panel_username} />
-              <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password (leave blank to keep)")} type="password" />
+              {editKind === "PANEL" && (
+                <>
+                  <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} defaultValue={editModal.node.base_url} />
+                  <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} defaultValue={editModal.node.panel_username} />
+                  <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password (leave blank to keep)")} type="password" />
+                </>
+              )}
               <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} defaultValue={editModal.node.ssh_host} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" defaultValue={editModal.node.ssh_port} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} defaultValue={editModal.node.ssh_user} />
               <textarea name="node_ssh_key" autoComplete="off" placeholder={t("SSH Private Key (leave blank to keep)")} rows="3" />
-              <label className="checkbox">
-                <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
-                {t("Verify TLS")}
-              </label>
+              {editKind === "PANEL" && (
+                <label className="checkbox">
+                  <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
+                  {t("Verify TLS")}
+                </label>
+              )}
               {editValidation && (
                 <div className="validation-summary">
                   {editValidation.error && <div className="error">{editValidation.error}</div>}
@@ -1250,16 +1281,20 @@ function NodesPage() {
                     status={editValidation.ssh?.ok ? "ok" : "error"}
                     detail={editValidation.ssh?.ok ? editValidation.ssh.fingerprint : editValidation.ssh?.error}
                   />
-                  <ValidationBadge
-                    label={t("Base URL")}
-                    status={editValidation.base_url?.ok ? "ok" : "error"}
-                    detail={editValidation.base_url?.ok ? `HTTP ${editValidation.base_url.status_code}` : editValidation.base_url?.error}
-                  />
-                  <ValidationBadge
-                    label={t("Panel")}
-                    status={editValidation.panel_version && editValidation.panel_version !== "unknown" ? "ok" : "error"}
-                    detail={editValidation.panel_version || t("unknown")}
-                  />
+                  {editKind === "PANEL" && (
+                    <>
+                      <ValidationBadge
+                        label={t("Base URL")}
+                        status={editValidation.base_url?.ok ? "ok" : "error"}
+                        detail={editValidation.base_url?.ok ? `HTTP ${editValidation.base_url.status_code}` : editValidation.base_url?.error}
+                      />
+                      <ValidationBadge
+                        label={t("Panel")}
+                        status={editValidation.panel_version && editValidation.panel_version !== "unknown" ? "ok" : "error"}
+                        detail={editValidation.panel_version || t("unknown")}
+                      />
+                    </>
+                  )}
                   <ValidationBadge
                     label={t("Xray")}
                     status={editValidation.xray_version && editValidation.xray_version !== "unknown" ? "ok" : "error"}
@@ -1288,11 +1323,23 @@ function NodesPage() {
           <div className="modal-content wide">
             <h3>{t("Add Node")}</h3>
             <form className="form-grid" onSubmit={onCreate} autoComplete="off">
+              <select
+                name="node_kind"
+                value={form.kind}
+                onChange={(e) => setForm({ ...form, kind: e.target.value })}
+              >
+                <option value="PANEL">{t("Panel node")}</option>
+                <option value="HOST">{t("Host node")}</option>
+              </select>
               <input name="node_name" autoComplete="off" placeholder={t("Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-              <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-              <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password")} type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+              {form.kind === "PANEL" && (
+                <>
+                  <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+                  <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+                  <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password")} type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+                </>
+              )}
               <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
@@ -1304,10 +1351,12 @@ function NodesPage() {
               <textarea name="node_ssh_key" autoComplete="off" placeholder={t("SSH Private Key")} rows="3" value={form.ssh_key} onChange={(e) => setForm({ ...form, ssh_key: e.target.value })} />
               <div className="hint">{t("Paste OpenSSH private key or upload .ppk")}</div>
               {keyFingerprint && <div className="hint">{t("Fingerprint: {fp}", { fp: keyFingerprint })}</div>}
-              <label className="checkbox">
-                <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
-                {t("Verify TLS")}
-              </label>
+              {form.kind === "PANEL" && (
+                <label className="checkbox">
+                  <input type="checkbox" checked={form.verify_tls} onChange={(e) => setForm({ ...form, verify_tls: e.target.checked })} />
+                  {t("Verify TLS")}
+                </label>
+              )}
               <div className="actions">
                 <button type="button" onClick={onValidateCreate} disabled={validating}>
                   {validating ? t("Validating...") : t("Validate")}
@@ -1325,16 +1374,20 @@ function NodesPage() {
                   status={validation.ssh?.ok ? "ok" : "error"}
                   detail={validation.ssh?.ok ? validation.ssh.fingerprint : validation.ssh?.error}
                 />
-                <ValidationBadge
-                  label={t("Base URL")}
-                  status={validation.base_url?.ok ? "ok" : "error"}
-                  detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
-                />
-                <ValidationBadge
-                  label={t("Panel")}
-                  status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.panel_version || t("unknown")}
-                />
+                {form.kind === "PANEL" && (
+                  <>
+                    <ValidationBadge
+                      label={t("Base URL")}
+                      status={validation.base_url?.ok ? "ok" : "error"}
+                      detail={validation.base_url?.ok ? `HTTP ${validation.base_url.status_code}` : validation.base_url?.error}
+                    />
+                    <ValidationBadge
+                      label={t("Panel")}
+                      status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
+                      detail={validation.panel_version || t("unknown")}
+                    />
+                  </>
+                )}
                 <ValidationBadge
                   label={t("Xray")}
                   status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}

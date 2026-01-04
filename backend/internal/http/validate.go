@@ -17,6 +17,7 @@ import (
 )
 
 type validateNodeRequest struct {
+	Kind             string `json:"kind"`
 	BaseURL          string `json:"base_url"`
 	VerifyTLS        *bool  `json:"verify_tls"`
 	SSHHost          string `json:"ssh_host"`
@@ -56,6 +57,7 @@ func (h *Handler) ValidateNode(c *gin.Context) {
 
 	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
 		req.BaseURL = strings.TrimSpace(c.PostForm("base_url"))
+		req.Kind = strings.TrimSpace(c.PostForm("kind"))
 		req.SSHHost = strings.TrimSpace(c.PostForm("ssh_host"))
 		req.SSHUser = strings.TrimSpace(c.PostForm("ssh_user"))
 		req.PanelUsername = strings.TrimSpace(c.PostForm("panel_username"))
@@ -98,7 +100,10 @@ func (h *Handler) ValidateNode(c *gin.Context) {
 		verifyTLS = *req.VerifyTLS
 	}
 
-	baseURLRes := checkBaseURL(c.Request.Context(), req.BaseURL, verifyTLS)
+	baseURLRes := validateURLResult{OK: true}
+	if strings.ToUpper(strings.TrimSpace(req.Kind)) != "HOST" {
+		baseURLRes = checkBaseURL(c.Request.Context(), req.BaseURL, verifyTLS)
+	}
 	sshRes, panelVersion, xrayVersion := h.checkSSHAndVersion(c.Request.Context(), &req, keyBytes, passphrase)
 
 	status := "ok"

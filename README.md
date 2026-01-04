@@ -46,6 +46,26 @@ make run
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
 - `PUBLIC_BASE_URL` (optional, for Telegram alert buttons, example: `https://aggr.example.com`)
 
+## Node types
+- **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
+- **HOST**: SSH-only node. No panel required; use service checks for HTTP endpoints.
+
+Example HOST node create:
+```bash
+curl -s http://localhost:8080/api/nodes \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "HOST",
+    "name": "host-1",
+    "tags": ["infra"],
+    "ssh_host": "1.2.3.4",
+    "ssh_port": 22,
+    "ssh_user": "root",
+    "ssh_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
+  }'
+```
+
 ## DB reset
 ```bash
 docker compose down -v

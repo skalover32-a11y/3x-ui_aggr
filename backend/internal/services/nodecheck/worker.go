@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -50,7 +51,14 @@ func (w *Worker) runOnce(ctx context.Context) {
 	}
 	settings, _ := w.Alerts.LoadSettings(ctx)
 	for _, node := range nodes {
-		panelOK, latency, panelErr := checkPanel(ctx, node.BaseURL, node.VerifyTLS)
+		panelOK, latency, panelErr := true, 0, (*string)(nil)
+		if isPanelNode(&node) {
+			panelOK, latency, panelErr = checkPanel(ctx, node.BaseURL, node.VerifyTLS)
+		} else {
+			panelOK = true
+			latency = 0
+			panelErr = nil
+		}
 		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort, node.SSHEnabled)
 		errMsg := joinErrors(panelErr, sshErr)
 		entry := db.NodeCheck{
@@ -66,6 +74,16 @@ func (w *Worker) runOnce(ctx context.Context) {
 			w.Alerts.NotifyConnection(ctx, settings, &node, panelOK, sshOK, errMsg)
 		}
 	}
+}
+
+func isPanelNode(node *db.Node) bool {
+	if node == nil {
+		return false
+	}
+	if strings.TrimSpace(node.Kind) == "" {
+		return strings.TrimSpace(node.BaseURL) != ""
+	}
+	return strings.EqualFold(node.Kind, "PANEL") && strings.TrimSpace(node.BaseURL) != ""
 }
 
 func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int, *string) {

@@ -11,6 +11,7 @@ import (
 type Node struct {
 	ID                uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	Name              string         `gorm:"type:text;not null" json:"name"`
+	Kind              string         `gorm:"type:text;not null;default:'PANEL'" json:"kind"`
 	Tags              pq.StringArray `gorm:"type:text[]" json:"tags"`
 	Host              string         `gorm:"type:text" json:"host"`
 	Region            string         `gorm:"type:text" json:"region"`
