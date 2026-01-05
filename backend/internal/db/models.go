@@ -206,3 +206,7 @@ type RefreshToken struct {
 	IP         *string    `gorm:"type:text" json:"ip"`
 	DeviceName *string    `gorm:"type:text" json:"device_name"`
 }
+
+func (RefreshToken) TableName() string {
+	return "auth_refresh_tokens"
+}
