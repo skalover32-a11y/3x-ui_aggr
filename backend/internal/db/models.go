@@ -184,6 +184,10 @@ type WebAuthnCredential struct {
 	LastUsedAt   *time.Time     `gorm:"type:timestamptz" json:"last_used_at"`
 }
 
+func (WebAuthnCredential) TableName() string {
+	return "webauthn_credentials"
+}
+
 type WebAuthnChallenge struct {
 	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    string         `gorm:"type:text;not null" json:"user_id"`
@@ -192,6 +196,10 @@ type WebAuthnChallenge struct {
 	Session   datatypes.JSON `gorm:"column:session_data;type:jsonb;not null;default:'{}'::jsonb" json:"session"`
 	CreatedAt time.Time      `json:"created_at"`
 	ExpiresAt time.Time      `gorm:"type:timestamptz;not null" json:"expires_at"`
+}
+
+func (WebAuthnChallenge) TableName() string {
+	return "webauthn_challenges"
 }
 
 type RefreshToken struct {

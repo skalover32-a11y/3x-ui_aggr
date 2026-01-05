@@ -140,6 +140,7 @@ curl -s http://localhost:8080/api/auth/2fa/verify \
 3. Logout. Next time use **Login with Passkey** on the login screen.
 
 The API issues a short-lived access token and a long-lived refresh cookie (`agg_refresh`) to remember the device.
+Canonical WebAuthn tables are `webauthn_credentials` and `webauthn_challenges`. Legacy `web_authn_*` names are compatibility-only views.
 
 Passkeys (authenticated):
 ```bash
