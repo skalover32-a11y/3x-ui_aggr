@@ -185,6 +185,9 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 }
 
 func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *db.Node, service *db.Service, check *db.Check, status string, latency int, statusCode int, errMsg *string) {
+	if settings == nil && s != nil {
+		settings, _ = s.LoadSettings(ctx)
+	}
 	if settings == nil || node == nil || check == nil {
 		return
 	}
@@ -217,6 +220,9 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 }
 
 func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node *db.Node, bot *db.Bot, check *db.Check, ok bool, latency int, statusCode int, errMsg *string) {
+	if settings == nil && s != nil {
+		settings, _ = s.LoadSettings(ctx)
+	}
 	if settings == nil || node == nil || bot == nil || check == nil {
 		return
 	}
@@ -283,17 +289,30 @@ func botTarget(bot *db.Bot) string {
 	if bot == nil {
 		return ""
 	}
-	if strings.TrimSpace(bot.Name) != "" {
-		return strings.TrimSpace(bot.Name)
-	}
+	name := strings.TrimSpace(bot.Name)
 	if bot.DockerContainer != nil && strings.TrimSpace(*bot.DockerContainer) != "" {
-		return strings.TrimSpace(*bot.DockerContainer)
+		container := strings.TrimSpace(*bot.DockerContainer)
+		if name != "" {
+			return fmt.Sprintf("%s (%s)", name, container)
+		}
+		return container
 	}
 	if bot.SystemdUnit != nil && strings.TrimSpace(*bot.SystemdUnit) != "" {
-		return strings.TrimSpace(*bot.SystemdUnit)
+		unit := strings.TrimSpace(*bot.SystemdUnit)
+		if name != "" {
+			return fmt.Sprintf("%s (%s)", name, unit)
+		}
+		return unit
 	}
 	if bot.HealthURL != nil && strings.TrimSpace(*bot.HealthURL) != "" {
-		return strings.TrimSpace(*bot.HealthURL)
+		raw := strings.TrimSpace(*bot.HealthURL)
+		if name != "" {
+			return fmt.Sprintf("%s (%s)", name, raw)
+		}
+		return raw
+	}
+	if name != "" {
+		return name
 	}
 	return ""
 }
