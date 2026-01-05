@@ -1090,10 +1090,22 @@ button.ghost:hover {
 .bots-view {
   grid-column: 1 / -1;
   width: 100%;
+  display: contents;
 }
 
 .bots-view .table.bots {
   width: 100%;
+}
+
+.bots-status {
+  grid-column: 1 / -1;
+}
+
+.bot-error {
+  font-size: 12px;
+  color: #fca5a5;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .page.page-wide .nodes-cards {
