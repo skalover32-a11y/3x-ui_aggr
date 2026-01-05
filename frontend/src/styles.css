@@ -1090,7 +1090,10 @@ button.ghost:hover {
 .bots-view {
   grid-column: 1 / -1;
   width: 100%;
-  display: contents;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 20px;
+  align-items: start;
 }
 
 .bots-view .table.bots {
