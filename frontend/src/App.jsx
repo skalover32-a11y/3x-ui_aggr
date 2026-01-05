@@ -571,9 +571,10 @@ function NodesPage() {
       if (isBotNode && !tags.includes("bot")) {
         tags.push("bot");
       }
+      const { kind: _ignoredKind, ...rest } = basePayload;
       const payload = {
         kind,
-        ...basePayload,
+        ...rest,
         tags,
       };
       const created = await request("POST", "/nodes", payload);
