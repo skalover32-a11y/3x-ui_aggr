@@ -1124,6 +1124,7 @@ function NodesPage() {
               <div className="status-cell" data-label={t("Last status")}>
                 <StatusBadge status={badgeStatus} />
                 <span>{last?.status || "-"}</span>
+                {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
               </div>
               <div data-label={t("Last seen")}>{last?.ts ? formatTS(last.ts) : "-"}</div>
               <div data-label={t("Latency")}>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
@@ -1325,7 +1326,7 @@ function NodesPage() {
   }
 
   return (
-    <div className="page">
+    <div className={`page${showingBots ? " page-wide" : ""}`}>
       <header className="header">
         <div className="header-left">
           <button ref={menuButtonRef} className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
