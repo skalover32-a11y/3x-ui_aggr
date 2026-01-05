@@ -1106,14 +1106,25 @@ function NodesPage() {
           const last = botResults[bot.id];
           const node = nodes.find((n) => n.id === bot.node_id);
           const nodeRef = node || { id: bot.node_id, name: "-" };
+          const statusValue = (last?.status || "").toLowerCase();
+          const badgeStatus = statusValue === "ok"
+            ? "online"
+            : statusValue === "warn"
+              ? "degraded"
+              : statusValue === "fail"
+                ? "offline"
+                : "unknown";
           return (
             <div className="table-row" key={bot.id}>
-              {showNode && <div>{nodeRef.name || "-"}</div>}
-              <div>{bot.name || "-"}</div>
+              {showNode && <div title={nodeRef.name || ""}>{nodeRef.name || "-"}</div>}
+              <div title={bot.name || ""}>{bot.name || "-"}</div>
               <div>{bot.kind || "-"}</div>
-              <div>{botTargetLabel(bot)}</div>
+              <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
               <div>{bot.is_enabled ? t("On") : t("Off")}</div>
-              <div>{last?.status || "-"}</div>
+              <div className="status-cell">
+                <StatusBadge status={badgeStatus} />
+                <span>{last?.status || "-"}</span>
+              </div>
               <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
               <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
               <div className="actions">

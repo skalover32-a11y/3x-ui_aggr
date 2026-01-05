@@ -1050,6 +1050,19 @@ button.ghost:hover {
   width: max-content;
 }
 
+.table.bots .table-row > div:not(.actions) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: initial;
+  word-break: break-word;
+}
+
+.table.bots .table-row .status-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table.bots .table-row .actions {
   display: flex;
   flex-wrap: wrap;
