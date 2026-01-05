@@ -21,8 +21,10 @@ a {
 }
 
 .page.page-wide {
-  max-width: 1600px;
+  max-width: 100%;
   width: 100%;
+  padding-left: 32px;
+  padding-right: 32px;
 }
 .center {
   display: flex;
@@ -1035,6 +1037,7 @@ button.ghost:hover {
   }
 
 .table.bots {
+  width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -1050,8 +1053,8 @@ button.ghost:hover {
     minmax(180px, 1fr)
     minmax(110px, 0.7fr)
     minmax(260px, 1.2fr);
-  min-width: 1500px;
-  width: max-content;
+  min-width: 1600px;
+  width: 100%;
 }
 
 .table.bots .table-row > div:not(.actions) {
@@ -1064,6 +1067,7 @@ button.ghost:hover {
 .table.bots .table-row.head > div {
   white-space: normal;
   line-height: 1.2;
+  font-size: 13px;
 }
 
 .table.bots .table-row .status-cell {
@@ -1098,6 +1102,10 @@ button.ghost:hover {
 
 .bots-view .table.bots {
   width: 100%;
+}
+
+.page.page-wide .nodes-cards {
+  grid-template-columns: 1fr;
 }
 
   .clients-table .table-row.head {
