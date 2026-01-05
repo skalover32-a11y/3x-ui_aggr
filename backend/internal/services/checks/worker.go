@@ -509,7 +509,7 @@ func (w *Worker) executeDockerCheck(ctx context.Context, node *db.Node, containe
 		} else {
 			errMsg = err
 		}
-		out, ms, err := w.runSSHCommand(ctx, node, dockerCheckCommandSudo(container))
+		out, ms, err = w.runSSHCommand(ctx, node, dockerCheckCommandSudo(container))
 		latency = ms
 		if err == nil {
 			state := strings.TrimSpace(out)
