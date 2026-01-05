@@ -495,31 +495,23 @@ func (w *Worker) executeDockerCheck(ctx context.Context, node *db.Node, containe
 	var latency int
 	var errMsg *string
 	for i := 0; i < tries; i++ {
-		out, ms, err := w.runSSHCommand(ctx, node, dockerCheckCommand(container))
+		out, ms, err := w.runSSHCommand(ctx, node, dockerListCommand())
 		latency = ms
 		if err == nil {
-			state := strings.TrimSpace(out)
-			ok = strings.EqualFold(state, "true")
+			ok, errMsg = parseDockerPsOutput(out, container)
 			if ok {
-				errMsg = nil
 				break
 			}
-			msg := fmt.Sprintf("state=%s", state)
-			errMsg = &msg
 		} else {
 			errMsg = err
 		}
-		out, ms, err = w.runSSHCommand(ctx, node, dockerCheckCommandSudo(container))
+		out, ms, err = w.runSSHCommand(ctx, node, dockerListCommandSudo())
 		latency = ms
 		if err == nil {
-			state := strings.TrimSpace(out)
-			ok = strings.EqualFold(state, "true")
+			ok, errMsg = parseDockerPsOutput(out, container)
 			if ok {
-				errMsg = nil
 				break
 			}
-			msg := fmt.Sprintf("state=%s", state)
-			errMsg = &msg
 		} else {
 			errMsg = err
 		}
@@ -698,12 +690,32 @@ func isExpectedBotStatus(bot *db.Bot, statusCode int) bool {
 	return false
 }
 
-func dockerCheckCommand(container string) string {
-	return fmt.Sprintf("docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+func dockerListCommand() string {
+	return "docker ps --format '{{.Names}}'"
 }
 
-func dockerCheckCommandSudo(container string) string {
-	return fmt.Sprintf("sudo -n docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+func dockerListCommandSudo() string {
+	return "sudo -n docker ps --format '{{.Names}}'"
+}
+
+func parseDockerPsOutput(out, container string) (bool, *string) {
+	needle := strings.TrimSpace(container)
+	if needle == "" {
+		msg := "container required"
+		return false, &msg
+	}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		if strings.EqualFold(name, needle) {
+			return true, nil
+		}
+	}
+	msg := fmt.Sprintf("container %s not running", needle)
+	return false, &msg
 }
 
 func systemdCheckCommand(unit string) string {
