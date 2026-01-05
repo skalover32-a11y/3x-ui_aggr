@@ -1770,6 +1770,9 @@ function NodesPage() {
                 <option value="HOST">{t("Host node")}</option>
                 <option value="BOT">{t("Bot node")}</option>
               </select>
+              {form.kind === "BOT" && (
+                <div className="hint">{t("Bot node hint")}</div>
+              )}
               <input name="node_name" autoComplete="off" placeholder={t("Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
               {form.kind === "PANEL" && (
