@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser } from "./api.js";
 import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
@@ -37,6 +37,73 @@ function formatBytes(bytes) {
     idx++;
   }
   return `${v.toFixed(1)} ${units[idx]}`;
+}
+
+function base64urlToBuffer(value) {
+  if (!value) return new ArrayBuffer(0);
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
+  const str = atob(base64 + pad);
+  const bytes = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) {
+    bytes[i] = str.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let str = "";
+  for (let i = 0; i < bytes.length; i++) {
+    str += String.fromCharCode(bytes[i]);
+  }
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function publicKeyCredentialToJSON(cred) {
+  if (!cred) return null;
+  return {
+    id: cred.id,
+    type: cred.type,
+    rawId: bufferToBase64url(cred.rawId),
+    response: {
+      clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
+      authenticatorData: cred.response.authenticatorData ? bufferToBase64url(cred.response.authenticatorData) : undefined,
+      signature: cred.response.signature ? bufferToBase64url(cred.response.signature) : undefined,
+      userHandle: cred.response.userHandle ? bufferToBase64url(cred.response.userHandle) : undefined,
+      attestationObject: cred.response.attestationObject ? bufferToBase64url(cred.response.attestationObject) : undefined,
+      publicKeyAlgorithm: cred.response.publicKeyAlgorithm,
+    },
+    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+    authenticatorAttachment: cred.authenticatorAttachment,
+  };
+}
+
+function prepareCreationOptions(options) {
+  const publicKey = { ...options };
+  publicKey.challenge = base64urlToBuffer(publicKey.challenge);
+  if (publicKey.user && publicKey.user.id) {
+    publicKey.user = { ...publicKey.user, id: base64urlToBuffer(publicKey.user.id) };
+  }
+  if (Array.isArray(publicKey.excludeCredentials)) {
+    publicKey.excludeCredentials = publicKey.excludeCredentials.map((cred) => ({
+      ...cred,
+      id: base64urlToBuffer(cred.id),
+    }));
+  }
+  return publicKey;
+}
+
+function prepareRequestOptions(options) {
+  const publicKey = { ...options };
+  publicKey.challenge = base64urlToBuffer(publicKey.challenge);
+  if (Array.isArray(publicKey.allowCredentials)) {
+    publicKey.allowCredentials = publicKey.allowCredentials.map((cred) => ({
+      ...cred,
+      id: base64urlToBuffer(cred.id),
+    }));
+  }
+  return publicKey;
 }
 
 function StatusBadge({ status }) {
@@ -180,11 +247,33 @@ function ListInput({ label, values, onChange, placeholder }) {
 function RequireAuth({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [checking, setChecking] = useState(true);
   useEffect(() => {
-    if (!getToken()) {
-      navigate("/login", { replace: true, state: { from: location.pathname } });
+    let active = true;
+    async function ensureAuth() {
+      if (getToken()) {
+        if (active) setChecking(false);
+        return;
+      }
+      try {
+        const data = await refreshAuth();
+        if (data?.token) {
+          setAuth(data.token, data.role, data.username);
+        }
+      } catch {
+        navigate("/login", { replace: true, state: { from: location.pathname } });
+      } finally {
+        if (active) setChecking(false);
+      }
     }
+    ensureAuth();
+    return () => {
+      active = false;
+    };
   }, [navigate, location]);
+  if (checking) {
+    return <div className="page center"><div className="muted">Loading...</div></div>;
+  }
   return children;
 }
 
@@ -196,7 +285,9 @@ function LoginPage() {
   const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryStatus, setRecoveryStatus] = useState("");
   const [error, setError] = useState("");
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const navigate = useNavigate();
+  const webAuthnSupported = typeof window !== "undefined" && Boolean(window.PublicKeyCredential);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -227,6 +318,29 @@ function LoginPage() {
     }
   }
 
+  async function onPasskeyLogin() {
+    setError("");
+    setRecoveryStatus("");
+    if (!webAuthnSupported) {
+      setError(t("Passkeys are not supported in this browser."));
+      return;
+    }
+    setPasskeyBusy(true);
+    try {
+      const options = await request("POST", "/auth/webauthn/login/options", { username: username.trim() });
+      const publicKey = prepareRequestOptions(options);
+      const cred = await navigator.credentials.get({ publicKey });
+      const payload = publicKeyCredentialToJSON(cred);
+      const data = await request("POST", "/auth/webauthn/login/verify", { username: username.trim(), credential: payload });
+      setAuth(data.token, data.role, data.username);
+      navigate("/nodes");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
+
   return (
     <div className="page center">
       <form className="card" onSubmit={onSubmit} autoComplete="on">
@@ -253,6 +367,10 @@ function LoginPage() {
         {error && <div className="error">{error}</div>}
         {recoveryStatus && <div className="hint">{t("Recovery code sent to Telegram")}</div>}
         <button type="submit">{t("Login")}</button>
+        <button type="button" className="secondary" onClick={onPasskeyLogin} disabled={!webAuthnSupported || passkeyBusy}>
+          {passkeyBusy ? t("Loading...") : t("Login with Passkey")}
+        </button>
+        {!webAuthnSupported && <div className="hint">{t("Passkeys are not supported in this browser.")}</div>}
       </form>
     </div>
   );
@@ -311,6 +429,12 @@ function NodesPage() {
   const [totpDisableCode, setTotpDisableCode] = useState("");
   const [totpRecoveryCode, setTotpRecoveryCode] = useState("");
   const [totpMessage, setTotpMessage] = useState("");
+  const [passkeysOpen, setPasskeysOpen] = useState(false);
+  const [passkeysList, setPasskeysList] = useState([]);
+  const [passkeysBusy, setPasskeysBusy] = useState(false);
+  const [passkeysError, setPasskeysError] = useState("");
+  const [passkeysOTP, setPasskeysOTP] = useState("");
+  const [passkeysTotpRequired, setPasskeysTotpRequired] = useState(false);
   const [sshModal, setSshModal] = useState({ open: false, node: null, confirmClose: false });
   const [sshChoice, setSshChoice] = useState({ open: false, node: null });
   const [sshAutoOpened, setSshAutoOpened] = useState("");
@@ -1258,6 +1382,67 @@ function NodesPage() {
     }
   }
 
+  async function openPasskeys() {
+    setMenuOpen(false);
+    setPasskeysOpen(true);
+    setPasskeysError("");
+    setPasskeysOTP("");
+    try {
+      const status = await request("GET", "/auth/2fa/status");
+      setPasskeysTotpRequired(Boolean(status?.enabled));
+    } catch (err) {
+      setPasskeysTotpRequired(false);
+    }
+    await loadPasskeys();
+  }
+
+  async function loadPasskeys() {
+    setPasskeysBusy(true);
+    setPasskeysError("");
+    try {
+      const data = await request("GET", "/auth/webauthn/credentials");
+      setPasskeysList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setPasskeysError(err.message);
+    } finally {
+      setPasskeysBusy(false);
+    }
+  }
+
+  async function registerPasskey() {
+    setPasskeysError("");
+    if (!window.PublicKeyCredential) {
+      setPasskeysError(t("Passkeys are not supported in this browser."));
+      return;
+    }
+    setPasskeysBusy(true);
+    try {
+      const options = await request("POST", "/auth/webauthn/register/options", {
+        otp: passkeysTotpRequired ? passkeysOTP.trim() : "",
+      });
+      const publicKey = prepareCreationOptions(options);
+      const cred = await navigator.credentials.create({ publicKey });
+      const payload = publicKeyCredentialToJSON(cred);
+      await request("POST", "/auth/webauthn/register/verify", { credential: payload });
+      await loadPasskeys();
+      setPasskeysOTP("");
+    } catch (err) {
+      setPasskeysError(err.message);
+    } finally {
+      setPasskeysBusy(false);
+    }
+  }
+
+  async function deletePasskey(id) {
+    setPasskeysError("");
+    try {
+      await request("DELETE", `/auth/webauthn/credentials/${id}`);
+      await loadPasskeys();
+    } catch (err) {
+      setPasskeysError(err.message);
+    }
+  }
+
   async function loadUsers() {
     try {
       const data = await request("GET", "/users");
@@ -1390,6 +1575,7 @@ function NodesPage() {
               {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>{t("Add node")}</button>}
               {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>{t("Users & roles")}</button>}
               {!isViewer && <button type="button" onClick={openTOTP}>{t("2FA settings")}</button>}
+              {!isViewer && <button type="button" onClick={openPasskeys}>{t("Passkeys")}</button>}
               {isAdmin && (
                 <button type="button" onClick={async () => {
                   setMenuOpen(false);
@@ -1430,7 +1616,18 @@ function NodesPage() {
           </div>
           <div className="header-user">
             {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
-            <button onClick={() => { clearAuth(); navigate("/login", { replace: true }); }}>{t("Logout")}</button>
+            <button
+              onClick={async () => {
+                try {
+                  await request("POST", "/auth/logout", {});
+                } catch {
+                }
+                clearAuth();
+                navigate("/login", { replace: true });
+              }}
+            >
+              {t("Logout")}
+            </button>
           </div>
         </div>
       </header>
@@ -2093,6 +2290,58 @@ function NodesPage() {
             {totpMessage && <div className="hint">{totpMessage}</div>}
             <div className="actions">
               <button type="button" onClick={() => setTotpOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {passkeysOpen && (
+        <div className="modal overlay-modal">
+          <div className="modal-content">
+            <h3>{t("Passkeys")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <div className="hint">{t("Use a passkey to log in without password.")}</div>
+              {passkeysTotpRequired && (
+                <input
+                  name="passkey_otp"
+                  autoComplete="one-time-code"
+                  placeholder={t("2FA Code")}
+                  value={passkeysOTP}
+                  onChange={(e) => setPasskeysOTP(e.target.value)}
+                />
+              )}
+              <button type="button" className="btn-inline" onClick={registerPasskey} disabled={passkeysBusy}>
+                {passkeysBusy ? t("Loading...") : t("Enable Passkey")}
+              </button>
+            </div>
+            {passkeysError && <div className="error">{passkeysError}</div>}
+            <div className="table compact users-table">
+              <div className="table-row head">
+                <div>{t("Created")}</div>
+                <div>{t("Last used")}</div>
+                <div>{t("Transports")}</div>
+                <div>{t("Actions")}</div>
+              </div>
+              {passkeysList.map((item) => (
+                <div className="table-row" key={item.id}>
+                  <div>{item.created_at ? formatTS(item.created_at) : "-"}</div>
+                  <div>{item.last_used_at ? formatTS(item.last_used_at) : "-"}</div>
+                  <div>{(item.transports || []).join(", ") || "-"}</div>
+                  <div className="actions">
+                    <button className="danger ghost" type="button" onClick={() => deletePasskey(item.id)}>
+                      {t("Remove")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {passkeysList.length === 0 && (
+                <div className="table-row">
+                  <div className="muted small">{t("No passkeys yet")}</div>
+                </div>
+              )}
+            </div>
+            <div className="actions">
+              <button type="button" onClick={() => setPasskeysOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>

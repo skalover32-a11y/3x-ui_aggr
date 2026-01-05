@@ -40,7 +40,11 @@ make run
 - `AGG_MASTER_KEY_BASE64` (required) 32 bytes, base64
 - `ADMIN_USER` / `ADMIN_PASS` (required)
 - `JWT_SECRET` (required)
-- `JWT_EXP_HOURS` (optional, default 24)
+- `ACCESS_TOKEN_TTL` (optional, default `24h`, overrides `JWT_EXP_HOURS`)
+- `JWT_EXP_HOURS` (optional, default 24, legacy)
+- `REFRESH_TOKEN_TTL` (optional, default `720h`)
+- `AUTH_RP_ID` (optional, WebAuthn RP ID, example: `aggr.example.com`)
+- `AUTH_RP_ORIGIN` (optional, WebAuthn RP origin, example: `https://aggr.example.com`)
 - `PORT` (optional, default 8080)
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
@@ -92,6 +96,22 @@ curl -s http://localhost:8080/api/auth/login \
   -d '{"username":"operator1","password":"pass","otp":"123456"}'
 ```
 
+Refresh access token (uses `agg_refresh` cookie):
+```bash
+curl -s http://localhost:8080/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  --cookie "agg_refresh=<refresh_token>"
+```
+
+Logout (revokes refresh cookie):
+```bash
+curl -s http://localhost:8080/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -H "X-Requested-With: XMLHttpRequest" \
+  --cookie "agg_refresh=<refresh_token>"
+```
+
 Request a recovery code (sent to Telegram admin chats):
 ```bash
 curl -s http://localhost:8080/api/auth/2fa/recovery \
@@ -111,6 +131,28 @@ curl -s http://localhost:8080/api/auth/2fa/verify \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"code":"123456"}'
+```
+
+## Passkeys (WebAuthn)
+1. Login with password (and 2FA if enabled).
+2. Open menu -> **Passkeys** -> **Enable Passkey** (enter OTP if 2FA is enabled).
+3. Logout. Next time use **Login with Passkey** on the login screen.
+
+The API issues a short-lived access token and a long-lived refresh cookie (`agg_refresh`) to remember the device.
+
+Passkeys (authenticated):
+```bash
+curl -s http://localhost:8080/api/auth/webauthn/register/options \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"otp":"123456"}'
+```
+
+Passkeys login (passkey ceremony):
+```bash
+curl -s http://localhost:8080/api/auth/webauthn/login/options \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin"}'
 ```
 
 List inbounds:
@@ -136,6 +178,13 @@ List services:
 curl -s http://localhost:8080/api/services \
   -H "Authorization: Bearer <token>"
 ```
+
+## Manual test checklist
+- Login with password (and OTP if enabled) works.
+- Passkey registration succeeds from the Passkeys menu.
+- Logout clears session and refresh cookie.
+- Login with Passkey works.
+- Reload app triggers `/api/auth/refresh` and restores session.
 
 Create service (global):
 ```bash

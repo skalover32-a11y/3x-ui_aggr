@@ -171,3 +171,38 @@ type User struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
+
+type WebAuthnCredential struct {
+	ID           uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserID       string         `gorm:"type:text;not null" json:"user_id"`
+	CredentialID string         `gorm:"type:text;not null;unique" json:"credential_id"`
+	PublicKey    []byte         `gorm:"type:bytea;not null" json:"-"`
+	SignCount    int64          `gorm:"not null;default:0" json:"sign_count"`
+	Transports   pq.StringArray `gorm:"type:text[];not null;default:'{}'" json:"transports"`
+	AAGUID       *string        `gorm:"type:text" json:"aaguid"`
+	CreatedAt    time.Time      `json:"created_at"`
+	LastUsedAt   *time.Time     `gorm:"type:timestamptz" json:"last_used_at"`
+}
+
+type WebAuthnChallenge struct {
+	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserID    string         `gorm:"type:text;not null" json:"user_id"`
+	Type      string         `gorm:"type:text;not null" json:"type"`
+	Challenge string         `gorm:"type:text;not null" json:"challenge"`
+	Session   datatypes.JSON `gorm:"column:session_data;type:jsonb;not null;default:'{}'::jsonb" json:"session"`
+	CreatedAt time.Time      `json:"created_at"`
+	ExpiresAt time.Time      `gorm:"type:timestamptz;not null" json:"expires_at"`
+}
+
+type RefreshToken struct {
+	ID         uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserID     string     `gorm:"type:text;not null" json:"user_id"`
+	TokenHash  string     `gorm:"type:text;not null;unique" json:"-"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  time.Time  `gorm:"type:timestamptz;not null" json:"expires_at"`
+	LastUsedAt *time.Time `gorm:"type:timestamptz" json:"last_used_at"`
+	RevokedAt  *time.Time `gorm:"type:timestamptz" json:"revoked_at"`
+	UserAgent  *string    `gorm:"type:text" json:"user_agent"`
+	IP         *string    `gorm:"type:text" json:"ip"`
+	DeviceName *string    `gorm:"type:text" json:"device_name"`
+}

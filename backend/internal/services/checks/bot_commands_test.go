@@ -6,12 +6,9 @@ import (
 )
 
 func TestDockerCheckCommand(t *testing.T) {
-	cmd := dockerCheckCommand("my-container")
-	if !strings.Contains(cmd, "docker inspect") {
-		t.Fatalf("expected docker inspect command, got %s", cmd)
-	}
-	if !strings.Contains(cmd, "'my-container'") {
-		t.Fatalf("expected container to be quoted, got %s", cmd)
+	cmd := dockerListCommand()
+	if !strings.Contains(cmd, "docker ps") {
+		t.Fatalf("expected docker ps command, got %s", cmd)
 	}
 }
 

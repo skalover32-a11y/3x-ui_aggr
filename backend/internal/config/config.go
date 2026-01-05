@@ -9,35 +9,61 @@ import (
 )
 
 type Config struct {
-	DBDSN          string
-	AdminUser      string
-	AdminPass      string
-	JWTSecret      string
-	MasterKeyB64   string
-	JWTExpiry      time.Duration
-	SSHMaxSessions int
-	SSHIdleTimeout time.Duration
-	PublicBaseURL  string
+	DBDSN           string
+	AdminUser       string
+	AdminPass       string
+	JWTSecret       string
+	MasterKeyB64    string
+	JWTExpiry       time.Duration
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
+	AuthRPID        string
+	AuthRPOrigin    string
+	SSHMaxSessions  int
+	SSHIdleTimeout  time.Duration
+	PublicBaseURL   string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		DBDSN:        strings.TrimSpace(os.Getenv("DB_DSN")),
-		AdminUser:    strings.TrimSpace(os.Getenv("ADMIN_USER")),
-		AdminPass:    strings.TrimSpace(os.Getenv("ADMIN_PASS")),
-		JWTSecret:    strings.TrimSpace(os.Getenv("JWT_SECRET")),
-		MasterKeyB64: strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
+		DBDSN:         strings.TrimSpace(os.Getenv("DB_DSN")),
+		AdminUser:     strings.TrimSpace(os.Getenv("ADMIN_USER")),
+		AdminPass:     strings.TrimSpace(os.Getenv("ADMIN_PASS")),
+		JWTSecret:     strings.TrimSpace(os.Getenv("JWT_SECRET")),
+		MasterKeyB64:  strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
 		PublicBaseURL: strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
+		AuthRPID:      strings.TrimSpace(os.Getenv("AUTH_RP_ID")),
+		AuthRPOrigin:  strings.TrimSpace(os.Getenv("AUTH_RP_ORIGIN")),
 	}
-	expHours := strings.TrimSpace(os.Getenv("JWT_EXP_HOURS"))
-	if expHours == "" {
-		cfg.JWTExpiry = 24 * time.Hour
-	} else {
-		hours, err := strconv.Atoi(expHours)
+	accessTTL := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL"))
+	if accessTTL != "" {
+		val, err := time.ParseDuration(accessTTL)
 		if err != nil {
-			return nil, fmt.Errorf("invalid JWT_EXP_HOURS: %w", err)
+			return nil, fmt.Errorf("invalid ACCESS_TOKEN_TTL: %w", err)
 		}
-		cfg.JWTExpiry = time.Duration(hours) * time.Hour
+		cfg.AccessTokenTTL = val
+	} else {
+		expHours := strings.TrimSpace(os.Getenv("JWT_EXP_HOURS"))
+		if expHours == "" {
+			cfg.AccessTokenTTL = 24 * time.Hour
+		} else {
+			hours, err := strconv.Atoi(expHours)
+			if err != nil {
+				return nil, fmt.Errorf("invalid JWT_EXP_HOURS: %w", err)
+			}
+			cfg.AccessTokenTTL = time.Duration(hours) * time.Hour
+		}
+	}
+	cfg.JWTExpiry = cfg.AccessTokenTTL
+	refreshTTL := strings.TrimSpace(os.Getenv("REFRESH_TOKEN_TTL"))
+	if refreshTTL == "" {
+		cfg.RefreshTokenTTL = 720 * time.Hour
+	} else {
+		val, err := time.ParseDuration(refreshTTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid REFRESH_TOKEN_TTL: %w", err)
+		}
+		cfg.RefreshTokenTTL = val
 	}
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")

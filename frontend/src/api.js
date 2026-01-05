@@ -36,8 +36,32 @@ export function getUser() {
   return localStorage.getItem("agg_user") || "";
 }
 
+export async function refreshAuth() {
+  const res = await fetch(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+    credentials: "include",
+  });
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const message = data?.error?.message || `Request failed: ${res.status}`;
+    const err = new Error(message);
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
 export async function request(method, path, body) {
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" };
   const token = getToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -45,6 +69,7 @@ export async function request(method, path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
+    credentials: "include",
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -71,7 +96,7 @@ export async function convertSSHKey(file, passphrase) {
   if (passphrase) {
     formData.append("passphrase", passphrase);
   }
-  const headers = {};
+  const headers = { "X-Requested-With": "XMLHttpRequest" };
   const token = getToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -79,6 +104,7 @@ export async function convertSSHKey(file, passphrase) {
   const res = await fetch(`${API_BASE}/utils/convert-ssh-key`, {
     method: "POST",
     headers,
+    credentials: "include",
     body: formData,
   });
   const text = await res.text();

@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"net/http"
+	"net/url"
 
 	"agr_3x_ui/internal/audit"
 	"agr_3x_ui/internal/config"
@@ -40,6 +43,30 @@ func main() {
 		log.Fatalf("encryptor error: %v", err)
 	}
 	alertsSvc := alerts.New(dbConn, enc, cfg.PublicBaseURL)
+	rpID := strings.TrimSpace(cfg.AuthRPID)
+	rpOrigin := strings.TrimSpace(cfg.AuthRPOrigin)
+	if rpID == "" && cfg.PublicBaseURL != "" {
+		if parsed, err := url.Parse(cfg.PublicBaseURL); err == nil && parsed.Host != "" {
+			rpID = parsed.Host
+		}
+	}
+	if rpOrigin == "" && cfg.PublicBaseURL != "" {
+		rpOrigin = cfg.PublicBaseURL
+	}
+	if rpID == "" {
+		rpID = "localhost"
+	}
+	if rpOrigin == "" {
+		rpOrigin = "http://localhost"
+	}
+	webAuthn, err := webauthn.New(&webauthn.Config{
+		RPDisplayName: "3x-ui Aggregator",
+		RPID:          rpID,
+		RPOrigins:     []string{rpOrigin},
+	})
+	if err != nil {
+		log.Fatalf("webauthn init error: %v", err)
+	}
 	handler := &httpapi.Handler{
 		DB:             dbConn,
 		Encryptor:      enc,
@@ -49,6 +76,8 @@ func main() {
 		AdminPass:      cfg.AdminPass,
 		JWTSecret:      []byte(cfg.JWTSecret),
 		JWTExpiry:      cfg.JWTExpiry,
+		RefreshTTL:     cfg.RefreshTokenTTL,
+		WebAuthn:       webAuthn,
 		SSHClient:      sshclient.New(15 * time.Second),
 		SSHManager:     sshws.NewManager(cfg.SSHMaxSessions),
 		SSHIdleTimeout: cfg.SSHIdleTimeout,

@@ -16,14 +16,18 @@ func NewRouter(h *Handler) *gin.Engine {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
 
 	api := r.Group("/api")
 	api.POST("/auth/login", h.Login)
+	api.POST("/auth/refresh", h.Refresh)
+	api.POST("/auth/logout", h.Logout)
 	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
+	api.POST("/auth/webauthn/login/options", h.WebAuthnLoginOptions)
+	api.POST("/auth/webauthn/login/verify", h.WebAuthnLoginVerify)
 	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
 	api.POST("/telegram/webhook", h.TelegramWebhook)
 	api.GET("/healthz", h.Healthz)
@@ -101,6 +105,10 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/auth/2fa/setup", middleware.RequireRoles(writeRoles...), h.SetupTOTP)
 	auth.POST("/auth/2fa/verify", middleware.RequireRoles(writeRoles...), h.VerifyTOTP)
 	auth.POST("/auth/2fa/disable", middleware.RequireRoles(writeRoles...), h.DisableTOTP)
+	auth.POST("/auth/webauthn/register/options", middleware.RequireRoles(writeRoles...), h.WebAuthnRegisterOptions)
+	auth.POST("/auth/webauthn/register/verify", middleware.RequireRoles(writeRoles...), h.WebAuthnRegisterVerify)
+	auth.GET("/auth/webauthn/credentials", middleware.RequireRoles(readRoles...), h.ListWebAuthnCredentials)
+	auth.DELETE("/auth/webauthn/credentials/:id", middleware.RequireRoles(writeRoles...), h.DeleteWebAuthnCredential)
 
 	return r
 }

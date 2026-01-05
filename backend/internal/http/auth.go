@@ -4,10 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
@@ -79,23 +77,16 @@ func (h *Handler) Login(c *gin.Context) {
 			}
 		}
 	}
-	now := time.Now()
-	expiry := h.JWTExpiry
-	if expiry == 0 {
-		expiry = 24 * time.Hour
-	}
-	claims := jwt.MapClaims{
-		"sub":  username,
-		"user": username,
-		"role": role,
-		"iat":  now.Unix(),
-		"exp":  now.Add(expiry).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(h.JWTSecret)
+	signed, err := h.issueAccessToken(username, role)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "TOKEN_SIGN", "failed to sign token")
 		return
 	}
+	refreshToken, _, err := h.issueRefreshToken(c, username)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "REFRESH_TOKEN", "failed to issue refresh token")
+		return
+	}
+	h.setRefreshCookie(c, refreshToken, h.RefreshTTL)
 	respondStatus(c, http.StatusOK, loginResponse{Token: signed, Username: username, Role: role})
 }
