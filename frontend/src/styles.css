@@ -1108,10 +1108,6 @@ button.ghost:hover {
   word-break: break-word;
 }
 
-.page.page-wide .nodes-cards {
-  grid-template-columns: 1fr;
-}
-
   .clients-table .table-row.head {
     display: none !important;
   }

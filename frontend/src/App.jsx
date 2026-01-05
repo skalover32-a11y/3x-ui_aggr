@@ -1378,7 +1378,7 @@ function NodesPage() {
   }
 
   return (
-    <div className={`page${showingBots ? " page-wide" : ""}`}>
+    <div className="page">
       <header className="header">
         <div className="header-left">
           <button ref={menuButtonRef} className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
