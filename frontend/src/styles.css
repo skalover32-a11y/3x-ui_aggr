@@ -1090,76 +1090,10 @@ button.ghost:hover {
 .bots-view {
   grid-column: 1 / -1;
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 20px;
-  align-items: start;
 }
 
 .bots-view .table.bots {
   width: 100%;
-}
-
-.bots-toolbar {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.bots-view > .error,
-.bots-view > .muted.small {
-  grid-column: 1 / -1;
-}
-
-.bot-card {
-  gap: 16px;
-}
-
-.bot-card .chip {
-  max-width: 100%;
-  white-space: normal;
-  word-break: break-word;
-}
-
-.bot-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-}
-
-.bot-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  min-width: 120px;
-}
-
-.bot-side-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #e2e8f0;
-}
-
-.bot-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.bot-card-actions button {
-  min-width: 110px;
-}
-
-.bot-error {
-  font-size: 12px;
-  color: #fca5a5;
-  line-height: 1.4;
-  word-break: break-word;
 }
 
 .page.page-wide .nodes-cards {
