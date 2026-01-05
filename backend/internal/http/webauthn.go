@@ -1,9 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
@@ -29,6 +33,10 @@ type WebAuthnProvider interface {
 }
 
 var parseAssertion = protocol.ParseCredentialRequestResponseBytes
+var validateLogin = func(h *Handler, c *gin.Context, user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error) {
+	return h.validateLoginRelaxed(c, user, session, parsed)
+}
+var errChallengeExpired = errors.New("challenge expired")
 
 type webAuthnUser struct {
 	ID          string
@@ -205,6 +213,7 @@ func (h *Handler) WebAuthnLoginOptions(c *gin.Context) {
 	}
 	respondStatus(c, http.StatusOK, gin.H{
 		"publicKey":    assertion.Response,
+		"options":      assertion.Response,
 		"challenge_id": challengeID,
 	})
 }
@@ -242,6 +251,10 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 	}
 	session, err := h.loadWebAuthnChallengeByID(c, username, challengeID)
 	if err != nil {
+		if errors.Is(err, errChallengeExpired) {
+			respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_EXPIRED", "challenge expired")
+			return
+		}
 		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_NOT_FOUND", "challenge not found")
 		return
 	}
@@ -266,7 +279,7 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 		respondError(c, http.StatusUnauthorized, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "credential not found")
 		return
 	}
-	cred, err := h.WebAuthn.ValidateLogin(&authUser, session, parsed)
+	cred, err := validateLogin(h, c, &authUser, session, parsed)
 	if err != nil {
 		code, msg := classifyWebAuthnError(err)
 		h.logWebAuthnError(c, username, credID, challengeID, session.RelyingPartyID, err)
@@ -426,13 +439,16 @@ func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, username, challengeI
 	}
 	var row db.WebAuthnChallenge
 	err := h.DB.WithContext(c.Request.Context()).
-		Where("id::text = ? AND expires_at > ?", challengeID, time.Now()).
+		Where("id::text = ?", challengeID).
 		First(&row).Error
 	if err != nil {
 		return webauthn.SessionData{}, err
 	}
 	if strings.TrimSpace(row.UserID) != "" && strings.TrimSpace(username) != "" && row.UserID != username {
 		return webauthn.SessionData{}, gorm.ErrRecordNotFound
+	}
+	if row.ExpiresAt.Before(time.Now()) {
+		return webauthn.SessionData{}, errChallengeExpired
 	}
 	var session webauthn.SessionData
 	if err := json.Unmarshal(row.Session, &session); err != nil {
@@ -546,4 +562,107 @@ func (h *Handler) logWebAuthnError(c *gin.Context, username, credentialID, chall
 		return
 	}
 	log.Printf("webauthn error user=%s credential_id=%s challenge_id=%s rp_id=%s origin=%s err=%v", username, credentialID, challengeID, rpID, origin, err)
+}
+
+func (h *Handler) webAuthnConfig() *webauthn.Config {
+	if h == nil || h.WebAuthn == nil {
+		return nil
+	}
+	if w, ok := h.WebAuthn.(*webauthn.WebAuthn); ok {
+		return w.Config
+	}
+	if provider, ok := h.WebAuthn.(interface{ Config() *webauthn.Config }); ok {
+		return provider.Config()
+	}
+	return nil
+}
+
+func (h *Handler) validateLoginRelaxed(c *gin.Context, user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error) {
+	if user == nil {
+		return nil, protocol.ErrBadRequest.WithDetails("user missing")
+	}
+	if parsed == nil {
+		return nil, protocol.ErrBadRequest.WithDetails("assertion missing")
+	}
+	if !bytes.Equal(user.WebAuthnID(), session.UserID) {
+		return nil, protocol.ErrBadRequest.WithDetails("ID mismatch for User and Session")
+	}
+	if !session.Expires.IsZero() && session.Expires.Before(time.Now()) {
+		return nil, protocol.ErrBadRequest.WithDetails("Session has Expired")
+	}
+	credentials := user.WebAuthnCredentials()
+	if len(session.AllowedCredentialIDs) > 0 {
+		credentialsOwned := true
+		for _, allowed := range session.AllowedCredentialIDs {
+			found := false
+			for _, credential := range credentials {
+				if bytes.Equal(credential.ID, allowed) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				credentialsOwned = false
+				break
+			}
+		}
+		if !credentialsOwned {
+			return nil, protocol.ErrBadRequest.WithDetails("User does not own all credentials from the allowedCredentialList")
+		}
+		found := false
+		for _, allowed := range session.AllowedCredentialIDs {
+			if bytes.Equal(parsed.RawID, allowed) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, protocol.ErrBadRequest.WithDetails("User does not own the credential returned")
+		}
+	}
+	if len(parsed.Response.UserHandle) > 0 && !bytes.Equal(parsed.Response.UserHandle, user.WebAuthnID()) {
+		return nil, protocol.ErrBadRequest.WithDetails("userHandle and User ID do not match")
+	}
+	var credential webauthn.Credential
+	found := false
+	for _, c := range credentials {
+		if bytes.Equal(c.ID, parsed.RawID) {
+			credential = c
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, protocol.ErrBadRequest.WithDetails("Unable to find the credential for the returned credential ID")
+	}
+	cfg := h.webAuthnConfig()
+	if cfg == nil {
+		return nil, protocol.ErrBadRequest.WithDetails("webauthn config missing")
+	}
+	if cfg.MDS != nil {
+		aaguid, err := uuid.FromBytes(credential.Authenticator.AAGUID)
+		if err != nil {
+			return nil, protocol.ErrBadRequest.WithDetails("Failed to decode AAGUID").WithInfo(fmt.Sprintf("Error occurred decoding AAGUID from the credential record: %s", err))
+		}
+		if err := protocol.ValidateMetadata(context.Background(), aaguid, cfg.MDS); err != nil {
+			return nil, protocol.ErrBadRequest.WithDetails("Failed to validate credential record metadata").WithInfo(fmt.Sprintf("Error occurred validating authenticator metadata from the credential record: %s", err))
+		}
+	}
+	shouldVerifyUser := session.UserVerification == protocol.VerificationRequired
+	appID, err := parsed.GetAppID(session.Extensions, credential.AttestationType)
+	if err != nil {
+		return nil, err
+	}
+	if err := parsed.Verify(session.Challenge, cfg.RPID, cfg.RPOrigins, cfg.RPTopOrigins, cfg.RPTopOriginVerificationMode, appID, shouldVerifyUser, credential.PublicKey); err != nil {
+		return nil, err
+	}
+	credential.Authenticator.UpdateCounter(parsed.Response.AuthenticatorData.Counter)
+	if !parsed.Response.AuthenticatorData.Flags.HasBackupEligible() && parsed.Response.AuthenticatorData.Flags.HasBackupState() {
+		return nil, protocol.ErrBadRequest.WithDetails("Invalid flag combination: BE=0 and BS=1")
+	}
+	credential.Flags.UserPresent = parsed.Response.AuthenticatorData.Flags.HasUserPresent()
+	credential.Flags.UserVerified = parsed.Response.AuthenticatorData.Flags.HasUserVerified()
+	credential.Flags.BackupEligible = parsed.Response.AuthenticatorData.Flags.HasBackupEligible()
+	credential.Flags.BackupState = parsed.Response.AuthenticatorData.Flags.HasBackupState()
+	return &credential, nil
 }

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
@@ -123,6 +124,17 @@ func TestWebAuthnLoginFlowWithChallengeID(t *testing.T) {
 		}, nil
 	}
 	defer func() { parseAssertion = oldParser }()
+
+	oldValidate := validateLogin
+	validateLogin = func(h *Handler, c *gin.Context, user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error) {
+		return &webauthn.Credential{
+			ID: credIDBytes,
+			Authenticator: webauthn.Authenticator{
+				SignCount: fake.signCount,
+			},
+		}, nil
+	}
+	defer func() { validateLogin = oldValidate }()
 
 	verifyBody := map[string]any{
 		"username":     "admin",
