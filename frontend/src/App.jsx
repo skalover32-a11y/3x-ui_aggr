@@ -1116,18 +1116,18 @@ function NodesPage() {
                 : "unknown";
           return (
             <div className="table-row" key={bot.id}>
-              {showNode && <div title={nodeRef.name || ""}>{nodeRef.name || "-"}</div>}
-              <div title={bot.name || ""}>{bot.name || "-"}</div>
-              <div>{bot.kind || "-"}</div>
-              <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
-              <div>{bot.is_enabled ? t("On") : t("Off")}</div>
-              <div className="status-cell">
+              {showNode && <div title={nodeRef.name || ""} data-label={t("Node")}>{nodeRef.name || "-"}</div>}
+              <div title={bot.name || ""} data-label={t("Name")}>{bot.name || "-"}</div>
+              <div data-label={t("Kind")}>{bot.kind || "-"}</div>
+              <div title={botTargetLabel(bot)} data-label={t("Target")}>{botTargetLabel(bot)}</div>
+              <div data-label={t("Enabled")}>{bot.is_enabled ? t("On") : t("Off")}</div>
+              <div className="status-cell" data-label={t("Last status")}>
                 <StatusBadge status={badgeStatus} />
                 <span>{last?.status || "-"}</span>
               </div>
-              <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
-              <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-              <div className="actions">
+              <div data-label={t("Last seen")}>{last?.ts ? formatTS(last.ts) : "-"}</div>
+              <div data-label={t("Latency")}>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+              <div className="actions" data-label={t("Actions")}>
                 {!isViewer && (
                   <>
                     <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>

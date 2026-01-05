@@ -1025,10 +1025,10 @@ button.ghost:hover {
     -webkit-overflow-scrolling: touch;
   }
 
-.table.services .table-row {
-  min-width: 1280px;
-  width: max-content;
-}
+  .table.services .table-row {
+    min-width: 1280px;
+    width: max-content;
+  }
 
 .table.bots {
   overflow-x: auto;
@@ -1118,6 +1118,36 @@ button.ghost:hover {
   }
 
   .clients-table .table-row div[data-label="Actions"] {
+    align-items: stretch;
+  }
+
+  .table.bots .table-row.head {
+    display: none;
+  }
+
+  .table.bots .table-row {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    width: 100%;
+  }
+
+  .table.bots .table-row > div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .table.bots .table-row > div::before {
+    content: attr(data-label);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+  }
+
+  .table.bots .table-row .actions {
     align-items: stretch;
   }
 

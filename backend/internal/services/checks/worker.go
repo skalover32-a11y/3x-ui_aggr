@@ -658,7 +658,7 @@ func isExpectedBotStatus(bot *db.Bot, statusCode int) bool {
 }
 
 func dockerCheckCommand(container string) string {
-	return fmt.Sprintf("docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+	return fmt.Sprintf("sudo docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
 }
 
 func systemdCheckCommand(unit string) string {
