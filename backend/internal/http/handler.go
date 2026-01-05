@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -33,7 +32,7 @@ type Handler struct {
 	JWTSecret      []byte
 	JWTExpiry      time.Duration
 	RefreshTTL     time.Duration
-	WebAuthn       *webauthn.WebAuthn
+	WebAuthn       WebAuthnProvider
 	SSHClient      *sshclient.Client
 	SSHManager     *sshws.Manager
 	SSHIdleTimeout time.Duration

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -13,11 +14,21 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 )
 
 const webAuthnChallengeTTL = 5 * time.Minute
+
+type WebAuthnProvider interface {
+	BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	CreateCredential(user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error)
+	BeginLogin(user webauthn.User, opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	ValidateLogin(user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialAssertionData) (*webauthn.Credential, error)
+}
+
+var parseAssertion = protocol.ParseCredentialRequestResponseBytes
 
 type webAuthnUser struct {
 	ID          string
@@ -48,6 +59,7 @@ type webAuthnRegisterOptionsRequest struct {
 
 type webAuthnVerifyRequest struct {
 	Username   string          `json:"username"`
+	Challenge  string          `json:"challenge_id"`
 	Credential json.RawMessage `json:"credential"`
 }
 
@@ -102,7 +114,7 @@ func (h *Handler) WebAuthnRegisterOptions(c *gin.Context) {
 		return
 	}
 	session.Expires = time.Now().Add(webAuthnChallengeTTL)
-	if err := h.saveWebAuthnChallenge(c, username, "register", session); err != nil {
+	if _, err := h.saveWebAuthnChallenge(c, username, "register", session); err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_CHALLENGE", "failed to store challenge")
 		return
 	}
@@ -186,11 +198,15 @@ func (h *Handler) WebAuthnLoginOptions(c *gin.Context) {
 		return
 	}
 	session.Expires = time.Now().Add(webAuthnChallengeTTL)
-	if err := h.saveWebAuthnChallenge(c, username, "login", session); err != nil {
+	challengeID, err := h.saveWebAuthnChallenge(c, username, "login", session)
+	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_CHALLENGE", "failed to store challenge")
 		return
 	}
-	respondStatus(c, http.StatusOK, assertion.Response)
+	respondStatus(c, http.StatusOK, gin.H{
+		"publicKey":    assertion.Response,
+		"challenge_id": challengeID,
+	})
 }
 
 func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
@@ -204,40 +220,63 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 		return
 	}
 	username := ""
+	challengeID := ""
 	payload := raw
 	var wrapper webAuthnVerifyRequest
 	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Credential) > 0 {
 		payload = wrapper.Credential
 		username = strings.TrimSpace(wrapper.Username)
+		challengeID = strings.TrimSpace(wrapper.Challenge)
 	}
 	if username == "" {
 		username = h.AdminUser
+	}
+	if challengeID == "" {
+		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_NOT_FOUND", "missing challenge_id")
+		return
 	}
 	authUser, err := h.loadWebAuthnUser(c, username)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_USER", "failed to load user")
 		return
 	}
-	session, challengeID, err := h.loadWebAuthnChallenge(c, username, "login")
+	session, err := h.loadWebAuthnChallengeByID(c, challengeID)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE", "challenge expired")
+		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_NOT_FOUND", "challenge not found")
 		return
 	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(payload)
+	defer func() {
+		_ = h.deleteWebAuthnChallenge(c, challengeID)
+	}()
+	parsed, err := parseAssertion(payload)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "WEBAUTHN_PARSE", "invalid credential")
+		h.logWebAuthnError(c, username, challengeID, session.RelyingPartyID, err)
+		respondError(c, http.StatusBadRequest, "WEBAUTHN_ASSERTION_INVALID", "invalid credential")
+		return
+	}
+	credID := NormalizeCredentialID(parsed.ID)
+	if credID == "" && len(parsed.RawID) > 0 {
+		credID = NormalizeCredentialID(base64.RawURLEncoding.EncodeToString(parsed.RawID))
+	}
+	if credID == "" {
+		respondError(c, http.StatusBadRequest, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "credential id missing")
+		return
+	}
+	if !h.webAuthnCredentialExists(c, username, credID) {
+		respondError(c, http.StatusUnauthorized, "WEBAUTHN_CREDENTIAL_NOT_FOUND", "credential not found")
 		return
 	}
 	cred, err := h.WebAuthn.ValidateLogin(&authUser, session, parsed)
 	if err != nil {
-		respondError(c, http.StatusUnauthorized, "WEBAUTHN_VERIFY", "assertion failed")
+		code, msg := classifyWebAuthnError(err)
+		h.logWebAuthnError(c, username, challengeID, session.RelyingPartyID, err)
+		respondError(c, http.StatusUnauthorized, code, msg)
 		return
 	}
 	if err := h.touchWebAuthnCredential(c, username, cred); err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_SAVE", "failed to update credential")
 		return
 	}
-	_ = h.deleteWebAuthnChallenge(c, challengeID)
 	role, err := h.resolveRole(c, username)
 	if err != nil {
 		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unknown user")
@@ -306,7 +345,8 @@ func (h *Handler) loadWebAuthnUser(c *gin.Context, username string) (webAuthnUse
 	}
 	authCreds := make([]webauthn.Credential, 0, len(creds))
 	for _, row := range creds {
-		idBytes, err := base64.RawURLEncoding.DecodeString(row.CredentialID)
+		normalized := NormalizeCredentialID(row.CredentialID)
+		idBytes, err := decodeCredentialID(normalized)
 		if err != nil {
 			continue
 		}
@@ -342,9 +382,9 @@ func (h *Handler) loadWebAuthnUser(c *gin.Context, username string) (webAuthnUse
 	}, nil
 }
 
-func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, session *webauthn.SessionData) error {
+func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, session *webauthn.SessionData) (string, error) {
 	if session == nil {
-		return errors.New("session missing")
+		return "", errors.New("session missing")
 	}
 	now := time.Now()
 	_ = h.DB.WithContext(c.Request.Context()).Where("expires_at < ?", now).Delete(&db.WebAuthnChallenge{}).Error
@@ -357,7 +397,10 @@ func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, se
 		CreatedAt: now,
 		ExpiresAt: session.Expires,
 	}
-	return h.DB.WithContext(c.Request.Context()).Create(&row).Error
+	if err := h.DB.WithContext(c.Request.Context()).Create(&row).Error; err != nil {
+		return "", err
+	}
+	return row.ID.String(), nil
 }
 
 func (h *Handler) loadWebAuthnChallenge(c *gin.Context, username, typ string) (webauthn.SessionData, string, error) {
@@ -377,6 +420,24 @@ func (h *Handler) loadWebAuthnChallenge(c *gin.Context, username, typ string) (w
 	return session, row.ID.String(), nil
 }
 
+func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, challengeID string) (webauthn.SessionData, error) {
+	if strings.TrimSpace(challengeID) == "" {
+		return webauthn.SessionData{}, gorm.ErrRecordNotFound
+	}
+	var row db.WebAuthnChallenge
+	err := h.DB.WithContext(c.Request.Context()).
+		Where("id::text = ? AND expires_at > ?", challengeID, time.Now()).
+		First(&row).Error
+	if err != nil {
+		return webauthn.SessionData{}, err
+	}
+	var session webauthn.SessionData
+	if err := json.Unmarshal(row.Session, &session); err != nil {
+		return webauthn.SessionData{}, err
+	}
+	return session, nil
+}
+
 func (h *Handler) deleteWebAuthnChallenge(c *gin.Context, id string) error {
 	return h.DB.WithContext(c.Request.Context()).Where("id::text = ?", id).Delete(&db.WebAuthnChallenge{}).Error
 }
@@ -385,7 +446,7 @@ func (h *Handler) storeWebAuthnCredential(c *gin.Context, username string, cred 
 	if cred == nil {
 		return errors.New("credential missing")
 	}
-	credID := base64.RawURLEncoding.EncodeToString(cred.ID)
+	credID := NormalizeCredentialID(base64.RawURLEncoding.EncodeToString(cred.ID))
 	transports := make([]string, 0, len(cred.Transport))
 	for _, t := range cred.Transport {
 		val := strings.TrimSpace(string(t))
@@ -414,7 +475,7 @@ func (h *Handler) touchWebAuthnCredential(c *gin.Context, username string, cred 
 	if cred == nil {
 		return errors.New("credential missing")
 	}
-	credID := base64.RawURLEncoding.EncodeToString(cred.ID)
+	credID := NormalizeCredentialID(base64.RawURLEncoding.EncodeToString(cred.ID))
 	now := time.Now()
 	updates := map[string]any{
 		"sign_count":   int64(cred.Authenticator.SignCount),
@@ -423,4 +484,56 @@ func (h *Handler) touchWebAuthnCredential(c *gin.Context, username string, cred 
 	return h.DB.WithContext(c.Request.Context()).Model(&db.WebAuthnCredential{}).
 		Where("user_id = ? AND credential_id = ?", username, credID).
 		Updates(updates).Error
+}
+
+func NormalizeCredentialID(value string) string {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return ""
+	}
+	decoded, err := decodeCredentialID(raw)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(decoded)
+}
+
+func decodeCredentialID(value string) ([]byte, error) {
+	if value == "" {
+		return nil, errors.New("empty credential id")
+	}
+	if data, err := base64.RawURLEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	return base64.StdEncoding.DecodeString(value)
+}
+
+func (h *Handler) webAuthnCredentialExists(c *gin.Context, username, credentialID string) bool {
+	var count int64
+	_ = h.DB.WithContext(c.Request.Context()).Model(&db.WebAuthnCredential{}).
+		Where("user_id = ? AND credential_id = ?", username, credentialID).
+		Count(&count).Error
+	return count > 0
+}
+
+func classifyWebAuthnError(err error) (string, string) {
+	if err == nil {
+		return "WEBAUTHN_ASSERTION_INVALID", "assertion invalid"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "rp id") || strings.Contains(msg, "rp origin") || strings.Contains(msg, "rp") {
+		return "WEBAUTHN_RP_MISMATCH", "rp mismatch"
+	}
+	return "WEBAUTHN_ASSERTION_INVALID", "assertion invalid"
+}
+
+func (h *Handler) logWebAuthnError(c *gin.Context, username, challengeID, rpID string, err error) {
+	origin := strings.TrimSpace(c.GetHeader("Origin"))
+	if origin == "" {
+		origin = strings.TrimSpace(c.GetHeader("Referer"))
+	}
+	if err == nil {
+		return
+	}
+	log.Printf("webauthn error user=%s challenge_id=%s rp_id=%s origin=%s err=%v", username, challengeID, rpID, origin, err)
 }

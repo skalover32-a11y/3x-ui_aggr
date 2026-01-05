@@ -328,10 +328,14 @@ function LoginPage() {
     setPasskeyBusy(true);
     try {
       const options = await request("POST", "/auth/webauthn/login/options", { username: username.trim() });
-      const publicKey = prepareRequestOptions(options);
+      const publicKey = prepareRequestOptions(options.publicKey || options);
       const cred = await navigator.credentials.get({ publicKey });
       const payload = publicKeyCredentialToJSON(cred);
-      const data = await request("POST", "/auth/webauthn/login/verify", { username: username.trim(), credential: payload });
+      const data = await request("POST", "/auth/webauthn/login/verify", {
+        username: username.trim(),
+        challenge_id: options.challenge_id,
+        credential: payload,
+      });
       setAuth(data.token, data.role, data.username);
       navigate("/nodes");
     } catch (err) {
