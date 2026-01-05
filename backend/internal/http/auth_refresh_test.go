@@ -48,13 +48,18 @@ func TestLoginIssuesRefreshToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 	foundCookie := false
+	cookieValue := ""
 	for _, cookie := range resp.Result().Cookies() {
 		if cookie.Name == refreshCookieName {
 			foundCookie = true
+			cookieValue = cookie.Value
 		}
 	}
 	if !foundCookie {
 		t.Fatalf("expected refresh cookie to be set")
+	}
+	if cookieValue == "" {
+		t.Fatalf("expected refresh cookie value to be non-empty")
 	}
 	var count int64
 	if err := dbConn.Model(&db.RefreshToken{}).Count(&count).Error; err != nil {
@@ -62,5 +67,12 @@ func TestLoginIssuesRefreshToken(t *testing.T) {
 	}
 	if count == 0 {
 		t.Fatalf("expected refresh token row")
+	}
+	var rawCount int64
+	if err := dbConn.Raw("SELECT COUNT(*) FROM auth_refresh_tokens").Scan(&rawCount).Error; err != nil {
+		t.Fatalf("count auth_refresh_tokens: %v", err)
+	}
+	if rawCount == 0 {
+		t.Fatalf("expected auth_refresh_tokens row")
 	}
 }

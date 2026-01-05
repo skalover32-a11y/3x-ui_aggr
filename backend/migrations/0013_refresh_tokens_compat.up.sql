@@ -28,8 +28,20 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'refresh_tokens'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.views
+        WHERE table_schema = 'public' AND table_name = 'refresh_tokens'
     ) THEN
-        CREATE OR REPLACE VIEW refresh_tokens AS
+        CREATE VIEW refresh_tokens AS
         SELECT * FROM auth_refresh_tokens;
+        COMMENT ON VIEW refresh_tokens IS 'read-only compatibility view; write to auth_refresh_tokens';
+    ELSIF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'refresh_tokens'
+    ) AND EXISTS (
+        SELECT 1 FROM information_schema.views
+        WHERE table_schema = 'public' AND table_name = 'refresh_tokens'
+    ) THEN
+        COMMENT ON VIEW refresh_tokens IS 'read-only compatibility view; write to auth_refresh_tokens';
     END IF;
 END $$;

@@ -85,8 +85,9 @@ docker compose run --rm migrate -path /migrations -database "postgres://agg:agg@
 Login:
 ```bash
 curl -s http://localhost:8080/api/auth/login \
+  -H "X-Requested-With: XMLHttpRequest" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+  -d '{"username":"admin","password":"admin123","otp":"123456"}'
 ```
 
 Login with 2FA:
