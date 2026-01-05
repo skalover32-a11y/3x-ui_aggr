@@ -1037,17 +1037,16 @@ button.ghost:hover {
 
 .table.bots .table-row {
   grid-template-columns:
-    minmax(140px, 1.2fr)
-    minmax(140px, 1.2fr)
+    minmax(160px, 1.4fr)
+    minmax(160px, 1.2fr)
     minmax(90px, 0.7fr)
-    minmax(200px, 1.4fr)
-    80px
-    110px
-    150px
-    90px
-    minmax(220px, 1.2fr);
-  min-width: 1320px;
-  width: max-content;
+    minmax(240px, 1.6fr)
+    minmax(90px, 0.6fr)
+    minmax(140px, 0.9fr)
+    minmax(180px, 1fr)
+    minmax(110px, 0.7fr)
+    minmax(260px, 1.2fr);
+  width: 100%;
 }
 
 .table.bots .table-row > div:not(.actions) {
@@ -1072,6 +1071,14 @@ button.ghost:hover {
 
 .table.bots .table-row .actions button {
   width: auto;
+}
+
+.bots-view {
+  grid-column: 1 / -1;
+}
+
+.bots-view .table.bots {
+  width: 100%;
 }
 
   .clients-table .table-row.head {

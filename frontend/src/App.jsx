@@ -1454,7 +1454,7 @@ function NodesPage() {
           </div>
         </div>
 
-        {showingBots && renderBotsView()}
+        {showingBots && <div className="bots-view">{renderBotsView()}</div>}
 
         {!showingBots && filteredNodes.map((node) => {
           const uptimePoints = uptimeMap[node.id] || [];

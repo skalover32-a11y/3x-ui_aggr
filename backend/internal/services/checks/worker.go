@@ -424,8 +424,8 @@ func (w *Worker) executeBotCheck(ctx context.Context, node *db.Node, bot *db.Bot
 	}
 	switch checkType {
 	case "docker":
-		cmd := dockerCheckCommand(strings.TrimSpace(valueOrEmpty(bot.DockerContainer)))
-		return w.executeSSHStateCheck(ctx, node, cmd, "true", tries)
+		container := strings.TrimSpace(valueOrEmpty(bot.DockerContainer))
+		return w.executeDockerCheck(ctx, node, container, tries)
 	case "systemd":
 		cmd := systemdCheckCommand(strings.TrimSpace(valueOrEmpty(bot.SystemdUnit)))
 		return w.executeSSHStateCheck(ctx, node, cmd, "active", tries)
@@ -481,6 +481,47 @@ func (w *Worker) executeSSHStateCheck(ctx context.Context, node *db.Node, cmd st
 		}
 		if ok {
 			break
+		}
+	}
+	return ok, latency, 0, 0, errMsg
+}
+
+func (w *Worker) executeDockerCheck(ctx context.Context, node *db.Node, container string, tries int) (bool, int, int, int64, *string) {
+	if strings.TrimSpace(container) == "" {
+		msg := "container required"
+		return false, 0, 0, 0, &msg
+	}
+	var ok bool
+	var latency int
+	var errMsg *string
+	for i := 0; i < tries; i++ {
+		out, ms, err := w.runSSHCommand(ctx, node, dockerCheckCommand(container))
+		latency = ms
+		if err == nil {
+			state := strings.TrimSpace(out)
+			ok = strings.EqualFold(state, "true")
+			if ok {
+				errMsg = nil
+				break
+			}
+			msg := fmt.Sprintf("state=%s", state)
+			errMsg = &msg
+		} else {
+			errMsg = err
+		}
+		out, ms, err := w.runSSHCommand(ctx, node, dockerCheckCommandSudo(container))
+		latency = ms
+		if err == nil {
+			state := strings.TrimSpace(out)
+			ok = strings.EqualFold(state, "true")
+			if ok {
+				errMsg = nil
+				break
+			}
+			msg := fmt.Sprintf("state=%s", state)
+			errMsg = &msg
+		} else {
+			errMsg = err
 		}
 	}
 	return ok, latency, 0, 0, errMsg
@@ -658,7 +699,11 @@ func isExpectedBotStatus(bot *db.Bot, statusCode int) bool {
 }
 
 func dockerCheckCommand(container string) string {
-	return fmt.Sprintf("sudo docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+	return fmt.Sprintf("docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+}
+
+func dockerCheckCommandSudo(container string) string {
+	return fmt.Sprintf("sudo -n docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
 }
 
 func systemdCheckCommand(unit string) string {
