@@ -21,10 +21,11 @@ a {
 }
 
 .page.page-wide {
-  max-width: 100%;
+  max-width: none;
   width: 100%;
-  padding-left: 32px;
-  padding-right: 32px;
+  margin: 0;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 .center {
   display: flex;
@@ -1038,36 +1039,33 @@ button.ghost:hover {
 
 .table.bots {
   width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+}
+
+.table.bots .table-row.head {
+  display: none;
 }
 
 .table.bots .table-row {
-  grid-template-columns:
-    minmax(160px, 1.4fr)
-    minmax(160px, 1.2fr)
-    minmax(90px, 0.7fr)
-    minmax(240px, 1.6fr)
-    minmax(90px, 0.6fr)
-    minmax(140px, 0.9fr)
-    minmax(180px, 1fr)
-    minmax(110px, 0.7fr)
-    minmax(260px, 1.2fr);
-  min-width: 1600px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
   width: 100%;
 }
 
-.table.bots .table-row > div:not(.actions) {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
-  word-break: break-word;
+.table.bots .table-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
-.table.bots .table-row.head > div {
-  white-space: normal;
-  line-height: 1.2;
-  font-size: 13px;
+.table.bots .table-row > div::before {
+  content: attr(data-label);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
 }
 
 .table.bots .table-row .status-cell {
@@ -1082,17 +1080,11 @@ button.ghost:hover {
   font-size: 11px;
   color: #fca5a5;
   line-height: 1.3;
+  word-break: break-word;
 }
 
 .table.bots .table-row .actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-start;
-}
-
-.table.bots .table-row .actions button {
-  width: auto;
+  align-items: stretch;
 }
 
 .bots-view {
