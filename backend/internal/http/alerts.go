@@ -19,6 +19,7 @@ type alertStateResponse struct {
 	AlertType   string     `json:"alert_type"`
 	NodeID      *string    `json:"node_id"`
 	ServiceID   *string    `json:"service_id"`
+	BotID       *string    `json:"bot_id"`
 	CheckType   *string    `json:"check_type"`
 	LastStatus  *string    `json:"last_status"`
 	FirstSeen   time.Time  `json:"first_seen"`
@@ -72,6 +73,11 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 			query = query.Where("service_id = ?", id)
 		}
 	}
+	if raw := strings.TrimSpace(c.Query("bot_id")); raw != "" {
+		if id, err := uuid.Parse(raw); err == nil {
+			query = query.Where("bot_id = ?", id)
+		}
+	}
 
 	var rows []db.AlertState
 	if err := query.Order("last_seen desc").Limit(limit).Find(&rows).Error; err != nil {
@@ -86,6 +92,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 			AlertType:   row.AlertType,
 			NodeID:      uuidToStringPtr(row.NodeID),
 			ServiceID:   uuidToStringPtr(row.ServiceID),
+			BotID:       uuidToStringPtr(row.BotID),
 			CheckType:   row.CheckType,
 			LastStatus:  row.LastStatus,
 			FirstSeen:   row.FirstSeen,
@@ -169,7 +176,10 @@ func (h *Handler) runRetry(ctx context.Context, fingerprint string) (*db.CheckRe
 		return nil, retryError{status: http.StatusNotFound, msg: "alert not found"}
 	}
 	if state.ServiceID == nil {
-		return nil, retryError{status: http.StatusBadRequest, msg: "alert has no service target"}
+		if state.BotID == nil {
+			return nil, retryError{status: http.StatusBadRequest, msg: "alert has no target"}
+		}
+		return h.Checks.RunNowBot(ctx, *state.BotID)
 	}
 	result, err := h.Checks.RunNowService(ctx, *state.ServiceID)
 	if err != nil {

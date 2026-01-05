@@ -330,6 +330,21 @@ function NodesPage() {
     headers_json: "{}",
     is_enabled: true,
   });
+  const [botsMap, setBotsMap] = useState({});
+  const [botResults, setBotResults] = useState({});
+  const [botsBusy, setBotsBusy] = useState(false);
+  const [botsError, setBotsError] = useState("");
+  const [botEditor, setBotEditor] = useState({ open: false, mode: "add", node: null, bot: null });
+  const [botForm, setBotForm] = useState({
+    name: "",
+    kind: "HTTP",
+    docker_container: "",
+    systemd_unit: "",
+    health_url: "",
+    health_path: "/",
+    expected_status: ["200"],
+    is_enabled: true,
+  });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [editModal, setEditModal] = useState({ open: false, node: null });
@@ -379,6 +394,75 @@ function NodesPage() {
       setServicesError(err.message);
     } finally {
       setServicesBusy(false);
+    }
+  }
+
+  async function loadBots(nodeID) {
+    if (!nodeID) return;
+    setBotsBusy(true);
+    setBotsError("");
+    try {
+      const data = await request("GET", `/nodes/${nodeID}/bots`);
+      setBotsMap((prev) => ({ ...prev, [nodeID]: data }));
+      const resultEntries = await Promise.all(
+        data.map((bot) => request("GET", `/bots/${bot.id}/results?limit=1`).catch(() => []))
+      );
+      const resultsNext = {};
+      data.forEach((bot, idx) => {
+        const rows = resultEntries[idx];
+        if (Array.isArray(rows) && rows.length > 0) {
+          resultsNext[bot.id] = rows[0];
+        }
+      });
+      if (Object.keys(resultsNext).length > 0) {
+        setBotResults((prev) => ({ ...prev, ...resultsNext }));
+      }
+    } catch (err) {
+      setBotsError(err.message);
+    } finally {
+      setBotsBusy(false);
+    }
+  }
+
+  async function loadAllBots() {
+    if (nodes.length === 0) {
+      setBotsMap({});
+      return;
+    }
+    setBotsBusy(true);
+    setBotsError("");
+    try {
+      const entries = await Promise.all(
+        nodes.map((node) =>
+          request("GET", `/nodes/${node.id}/bots`)
+            .then((data) => ({ node, data }))
+            .catch(() => ({ node, data: [] }))
+        )
+      );
+      const mapNext = {};
+      const allBots = [];
+      entries.forEach(({ node, data }) => {
+        mapNext[node.id] = data;
+        allBots.push(...data);
+      });
+      setBotsMap(mapNext);
+      const resultEntries = await Promise.all(
+        allBots.map((bot) => request("GET", `/bots/${bot.id}/results?limit=1`).catch(() => []))
+      );
+      const resultsNext = {};
+      allBots.forEach((bot, idx) => {
+        const rows = resultEntries[idx];
+        if (Array.isArray(rows) && rows.length > 0) {
+          resultsNext[bot.id] = rows[0];
+        }
+      });
+      if (Object.keys(resultsNext).length > 0) {
+        setBotResults((prev) => ({ ...prev, ...resultsNext }));
+      }
+    } catch (err) {
+      setBotsError(err.message);
+    } finally {
+      setBotsBusy(false);
     }
   }
 
@@ -443,12 +527,17 @@ function NodesPage() {
     return () => clearInterval(interval);
   }, [nodes]);
 
+  const showingBots = nodeTypeFilter === "BOT";
   const filteredNodes = useMemo(() => {
     if (nodeTypeFilter === "HOST") {
       return nodes.filter((node) => (node.kind || "PANEL") === "HOST");
     }
-    return nodes.filter((node) => (node.kind || "PANEL") === "PANEL");
+    if (nodeTypeFilter === "PANEL") {
+      return nodes.filter((node) => (node.kind || "PANEL") === "PANEL");
+    }
+    return nodes;
   }, [nodes, nodeTypeFilter]);
+  const botCount = useMemo(() => Object.values(botsMap).flat().length, [botsMap]);
 
   useEffect(() => {
     if (!nodeDetails.open || !nodeDetails.node) return;
@@ -456,21 +545,46 @@ function NodesPage() {
     loadServices(nodeDetails.node.id);
   }, [nodeDetails.open, nodeDetails.node, nodeTab]);
 
+  useEffect(() => {
+    if (!nodeDetails.open || !nodeDetails.node) return;
+    if (nodeTab !== "bots") return;
+    loadBots(nodeDetails.node.id);
+  }, [nodeDetails.open, nodeDetails.node, nodeTab]);
+
+  useEffect(() => {
+    if (!showingBots) return;
+    loadAllBots();
+  }, [showingBots, nodes]);
+
   async function onCreate(e) {
     e.preventDefault();
     setError("");
     try {
+      const isBotNode = form.kind === "BOT";
+      const kind = isBotNode ? "HOST" : form.kind;
+      const basePayload = isBotNode
+        ? { ...form, base_url: "", panel_username: "", panel_password: "" }
+        : { ...form };
+      const tags = basePayload.tags
+        ? basePayload.tags.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
+      if (isBotNode && !tags.includes("bot")) {
+        tags.push("bot");
+      }
       const payload = {
-        kind: form.kind,
-        ...form,
-        tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+        kind,
+        ...basePayload,
+        tags,
       };
-      await request("POST", "/nodes", payload);
+      const created = await request("POST", "/nodes", payload);
       setForm({ ...form, kind: "PANEL", name: "", tags: "" });
       setKeyPassphrase("");
       setKeyFingerprint("");
       setAddOpen(false);
       loadNodes();
+      if (isBotNode) {
+        openBotAdd(created);
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -504,7 +618,7 @@ function NodesPage() {
 
   async function onValidateCreate() {
     const payload = {
-      kind: form.kind,
+      kind: form.kind === "BOT" ? "HOST" : form.kind,
       base_url: form.base_url,
       verify_tls: form.verify_tls,
       ssh_host: form.ssh_host,
@@ -746,6 +860,120 @@ function NodesPage() {
     }
   }
 
+  function resetBotForm() {
+    setBotForm({
+      name: "",
+      kind: "HTTP",
+      docker_container: "",
+      systemd_unit: "",
+      health_url: "",
+      health_path: "/",
+      expected_status: ["200"],
+      is_enabled: true,
+    });
+  }
+
+  function openBotAdd(node) {
+    resetBotForm();
+    setBotEditor({ open: true, mode: "add", node, bot: null });
+  }
+
+  function openBotEdit(node, bot) {
+    const expected = Array.isArray(bot.expected_status)
+      ? bot.expected_status.map((val) => `${val}`)
+      : [];
+    setBotForm({
+      name: bot.name || "",
+      kind: bot.kind || "HTTP",
+      docker_container: bot.docker_container || "",
+      systemd_unit: bot.systemd_unit || "",
+      health_url: bot.health_url || "",
+      health_path: bot.health_path || "/",
+      expected_status: expected.length > 0 ? expected : ["200"],
+      is_enabled: bot.is_enabled !== false,
+    });
+    setBotEditor({ open: true, mode: "edit", node, bot });
+  }
+
+  async function saveBot() {
+    if (!botEditor.node) return;
+    setBotsError("");
+    const payload = {
+      name: botForm.name,
+      kind: botForm.kind,
+      docker_container: botForm.docker_container || null,
+      systemd_unit: botForm.systemd_unit || null,
+      health_url: botForm.health_url || null,
+      health_path: botForm.health_path || null,
+      expected_status: parseExpected(botForm.expected_status),
+      is_enabled: !!botForm.is_enabled,
+    };
+    try {
+      if (botEditor.mode === "add") {
+        const created = await request("POST", `/nodes/${botEditor.node.id}/bots`, payload);
+        setBotResults((prev) => ({ ...prev, [created.id]: null }));
+      } else if (botEditor.bot) {
+        await request("PUT", `/bots/${botEditor.bot.id}`, payload);
+      }
+      setBotEditor({ open: false, mode: "add", node: null, bot: null });
+      loadBots(botEditor.node.id);
+    } catch (err) {
+      setBotsError(err.message);
+    }
+  }
+
+  async function runBot(bot) {
+    setBotsError("");
+    try {
+      const res = await request("POST", `/bots/${bot.id}/run-now`, {});
+      setBotResults((prev) => ({ ...prev, [bot.id]: res }));
+    } catch (err) {
+      setBotsError(err.message);
+    }
+  }
+
+  async function toggleBot(bot, enabled) {
+    setBotsError("");
+    try {
+      await request("PUT", `/bots/${bot.id}`, { is_enabled: enabled });
+      loadBots(bot.node_id);
+    } catch (err) {
+      setBotsError(err.message);
+    }
+  }
+
+  async function deleteBot(bot) {
+    if (!confirm(t("Delete bot?"))) return;
+    setBotsError("");
+    try {
+      await request("DELETE", `/bots/${bot.id}`, {});
+      loadBots(bot.node_id);
+    } catch (err) {
+      setBotsError(err.message);
+    }
+  }
+
+  async function muteBot(bot) {
+    setBotsError("");
+    try {
+      const rows = await request("GET", `/alerts?bot_id=${bot.id}&active=true&limit=1`);
+      if (!Array.isArray(rows) || rows.length === 0) {
+        setBotsError(t("No active alerts for this bot"));
+        return;
+      }
+      await request("POST", `/alerts/${rows[0].fingerprint}/mute`, { duration: 3600 });
+    } catch (err) {
+      setBotsError(err.message);
+    }
+  }
+
+  function botTargetLabel(bot) {
+    if (!bot) return "-";
+    if (bot.kind === "DOCKER") return bot.docker_container || "-";
+    if (bot.kind === "SYSTEMD") return bot.systemd_unit || "-";
+    return bot.health_url || "-";
+  }
+
   function renderNodeDetails(node, uptimePoints, metrics) {
     const { success, total } = computeUptime(uptimePoints);
     return (
@@ -855,6 +1083,100 @@ function NodesPage() {
             </div>
           )}
         </div>
+      </>
+    );
+  }
+
+  function renderBotsTable(bots, showNode) {
+    return (
+      <div className="table bots">
+        <div className="table-row head">
+          {showNode && <div>{t("Node")}</div>}
+          <div>{t("Name")}</div>
+          <div>{t("Kind")}</div>
+          <div>{t("Target")}</div>
+          <div>{t("Enabled")}</div>
+          <div>{t("Last status")}</div>
+          <div>{t("Last seen")}</div>
+          <div>{t("Latency")}</div>
+          <div>{t("Actions")}</div>
+        </div>
+        {bots.map((bot) => {
+          const last = botResults[bot.id];
+          const node = nodes.find((n) => n.id === bot.node_id);
+          const nodeRef = node || { id: bot.node_id, name: "-" };
+          return (
+            <div className="table-row" key={bot.id}>
+              {showNode && <div>{nodeRef.name || "-"}</div>}
+              <div>{bot.name || "-"}</div>
+              <div>{bot.kind || "-"}</div>
+              <div>{botTargetLabel(bot)}</div>
+              <div>{bot.is_enabled ? t("On") : t("Off")}</div>
+              <div>{last?.status || "-"}</div>
+              <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+              <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+              <div className="actions">
+                {!isViewer && (
+                  <>
+                    <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
+                    <button type="button" className="secondary" onClick={() => muteBot(bot)}>{t("Mute 1h")}</button>
+                    <button type="button" className="secondary" onClick={() => openBotEdit(nodeRef, bot)}>{t("Edit")}</button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => toggleBot(bot, !bot.is_enabled)}
+                    >
+                      {bot.is_enabled ? t("Disable") : t("Enable")}
+                    </button>
+                    <button type="button" className="danger" onClick={() => deleteBot(bot)}>{t("Delete")}</button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {bots.length === 0 && (
+          <div className="table-row">
+            <div className="muted small">{t("No bots yet")}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderBotsTab(node) {
+    const bots = botsMap[node.id] || [];
+    return (
+      <>
+        <div className="services-header">
+          <div className="muted small">
+            {botsBusy ? t("Loading...") : t("{count} bots", { count: bots.length })}
+          </div>
+          <div className="actions">
+            {!isViewer && <button type="button" onClick={() => openBotAdd(node)}>{t("Add")}</button>}
+            <button type="button" className="secondary" onClick={() => loadBots(node.id)}>{t("Refresh")}</button>
+          </div>
+        </div>
+        {botsError && <div className="error">{botsError}</div>}
+        {renderBotsTable(bots, false)}
+      </>
+    );
+  }
+
+  function renderBotsView() {
+    const bots = Object.values(botsMap).flat();
+    return (
+      <>
+        <div className="services-header">
+          <div className="muted small">
+            {botsBusy ? t("Loading...") : t("{count} bots", { count: bots.length })}
+          </div>
+          <div className="actions">
+            <button type="button" className="secondary" onClick={loadAllBots}>{t("Refresh")}</button>
+          </div>
+        </div>
+        {botsError && <div className="error">{botsError}</div>}
+        {renderBotsTable(bots, true)}
       </>
     );
   }
@@ -1089,7 +1411,11 @@ function NodesPage() {
         <div className="nodes-cards-head">
           <div>
             <h3>{t("Nodes Manager")}</h3>
-            <div className="muted">{t("Servers configured: {count}", { count: filteredNodes.length })}</div>
+            <div className="muted">
+              {showingBots
+                ? t("Bots: {count}", { count: botCount })
+                : t("Servers configured: {count}", { count: filteredNodes.length })}
+            </div>
           </div>
           <div className="node-type-toggle">
             <button
@@ -1106,10 +1432,19 @@ function NodesPage() {
             >
               {t("Hosts")}
             </button>
+            <button
+              type="button"
+              className={`toggle-pill ${nodeTypeFilter === "BOT" ? "active" : ""}`}
+              onClick={() => setNodeTypeFilter("BOT")}
+            >
+              {t("Bots")}
+            </button>
           </div>
         </div>
 
-        {filteredNodes.map((node) => {
+        {showingBots && renderBotsView()}
+
+        {!showingBots && filteredNodes.map((node) => {
           const uptimePoints = uptimeMap[node.id] || [];
           const { percent } = computeUptime(uptimePoints);
           const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
@@ -1202,14 +1537,21 @@ function NodesPage() {
               >
                 {t("Services")}
               </button>
+              <button
+                type="button"
+                className={`tab ${nodeTab === "bots" ? "active" : ""}`}
+                onClick={() => setNodeTab("bots")}
+              >
+                {t("Bots")}
+              </button>
             </div>
-            {nodeTab === "overview"
-              ? renderNodeDetails(
-                  nodeDetails.node,
-                  uptimeMap[nodeDetails.node.id] || [],
-                  metricsMap[nodeDetails.node.id] || []
-                )
-              : renderServicesTab(nodeDetails.node)}
+            {nodeTab === "overview" && renderNodeDetails(
+              nodeDetails.node,
+              uptimeMap[nodeDetails.node.id] || [],
+              metricsMap[nodeDetails.node.id] || []
+            )}
+            {nodeTab === "services" && renderServicesTab(nodeDetails.node)}
+            {nodeTab === "bots" && renderBotsTab(nodeDetails.node)}
           </div>
         </div>
       )}
@@ -1260,6 +1602,78 @@ function NodesPage() {
             <div className="actions">
               <button type="button" onClick={() => saveService()}>{t("Save")}</button>
               <button type="button" onClick={() => setServiceEditor({ open: false, mode: "add", node: null, service: null })}>{t("Cancel")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {botEditor.open && (
+        <div className="modal overlay-modal">
+          <div className="modal-content">
+            <h3>{botEditor.mode === "add" ? t("Add Bot") : t("Edit Bot")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <input
+                placeholder={t("Name")}
+                value={botForm.name}
+                onChange={(e) => setBotForm({ ...botForm, name: e.target.value })}
+              />
+              <select
+                value={botForm.kind}
+                onChange={(e) => setBotForm({ ...botForm, kind: e.target.value })}
+              >
+                <option value="HTTP">HTTP</option>
+                <option value="DOCKER">DOCKER</option>
+                <option value="SYSTEMD">SYSTEMD</option>
+              </select>
+              {botForm.kind === "HTTP" && (
+                <>
+                  <input
+                    placeholder={t("Health URL")}
+                    value={botForm.health_url}
+                    onChange={(e) => setBotForm({ ...botForm, health_url: e.target.value })}
+                  />
+                  <input
+                    placeholder={t("Health path")}
+                    value={botForm.health_path}
+                    onChange={(e) => setBotForm({ ...botForm, health_path: e.target.value })}
+                  />
+                  <ListInput
+                    label={t("Expected status")}
+                    values={botForm.expected_status}
+                    placeholder="200"
+                    onChange={(values) => setBotForm({ ...botForm, expected_status: values })}
+                  />
+                </>
+              )}
+              {botForm.kind === "DOCKER" && (
+                <input
+                  placeholder={t("Docker container")}
+                  value={botForm.docker_container}
+                  onChange={(e) => setBotForm({ ...botForm, docker_container: e.target.value })}
+                />
+              )}
+              {botForm.kind === "SYSTEMD" && (
+                <input
+                  placeholder={t("Systemd unit")}
+                  value={botForm.systemd_unit}
+                  onChange={(e) => setBotForm({ ...botForm, systemd_unit: e.target.value })}
+                />
+              )}
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={botForm.is_enabled}
+                  onChange={(e) => setBotForm({ ...botForm, is_enabled: e.target.checked })}
+                />
+                {t("Enabled")}
+              </label>
+            </div>
+            {botsError && <div className="error">{botsError}</div>}
+            <div className="actions">
+              <button type="button" onClick={() => saveBot()}>{t("Save")}</button>
+              <button type="button" onClick={() => setBotEditor({ open: false, mode: "add", node: null, bot: null })}>
+                {t("Cancel")}
+              </button>
             </div>
           </div>
         </div>
@@ -1354,6 +1768,7 @@ function NodesPage() {
               >
                 <option value="PANEL">{t("Panel node")}</option>
                 <option value="HOST">{t("Host node")}</option>
+                <option value="BOT">{t("Bot node")}</option>
               </select>
               <input name="node_name" autoComplete="off" placeholder={t("Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />

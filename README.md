@@ -49,6 +49,7 @@ make run
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
 - **HOST**: SSH-only node. No panel required; use service checks for HTTP endpoints.
+- **BOT (UI)**: creates a HOST node with tag `bot` and opens the bot creation form.
 
 Example HOST node create:
 ```bash
@@ -222,9 +223,41 @@ curl -s http://localhost:8080/api/nodes \
 5. Use **Disable/Enable** to stop/resume checks for a service.
 6. Runner starts automatically with the backend (no extra ENV required). On startup it backfills checks for services without one.
 
+## Bots monitoring
+Bots are monitored via the same checks/results/alerts pipeline.
+
+Kinds:
+- **HTTP**: checks `health_url` + `health_path`, expected status list (default `200`).
+- **DOCKER**: checks container running state via SSH.
+- **SYSTEMD**: checks `systemctl is-active` via SSH.
+
+UI flow:
+1. Switch to **Bots** in the top filter, or open a node and the **Bots** tab.
+2. Click **Add** and choose bot kind + target.
+3. A default check is auto-created (interval 30s, timeout 3000ms, retries 1).
+4. Use **Run now** for an immediate check; results appear in the table.
+5. **Mute 1h** suppresses duplicate Telegram alerts for that bot.
+
+API examples:
+```bash
+# Create bot for a node
+curl -s http://localhost:8080/api/nodes/<node_id>/bots \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"bot-1","kind":"HTTP","health_url":"https://example.com","health_path":"/","expected_status":[200]}'
+
+# Run bot check now
+curl -s -X POST http://localhost:8080/api/bots/<bot_id>/run-now \
+  -H "Authorization: Bearer <token>"
+
+# Bot results (last 60 minutes)
+curl -s "http://localhost:8080/api/bots/<bot_id>/results?minutes=60" \
+  -H "Authorization: Bearer <token>"
+```
+
 ## Alerts: mute / retry / run-now
 - **Mute 1h** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.
-- **Retry** triggers an immediate run-now check for the related service.
+- **Retry** triggers an immediate run-now check for the related service/bot.
 - When a failed check becomes **ok**, a recovery message is sent/edited.
 - Telegram notifications are deduplicated per fingerprint (same status) for 5 minutes.
 

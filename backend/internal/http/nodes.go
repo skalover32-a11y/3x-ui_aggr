@@ -415,11 +415,23 @@ func (h *Handler) deleteNodeRecords(ctx context.Context, node *db.Node) error {
 		tx.Rollback()
 		return err
 	}
+	if err := tx.Exec("DELETE FROM check_results WHERE check_id IN (SELECT id FROM checks WHERE target_type = 'bot' AND target_id IN (SELECT id FROM bots WHERE node_id = ?))", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
 	if err := tx.Exec("DELETE FROM alert_states WHERE node_id = ? OR service_id IN (SELECT id FROM services WHERE node_id = ?)", node.ID, node.ID).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
+	if err := tx.Exec("DELETE FROM alert_states WHERE bot_id IN (SELECT id FROM bots WHERE node_id = ?)", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
 	if err := tx.Exec("DELETE FROM checks WHERE target_type = 'service' AND target_id IN (SELECT id FROM services WHERE node_id = ?)", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Exec("DELETE FROM checks WHERE target_type = 'bot' AND target_id IN (SELECT id FROM bots WHERE node_id = ?)", node.ID).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -428,6 +440,10 @@ func (h *Handler) deleteNodeRecords(ctx context.Context, node *db.Node) error {
 		return err
 	}
 	if err := tx.Delete(&db.Service{}, "node_id = ?", node.ID).Error; err != nil {
+		tx.Rollback()
+		return err
+	}
+	if err := tx.Delete(&db.Bot{}, "node_id = ?", node.ID).Error; err != nil {
 		tx.Rollback()
 		return err
 	}

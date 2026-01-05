@@ -36,11 +36,14 @@ type Alert struct {
 	Type        AlertType
 	NodeID      uuid.UUID
 	ServiceID   uuid.UUID
+	BotID       uuid.UUID
 	CheckID     uuid.UUID
 	NodeName    string
 	ServiceKind string
+	BotKind     string
 	CheckType   string
 	Target      string
+	TargetType  string
 	Status      string
 	TS          time.Time
 	Severity    Severity

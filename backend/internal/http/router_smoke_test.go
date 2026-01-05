@@ -26,4 +26,10 @@ func TestRouterInit(t *testing.T) {
 	if resp.Code == http.StatusNotFound {
 		t.Fatalf("expected /api/services to be registered")
 	}
+	resp = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, "/api/nodes/1/bots", nil)
+	r.ServeHTTP(resp, req)
+	if resp.Code == http.StatusNotFound {
+		t.Fatalf("expected /api/nodes/:id/bots to be registered")
+	}
 }

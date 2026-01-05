@@ -40,9 +40,10 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/nodes/:id/uptime", middleware.RequireRoles(readRoles...), h.GetNodeUptime)
 	auth.GET("/nodes/:id/metrics", middleware.RequireRoles(readRoles...), h.GetNodeMetrics)
 
-
 	auth.GET("/nodes/:id/services", middleware.RequireRoles(readRoles...), h.ListServices)
 	auth.POST("/nodes/:id/services", middleware.RequireRoles(writeRoles...), h.CreateService)
+	auth.GET("/nodes/:id/bots", middleware.RequireRoles(readRoles...), h.ListBots)
+	auth.POST("/nodes/:id/bots", middleware.RequireRoles(writeRoles...), h.CreateBot)
 	auth.GET("/services", middleware.RequireRoles(readRoles...), h.ListAllServices)
 	auth.POST("/services", middleware.RequireRoles(writeRoles...), h.CreateServiceGlobal)
 	auth.PATCH("/nodes/:id/services/:serviceId", middleware.RequireRoles(writeRoles...), h.UpdateService)
@@ -51,6 +52,11 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.DELETE("/services/:service_id", middleware.RequireRoles(writeRoles...), h.DeleteService)
 	auth.POST("/services/:service_id/run", middleware.RequireRoles(writeRoles...), h.RunServiceCheck)
 	auth.GET("/services/:service_id/results", middleware.RequireRoles(readRoles...), h.ListServiceResults)
+	auth.GET("/bots/:bot_id", middleware.RequireRoles(readRoles...), h.GetBot)
+	auth.PUT("/bots/:bot_id", middleware.RequireRoles(writeRoles...), h.UpdateBot)
+	auth.DELETE("/bots/:bot_id", middleware.RequireRoles(writeRoles...), h.DeleteBot)
+	auth.POST("/bots/:bot_id/run-now", middleware.RequireRoles(writeRoles...), h.RunBotCheck)
+	auth.GET("/bots/:bot_id/results", middleware.RequireRoles(readRoles...), h.ListBotResults)
 
 	auth.GET("/nodes/:id/checks", middleware.RequireRoles(readRoles...), h.ListNodeChecks)
 	auth.POST("/nodes/:id/checks", middleware.RequireRoles(writeRoles...), h.CreateNodeCheck)

@@ -26,7 +26,6 @@ type InlineKeyboard struct {
 	InlineKeyboard [][]InlineButton `json:"inline_keyboard"`
 }
 
-
 func RenderRecovery(alert Alert, publicBaseURL string) (string, *InlineKeyboard) {
 	lines := []string{renderRecoveryTitle(alert), renderRecoveryPrimary(alert)}
 	lines = append(lines, renderMeta(alert)...)
@@ -36,6 +35,9 @@ func RenderRecovery(alert Alert, publicBaseURL string) (string, *InlineKeyboard)
 
 func renderRecoveryTitle(alert Alert) string {
 	title := escapeHTML(alert.NodeName)
+	if alert.TargetType == "bot" && strings.TrimSpace(alert.BotKind) != "" {
+		return fmt.Sprintf("<b>?? Recovered - %s (%s)</b>", title, escapeHTML(alert.BotKind))
+	}
 	if strings.TrimSpace(alert.ServiceKind) != "" {
 		return fmt.Sprintf("<b>?? Recovered - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
 	}
@@ -77,6 +79,12 @@ func renderTitle(alert Alert) string {
 	case AlertConnection:
 		return fmt.Sprintf("<b>?? Connection issue - %s</b>", title)
 	case AlertGeneric:
+		if alert.TargetType == "bot" {
+			if strings.TrimSpace(alert.BotKind) != "" {
+				return fmt.Sprintf("<b>?? Bot alert - %s (%s)</b>", title, escapeHTML(alert.BotKind))
+			}
+			return fmt.Sprintf("<b>?? Bot alert - %s</b>", title)
+		}
 		if strings.TrimSpace(alert.ServiceKind) != "" {
 			return fmt.Sprintf("<b>?? Service alert - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
 		}
@@ -122,7 +130,11 @@ func renderMeta(alert Alert) []string {
 		lines = append(lines, fmt.Sprintf("Service: <code>%s</code>", escapeHTML(alert.ServiceKind)))
 	}
 	if strings.TrimSpace(alert.Target) != "" {
-		lines = append(lines, fmt.Sprintf("Target: <code>%s</code>", escapeHTML(alert.Target)))
+		label := "Target"
+		if alert.TargetType == "bot" {
+			label = "Bot"
+		}
+		lines = append(lines, fmt.Sprintf("%s: <code>%s</code>", label, escapeHTML(alert.Target)))
 	}
 	if strings.TrimSpace(alert.CheckType) != "" {
 		lines = append(lines, fmt.Sprintf("Check: <code>%s</code>", escapeHTML(alert.CheckType)))
@@ -132,7 +144,7 @@ func renderMeta(alert Alert) []string {
 	}
 	lines = append(lines, "Channel: <code>Telegram</code>")
 	lines = append(lines, fmt.Sprintf("Severity: <b>%s</b>", severityLabel(alert.Severity)))
-	lines = append(lines, recommendationLine(alert.Type))
+	lines = append(lines, recommendationLine(alert))
 	return lines
 }
 func renderReason(alert Alert) string {
@@ -187,8 +199,8 @@ func severityLabel(level Severity) string {
 	}
 }
 
-func recommendationLine(alertType AlertType) string {
-	switch alertType {
+func recommendationLine(alert Alert) string {
+	switch alert.Type {
 	case AlertCPU:
 		return "Recommendation: check top processes and system load."
 	case AlertMemory:
@@ -198,6 +210,9 @@ func recommendationLine(alertType AlertType) string {
 	case AlertConnection:
 		return "Recommendation: verify panel URL and network connectivity."
 	case AlertGeneric:
+		if alert.TargetType == "bot" {
+			return "Recommendation: inspect bot process and check configuration."
+		}
 		return "Recommendation: inspect service health and check configuration."
 	default:
 		return "Recommendation: inspect logs for details."

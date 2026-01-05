@@ -36,7 +36,6 @@ type Node struct {
 	UpdatedAt         time.Time      `json:"updated_at"`
 }
 
-
 type Service struct {
 	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	NodeID         uuid.UUID      `gorm:"type:uuid;not null" json:"node_id"`
@@ -52,6 +51,21 @@ type Service struct {
 	IsEnabled      bool           `gorm:"not null;default:true" json:"is_enabled"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
+}
+
+type Bot struct {
+	ID              uuid.UUID     `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	NodeID          uuid.UUID     `gorm:"type:uuid;not null" json:"node_id"`
+	Name            string        `gorm:"type:text;not null" json:"name"`
+	Kind            string        `gorm:"type:text;not null" json:"kind"`
+	DockerContainer *string       `gorm:"type:text" json:"docker_container"`
+	SystemdUnit     *string       `gorm:"type:text" json:"systemd_unit"`
+	HealthURL       *string       `gorm:"type:text" json:"health_url"`
+	HealthPath      *string       `gorm:"type:text;default:'/'" json:"health_path"`
+	ExpectedStatus  pq.Int64Array `gorm:"type:int[];not null;default:'{200}'" json:"expected_status"`
+	IsEnabled       bool          `gorm:"not null;default:true" json:"is_enabled"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 type Check struct {
@@ -83,6 +97,7 @@ type AlertState struct {
 	AlertType      string         `gorm:"type:text;not null" json:"alert_type"`
 	NodeID         *uuid.UUID     `gorm:"type:uuid" json:"node_id"`
 	ServiceID      *uuid.UUID     `gorm:"type:uuid" json:"service_id"`
+	BotID          *uuid.UUID     `gorm:"type:uuid" json:"bot_id"`
 	CheckType      *string        `gorm:"type:text" json:"check_type"`
 	LastStatus     *string        `gorm:"type:text" json:"last_status"`
 	FirstSeen      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"first_seen"`

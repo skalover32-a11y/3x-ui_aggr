@@ -17,7 +17,7 @@ import (
 	"agr_3x_ui/internal/services/checks"
 )
 
-func TestRunServiceCheckEndpoint(t *testing.T) {
+func TestRunBotCheckEndpoint(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
 		t.Skip("TEST_DB_DSN not set")
@@ -26,10 +26,10 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := dbConn.AutoMigrate(&db.Node{}, &db.Service{}, &db.Check{}, &db.CheckResult{}); err != nil {
+	if err := dbConn.AutoMigrate(&db.Node{}, &db.Bot{}, &db.Check{}, &db.CheckResult{}, &db.AlertState{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	_ = dbConn.Exec("TRUNCATE check_results, checks, services, nodes RESTART IDENTITY CASCADE").Error
+	_ = dbConn.Exec("TRUNCATE check_results, checks, bots, nodes RESTART IDENTITY CASCADE").Error
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -39,8 +39,9 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	node := db.Node{
 		ID:               uuid.New(),
 		Name:             "node-1",
-		BaseURL:          "http://example.com",
-		PanelUsername:    "admin",
+		Kind:             "HOST",
+		BaseURL:          "",
+		PanelUsername:    "",
 		PanelPasswordEnc: "enc",
 		SSHHost:          "127.0.0.1",
 		SSHPort:          22,
@@ -75,38 +76,38 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	r := NewRouter(h)
 
 	createBody := map[string]any{
-		"node_id":         node.ID.String(),
-		"kind":            "CUSTOM_HTTP",
-		"url":             srv.URL,
+		"name":            "bot-1",
+		"kind":            "HTTP",
+		"health_url":      srv.URL,
 		"health_path":     "/",
 		"expected_status": []int{200},
 	}
 	bodyBytes, _ := json.Marshal(createBody)
 	resp := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/api/services", bytes.NewReader(bodyBytes))
+	req, _ := http.NewRequest(http.MethodPost, "/api/nodes/"+node.ID.String()+"/bots", bytes.NewReader(bodyBytes))
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(resp, req)
 	if resp.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
 	}
-	var created serviceResponse
+	var created botResponse
 	if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
-		t.Fatalf("parse service response: %v", err)
+		t.Fatalf("parse bot response: %v", err)
 	}
 
-	serviceID, err := uuid.Parse(created.ID)
+	botID, err := uuid.Parse(created.ID)
 	if err != nil {
-		t.Fatalf("parse service id: %v", err)
+		t.Fatalf("parse bot id: %v", err)
 	}
 
 	var check db.Check
-	if err := dbConn.Where("target_type = ? AND target_id = ?", "service", serviceID).First(&check).Error; err != nil {
+	if err := dbConn.Where("target_type = ? AND target_id = ?", "bot", botID).First(&check).Error; err != nil {
 		t.Fatalf("expected auto-created check: %v", err)
 	}
 
 	resp = httptest.NewRecorder()
-	request, _ := http.NewRequest(http.MethodPost, "/api/services/"+created.ID+"/run", bytes.NewReader([]byte("{}")))
+	request, _ := http.NewRequest(http.MethodPost, "/api/bots/"+created.ID+"/run-now", bytes.NewReader([]byte("{}")))
 	request.Header.Set("Authorization", "Bearer "+jwtToken)
 	request.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(resp, request)
@@ -121,9 +122,4 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	if len(results) == 0 {
 		t.Fatalf("expected check_results row")
 	}
-}
-
-func stringPtr(value string) *string {
-	v := value
-	return &v
 }

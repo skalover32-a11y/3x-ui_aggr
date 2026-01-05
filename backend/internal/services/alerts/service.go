@@ -1,8 +1,8 @@
 package alerts
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
@@ -198,6 +198,7 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 		ServiceKind: "",
 		CheckType:   strings.TrimSpace(check.Type),
 		Target:      serviceTarget(node, service),
+		TargetType:  "service",
 		Status:      status,
 		PanelURL:    node.BaseURL,
 		IP:          node.SSHHost,
@@ -209,6 +210,39 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 		alert.ServiceID = service.ID
 		alert.ServiceKind = strings.TrimSpace(service.Kind)
 	}
+	if errMsg != nil {
+		alert.Error = strings.TrimSpace(*errMsg)
+	}
+	s.maybeSendAlert(ctx, settings, active, alert)
+}
+
+func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node *db.Node, bot *db.Bot, check *db.Check, ok bool, latency int, statusCode int, errMsg *string) {
+	if settings == nil || node == nil || bot == nil || check == nil {
+		return
+	}
+	status := "ok"
+	if !ok {
+		status = "fail"
+	}
+	active := status != "ok"
+	alert := Alert{
+		Type:       AlertGeneric,
+		NodeID:     node.ID,
+		BotID:      bot.ID,
+		NodeName:   nodeLabel(node),
+		TS:         time.Now(),
+		Severity:   SeverityCritical,
+		BotKind:    strings.TrimSpace(bot.Kind),
+		CheckType:  strings.TrimSpace(check.Type),
+		Target:     botTarget(bot),
+		TargetType: "bot",
+		Status:     status,
+		PanelURL:   node.BaseURL,
+		IP:         node.SSHHost,
+	}
+	alert.Metrics.LatencyMS = latency
+	alert.Metrics.StatusCode = statusCode
+	alert.CheckID = check.ID
 	if errMsg != nil {
 		alert.Error = strings.TrimSpace(*errMsg)
 	}
@@ -243,6 +277,25 @@ func serviceTarget(node *db.Node, service *db.Service) string {
 		return fmt.Sprintf("%s:%d", host, port)
 	}
 	return host
+}
+
+func botTarget(bot *db.Bot) string {
+	if bot == nil {
+		return ""
+	}
+	if strings.TrimSpace(bot.Name) != "" {
+		return strings.TrimSpace(bot.Name)
+	}
+	if bot.DockerContainer != nil && strings.TrimSpace(*bot.DockerContainer) != "" {
+		return strings.TrimSpace(*bot.DockerContainer)
+	}
+	if bot.SystemdUnit != nil && strings.TrimSpace(*bot.SystemdUnit) != "" {
+		return strings.TrimSpace(*bot.SystemdUnit)
+	}
+	if bot.HealthURL != nil && strings.TrimSpace(*bot.HealthURL) != "" {
+		return strings.TrimSpace(*bot.HealthURL)
+	}
+	return ""
 }
 
 func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active bool, alert Alert) {
@@ -487,6 +540,7 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		"alert_type":  string(alert.Type),
 		"node_id":     nullableUUID(alert.NodeID),
 		"service_id":  nullableUUID(alert.ServiceID),
+		"bot_id":      nullableUUID(alert.BotID),
 		"check_type":  nullableString(alert.CheckType),
 		"last_status": status,
 		"last_seen":   now,
@@ -505,6 +559,7 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		AlertType:      string(alert.Type),
 		NodeID:         nullableUUID(alert.NodeID),
 		ServiceID:      nullableUUID(alert.ServiceID),
+		BotID:          nullableUUID(alert.BotID),
 		CheckType:      nullableString(alert.CheckType),
 		LastStatus:     &status,
 		FirstSeen:      now,

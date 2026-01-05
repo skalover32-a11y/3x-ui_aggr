@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -44,6 +44,7 @@ func (w *Worker) Start(ctx context.Context) {
 	}
 	go func() {
 		w.backfillServiceChecks(ctx)
+		w.backfillBotChecks(ctx)
 		w.runOnce(ctx)
 		ticker := time.NewTicker(w.Interval)
 		defer ticker.Stop()
@@ -63,20 +64,20 @@ func (w *Worker) runOnce(ctx context.Context) {
 		return
 	}
 	var checks []db.Check
-	if err := w.DB.WithContext(ctx).Where("enabled = true AND lower(target_type) = ?", "service").Find(&checks).Error; err != nil {
+	if err := w.DB.WithContext(ctx).Where("enabled = true AND lower(target_type) IN ?", []string{"service", "bot"}).Find(&checks).Error; err != nil {
 		return
 	}
 	if len(checks) == 0 {
 		if !w.loggedStart {
-			log.Printf("service checks runner started: checks=0")
+			log.Printf("checks runner started: checks=0")
 			w.loggedStart = true
 		}
 		return
 	}
 
-	serviceCheckCount := len(checks)
+	checkCount := len(checks)
 	if !w.loggedStart {
-		log.Printf("service checks runner started: checks=%d", serviceCheckCount)
+		log.Printf("checks runner started: checks=%d", checkCount)
 		w.loggedStart = true
 	}
 
@@ -94,6 +95,13 @@ func (w *Worker) runOnce(ctx context.Context) {
 		serviceMap[svc.ID.String()] = svc
 	}
 
+	botMap := map[string]db.Bot{}
+	var bots []db.Bot
+	_ = w.DB.WithContext(ctx).Find(&bots).Error
+	for _, bot := range bots {
+		botMap[bot.ID.String()] = bot
+	}
+
 	lastMap := w.loadLastResults(ctx)
 	var settings *alerts.Settings
 	if w.Alerts != nil {
@@ -109,11 +117,11 @@ func (w *Worker) runOnce(ctx context.Context) {
 			continue
 		}
 		dueCount++
-		if w.runCheck(ctx, settings, &check, nodeMap, serviceMap) {
+		if w.runCheck(ctx, settings, &check, nodeMap, serviceMap, botMap) {
 			runCount++
 		}
 	}
-	log.Printf("service checks tick: total=%d due=%d executed=%d", serviceCheckCount, dueCount, runCount)
+	log.Printf("checks tick: total=%d due=%d executed=%d", checkCount, dueCount, runCount)
 }
 
 func isDue(now time.Time, intervalSec int, last *db.CheckResult) bool {
@@ -146,7 +154,6 @@ func (w *Worker) loadLastResults(ctx context.Context) map[string]*db.CheckResult
 	return out
 }
 
-
 func retriesFor(check *db.Check) int {
 	if check == nil {
 		return 1
@@ -157,7 +164,7 @@ func retriesFor(check *db.Check) int {
 	return check.Retries + 1
 }
 
-func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service) bool {
+func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service, botMap map[string]db.Bot) bool {
 	if check == nil {
 		return false
 	}
@@ -179,6 +186,17 @@ func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check 
 			return false
 		}
 		w.runServiceCheck(ctx, settings, &node, &service, check)
+		return true
+	case "bot":
+		bot, ok := botMap[check.TargetID.String()]
+		if !ok || !bot.IsEnabled {
+			return false
+		}
+		node, ok := nodeMap[bot.NodeID.String()]
+		if !ok || !node.IsEnabled {
+			return false
+		}
+		w.runBotCheck(ctx, settings, &node, &bot, check)
 		return true
 	}
 	return false
@@ -202,6 +220,27 @@ func (w *Worker) backfillServiceChecks(ctx context.Context) {
 	}
 	if res.RowsAffected > 0 {
 		log.Printf("service checks backfill: created=%d", res.RowsAffected)
+	}
+}
+
+func (w *Worker) backfillBotChecks(ctx context.Context) {
+	if w == nil || w.DB == nil {
+		return
+	}
+	res := w.DB.WithContext(ctx).Exec(`
+		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, enabled, severity_rules, created_at, updated_at)
+		SELECT 'bot', b.id, upper(b.kind), 30, 3000, 1, true, '{}'::jsonb, now(), now()
+		FROM bots b
+		WHERE NOT EXISTS (
+			SELECT 1 FROM checks c WHERE c.target_type = 'bot' AND c.target_id = b.id
+		)
+	`)
+	if res.Error != nil {
+		log.Printf("bot checks backfill failed: %v", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("bot checks backfill: created=%d", res.RowsAffected)
 	}
 }
 
@@ -294,6 +333,19 @@ func (w *Worker) runServiceCheck(ctx context.Context, settings *alerts.Settings,
 	w.notifyGeneric(ctx, settings, node, service, check, ok, latency, statusCode, errMsg)
 }
 
+func (w *Worker) runBotCheck(ctx context.Context, settings *alerts.Settings, node *db.Node, bot *db.Bot, check *db.Check) {
+	ok, latency, statusCode, bytes, errMsg := w.executeBotCheck(ctx, node, bot, check)
+	metrics := map[string]any{}
+	if statusCode > 0 {
+		metrics["status_code"] = statusCode
+		metrics["bytes"] = bytes
+	}
+	_ = w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
+	if w.Alerts != nil {
+		w.Alerts.NotifyGenericBot(ctx, settings, node, bot, check, ok, latency, statusCode, errMsg)
+	}
+}
+
 func (w *Worker) timeoutFor(check *db.Check) time.Duration {
 	if check.TimeoutMS <= 0 {
 		return 3 * time.Second
@@ -362,6 +414,100 @@ func (w *Worker) notifyGeneric(ctx context.Context, settings *alerts.Settings, n
 		status = "fail"
 	}
 	w.Alerts.NotifyGeneric(ctx, settings, node, service, check, status, latency, statusCode, errMsg)
+}
+
+func (w *Worker) executeBotCheck(ctx context.Context, node *db.Node, bot *db.Bot, check *db.Check) (bool, int, int, int64, *string) {
+	tries := retriesFor(check)
+	checkType := strings.ToLower(strings.TrimSpace(check.Type))
+	if checkType == "" {
+		checkType = strings.ToLower(strings.TrimSpace(bot.Kind))
+	}
+	switch checkType {
+	case "docker":
+		cmd := dockerCheckCommand(strings.TrimSpace(valueOrEmpty(bot.DockerContainer)))
+		return w.executeSSHStateCheck(ctx, node, cmd, "true", tries)
+	case "systemd":
+		cmd := systemdCheckCommand(strings.TrimSpace(valueOrEmpty(bot.SystemdUnit)))
+		return w.executeSSHStateCheck(ctx, node, cmd, "active", tries)
+	default:
+		url := botURL(bot, node)
+		if url == "" {
+			msg := "bot health url missing"
+			return false, 0, 0, 0, &msg
+		}
+		var statusCode int
+		var latency int
+		var bytes int64
+		var errMsg *string
+		ok := false
+		for i := 0; i < tries; i++ {
+			statusCode, latency, bytes, errMsg = checkHTTP(ctx, url, node.VerifyTLS, nil, w.timeoutFor(check))
+			ok = statusCode > 0 && isExpectedBotStatus(bot, statusCode)
+			if ok {
+				break
+			}
+		}
+		return ok, latency, statusCode, bytes, errMsg
+	}
+}
+
+func (w *Worker) executeSSHStateCheck(ctx context.Context, node *db.Node, cmd string, expected string, tries int) (bool, int, int, int64, *string) {
+	if node == nil {
+		msg := "node missing"
+		return false, 0, 0, 0, &msg
+	}
+	if !node.SSHEnabled {
+		msg := "ssh disabled"
+		return false, 0, 0, 0, &msg
+	}
+	var ok bool
+	var latency int
+	var errMsg *string
+	for i := 0; i < tries; i++ {
+		out, ms, err := w.runSSHCommand(ctx, node, cmd)
+		latency = ms
+		if err != nil {
+			errMsg = err
+			ok = false
+		} else {
+			state := strings.TrimSpace(out)
+			ok = strings.EqualFold(state, expected)
+			if !ok {
+				msg := fmt.Sprintf("state=%s", state)
+				errMsg = &msg
+			} else {
+				errMsg = nil
+			}
+		}
+		if ok {
+			break
+		}
+	}
+	return ok, latency, 0, 0, errMsg
+}
+
+func (w *Worker) runSSHCommand(ctx context.Context, node *db.Node, cmd string) (string, int, *string) {
+	if w == nil || w.SSH == nil || w.Encryptor == nil {
+		msg := "ssh client not configured"
+		return "", 0, &msg
+	}
+	if strings.TrimSpace(node.SSHAuthMethod) != "" && strings.ToLower(node.SSHAuthMethod) != "key" {
+		msg := "unsupported ssh auth method"
+		return "", 0, &msg
+	}
+	key, err := w.Encryptor.DecryptString(node.SSHKeyEnc)
+	if err != nil {
+		msg := err.Error()
+		return "", 0, &msg
+	}
+	start := time.Now()
+	out, err := w.SSH.RunWithOutput(ctx, node.SSHHost, node.SSHPort, node.SSHUser, key, cmd)
+	latency := int(time.Since(start).Milliseconds())
+	if err != nil {
+		msg := err.Error()
+		return "", latency, &msg
+	}
+	return out, latency, nil
 }
 
 func serviceHeaders(service *db.Service) map[string]string {
@@ -457,6 +603,74 @@ func valueOrEmpty(ptr *string) string {
 		return ""
 	}
 	return *ptr
+}
+
+func botURL(bot *db.Bot, node *db.Node) string {
+	if bot == nil {
+		return ""
+	}
+	if bot.HealthURL != nil && strings.TrimSpace(*bot.HealthURL) != "" {
+		raw := strings.TrimSpace(*bot.HealthURL)
+		path := strings.TrimSpace(valueOrEmpty(bot.HealthPath))
+		if path != "" {
+			if !strings.HasPrefix(path, "/") {
+				path = "/" + path
+			}
+			if parsed, err := url.Parse(raw); err == nil {
+				if strings.TrimSpace(parsed.Path) == "" || parsed.Path == "/" {
+					parsed.Path = path
+					return parsed.String()
+				}
+			}
+		}
+		return raw
+	}
+	host := ""
+	if node != nil {
+		host = strings.TrimSpace(node.Host)
+		if host == "" {
+			host = strings.TrimSpace(node.SSHHost)
+		}
+	}
+	if host == "" {
+		return ""
+	}
+	path := strings.TrimSpace(valueOrEmpty(bot.HealthPath))
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return fmt.Sprintf("http://%s%s", host, path)
+}
+
+func isExpectedBotStatus(bot *db.Bot, statusCode int) bool {
+	if bot == nil || len(bot.ExpectedStatus) == 0 {
+		return statusCode >= 200 && statusCode < 400
+	}
+	for _, val := range bot.ExpectedStatus {
+		if int(val) == statusCode {
+			return true
+		}
+	}
+	return false
+}
+
+func dockerCheckCommand(container string) string {
+	return fmt.Sprintf("docker inspect -f %s %s", shellQuote("{{.State.Running}}"), shellQuote(container))
+}
+
+func systemdCheckCommand(unit string) string {
+	return fmt.Sprintf("systemctl is-active %s", shellQuote(unit))
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	escaped := strings.ReplaceAll(value, "'", "'\"'\"'")
+	return "'" + escaped + "'"
 }
 
 func checkHTTP(ctx context.Context, url string, verifyTLS bool, headers map[string]string, timeout time.Duration) (int, int, int64, *string) {
@@ -564,5 +778,60 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 	metrics := map[string]any{"status_code": statusCode, "bytes": bytes}
 	result := w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
 	w.notifyGeneric(ctx, settings, &node, &service, &check, ok, latency, statusCode, errMsg)
+	return result, nil
+}
+
+func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResult, error) {
+	if w == nil || w.DB == nil {
+		return nil, errors.New("db not configured")
+	}
+	var bot db.Bot
+	if err := w.DB.WithContext(ctx).First(&bot, "id = ?", botID).Error; err != nil {
+		return nil, err
+	}
+	var node db.Node
+	if err := w.DB.WithContext(ctx).First(&node, "id = ?", bot.NodeID).Error; err != nil {
+		return nil, err
+	}
+	var check db.Check
+	if err := w.DB.WithContext(ctx).
+		Where("target_type = ? AND target_id = ? AND enabled = true", "bot", bot.ID).
+		Order("created_at desc").
+		First(&check).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			backfill := db.Check{
+				TargetType:    "bot",
+				TargetID:      bot.ID,
+				Type:          strings.ToUpper(strings.TrimSpace(bot.Kind)),
+				IntervalSec:   30,
+				TimeoutMS:     3000,
+				Retries:       1,
+				Enabled:       true,
+				SeverityRules: datatypes.JSON([]byte("{}")),
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}
+			if err := w.DB.WithContext(ctx).Create(&backfill).Error; err != nil {
+				return nil, err
+			}
+			check = backfill
+		} else {
+			return nil, err
+		}
+	}
+	var settings *alerts.Settings
+	if w.Alerts != nil {
+		settings, _ = w.Alerts.LoadSettings(ctx)
+	}
+	ok, latency, statusCode, bytes, errMsg := w.executeBotCheck(ctx, &node, &bot, &check)
+	metrics := map[string]any{}
+	if statusCode > 0 {
+		metrics["status_code"] = statusCode
+		metrics["bytes"] = bytes
+	}
+	result := w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
+	if w.Alerts != nil {
+		w.Alerts.NotifyGenericBot(ctx, settings, &node, &bot, &check, ok, latency, statusCode, errMsg)
+	}
 	return result, nil
 }
