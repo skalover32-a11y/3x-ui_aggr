@@ -1180,7 +1180,7 @@ function NodesPage() {
     const bots = Object.values(botsMap).flat();
     return (
       <>
-        <div className="services-header">
+        <div className="bots-toolbar">
           <div className="muted small">
             {botsBusy ? t("Loading...") : t("{count} bots", { count: bots.length })}
           </div>
@@ -1189,7 +1189,66 @@ function NodesPage() {
           </div>
         </div>
         {botsError && <div className="error">{botsError}</div>}
-        {renderBotsTable(bots, true)}
+        {bots.map((bot) => {
+          const last = botResults[bot.id];
+          const node = nodes.find((n) => n.id === bot.node_id);
+          const nodeRef = node || { id: bot.node_id, name: "-" };
+          const statusValue = (last?.status || "").toLowerCase();
+          const badgeStatus = statusValue === "ok"
+            ? "online"
+            : statusValue === "warn"
+              ? "degraded"
+              : statusValue === "fail"
+                ? "offline"
+                : "unknown";
+          return (
+            <div className="node-card bot-card" key={bot.id}>
+              <div className="node-card-top">
+                <div className="node-card-title">
+                  <div className="node-name-row">
+                    <div className="node-name">{bot.name || "-"}</div>
+                    <StatusBadge status={badgeStatus} />
+                    <span className="chip subtle">{bot.kind || "-"}</span>
+                  </div>
+                  <div className="tag-row">
+                    <span className="chip subtle">{nodeRef.name || "-"}</span>
+                    <span className="chip subtle">{botTargetLabel(bot)}</span>
+                  </div>
+                  <div className="bot-meta">
+                    <span className="muted small">{t("Last status")}: {last?.status || "-"}</span>
+                    <span className="muted small">{t("Last seen")}: {last?.ts ? formatTS(last.ts) : "-"}</span>
+                    <span className="muted small">{t("Latency")}: {last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</span>
+                  </div>
+                  {last?.error && <div className="bot-error">{last.error}</div>}
+                </div>
+                <div className="bot-side">
+                  <div className="muted small">{t("Enabled")}</div>
+                  <div className="bot-side-value">{bot.is_enabled ? t("On") : t("Off")}</div>
+                </div>
+              </div>
+              <div className="bot-card-actions">
+                {!isViewer && (
+                  <>
+                    <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
+                    <button type="button" className="secondary" onClick={() => muteBot(bot)}>{t("Mute 1h")}</button>
+                    <button type="button" className="secondary" onClick={() => openBotEdit(nodeRef, bot)}>{t("Edit")}</button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => toggleBot(bot, !bot.is_enabled)}
+                    >
+                      {bot.is_enabled ? t("Disable") : t("Enable")}
+                    </button>
+                    <button type="button" className="danger" onClick={() => deleteBot(bot)}>{t("Delete")}</button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {bots.length === 0 && (
+          <div className="muted small">{t("No bots yet")}</div>
+        )}
       </>
     );
   }
