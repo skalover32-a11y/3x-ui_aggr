@@ -179,7 +179,7 @@ type WebAuthnCredential struct {
 	PublicKey    []byte         `gorm:"type:bytea;not null" json:"-"`
 	SignCount    int64          `gorm:"not null;default:0" json:"sign_count"`
 	Transports   pq.StringArray `gorm:"type:text[];not null;default:'{}'" json:"transports"`
-	AAGUID       *string        `gorm:"type:text" json:"aaguid"`
+	AAGUID       *string        `gorm:"column:aaguid;type:text" json:"aaguid"`
 	CreatedAt    time.Time      `json:"created_at"`
 	LastUsedAt   *time.Time     `gorm:"type:timestamptz" json:"last_used_at"`
 }
