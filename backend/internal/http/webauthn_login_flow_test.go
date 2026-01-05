@@ -147,4 +147,12 @@ func TestWebAuthnLoginFlowWithChallengeID(t *testing.T) {
 	if updated.SignCount != int64(fake.signCount) {
 		t.Fatalf("expected sign_count %d, got %d", fake.signCount, updated.SignCount)
 	}
+
+	var remaining int64
+	if err := dbConn.Model(&db.WebAuthnChallenge{}).Count(&remaining).Error; err != nil {
+		t.Fatalf("count challenges: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected challenge to be deleted")
+	}
 }

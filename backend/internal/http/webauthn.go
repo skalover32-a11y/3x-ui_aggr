@@ -240,7 +240,7 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_USER", "failed to load user")
 		return
 	}
-	session, err := h.loadWebAuthnChallengeByID(c, challengeID)
+	session, err := h.loadWebAuthnChallengeByID(c, username, challengeID)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_NOT_FOUND", "challenge not found")
 		return
@@ -250,7 +250,7 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 	}()
 	parsed, err := parseAssertion(payload)
 	if err != nil {
-		h.logWebAuthnError(c, username, challengeID, session.RelyingPartyID, err)
+		h.logWebAuthnError(c, username, "", challengeID, session.RelyingPartyID, err)
 		respondError(c, http.StatusBadRequest, "WEBAUTHN_ASSERTION_INVALID", "invalid credential")
 		return
 	}
@@ -269,7 +269,7 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 	cred, err := h.WebAuthn.ValidateLogin(&authUser, session, parsed)
 	if err != nil {
 		code, msg := classifyWebAuthnError(err)
-		h.logWebAuthnError(c, username, challengeID, session.RelyingPartyID, err)
+		h.logWebAuthnError(c, username, credID, challengeID, session.RelyingPartyID, err)
 		respondError(c, http.StatusUnauthorized, code, msg)
 		return
 	}
@@ -420,7 +420,7 @@ func (h *Handler) loadWebAuthnChallenge(c *gin.Context, username, typ string) (w
 	return session, row.ID.String(), nil
 }
 
-func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, challengeID string) (webauthn.SessionData, error) {
+func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, username, challengeID string) (webauthn.SessionData, error) {
 	if strings.TrimSpace(challengeID) == "" {
 		return webauthn.SessionData{}, gorm.ErrRecordNotFound
 	}
@@ -430,6 +430,9 @@ func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, challengeID string) 
 		First(&row).Error
 	if err != nil {
 		return webauthn.SessionData{}, err
+	}
+	if strings.TrimSpace(row.UserID) != "" && strings.TrimSpace(username) != "" && row.UserID != username {
+		return webauthn.SessionData{}, gorm.ErrRecordNotFound
 	}
 	var session webauthn.SessionData
 	if err := json.Unmarshal(row.Session, &session); err != nil {
@@ -521,13 +524,20 @@ func classifyWebAuthnError(err error) (string, string) {
 		return "WEBAUTHN_ASSERTION_INVALID", "assertion invalid"
 	}
 	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "rp id") || strings.Contains(msg, "rp origin") || strings.Contains(msg, "rp") {
+	var pErr *protocol.Error
+	if errors.As(err, &pErr) {
+		msg = strings.ToLower(pErr.Details + " " + pErr.DevInfo)
+	}
+	if strings.Contains(msg, "rp hash mismatch") || strings.Contains(msg, "rp id") {
 		return "WEBAUTHN_RP_MISMATCH", "rp mismatch"
+	}
+	if strings.Contains(msg, "origin") {
+		return "WEBAUTHN_ORIGIN_MISMATCH", "origin mismatch"
 	}
 	return "WEBAUTHN_ASSERTION_INVALID", "assertion invalid"
 }
 
-func (h *Handler) logWebAuthnError(c *gin.Context, username, challengeID, rpID string, err error) {
+func (h *Handler) logWebAuthnError(c *gin.Context, username, credentialID, challengeID, rpID string, err error) {
 	origin := strings.TrimSpace(c.GetHeader("Origin"))
 	if origin == "" {
 		origin = strings.TrimSpace(c.GetHeader("Referer"))
@@ -535,5 +545,5 @@ func (h *Handler) logWebAuthnError(c *gin.Context, username, challengeID, rpID s
 	if err == nil {
 		return
 	}
-	log.Printf("webauthn error user=%s challenge_id=%s rp_id=%s origin=%s err=%v", username, challengeID, rpID, origin, err)
+	log.Printf("webauthn error user=%s credential_id=%s challenge_id=%s rp_id=%s origin=%s err=%v", username, credentialID, challengeID, rpID, origin, err)
 }
