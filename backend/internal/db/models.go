@@ -194,6 +194,7 @@ type WebAuthnChallenge struct {
 	Type      string         `gorm:"type:text;not null" json:"type"`
 	Challenge string         `gorm:"type:text;not null" json:"challenge"`
 	Session   datatypes.JSON `gorm:"column:session_data;type:jsonb;not null;default:'{}'::jsonb" json:"session"`
+	Options   datatypes.JSON `gorm:"column:options_data;type:jsonb;not null;default:'{}'::jsonb" json:"options"`
 	CreatedAt time.Time      `json:"created_at"`
 	ExpiresAt time.Time      `gorm:"type:timestamptz;not null" json:"expires_at"`
 }

@@ -9,19 +9,21 @@ import (
 )
 
 type Config struct {
-	DBDSN           string
-	AdminUser       string
-	AdminPass       string
-	JWTSecret       string
-	MasterKeyB64    string
-	JWTExpiry       time.Duration
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
-	AuthRPID        string
-	AuthRPOrigin    string
-	SSHMaxSessions  int
-	SSHIdleTimeout  time.Duration
-	PublicBaseURL   string
+	DBDSN                        string
+	AdminUser                    string
+	AdminPass                    string
+	JWTSecret                    string
+	MasterKeyB64                 string
+	JWTExpiry                    time.Duration
+	AccessTokenTTL               time.Duration
+	RefreshTokenTTL              time.Duration
+	AuthRPID                     string
+	AuthRPOrigin                 string
+	WebAuthnRegisterChallengeTTL time.Duration
+	WebAuthnLoginChallengeTTL    time.Duration
+	SSHMaxSessions               int
+	SSHIdleTimeout               time.Duration
+	PublicBaseURL                string
 }
 
 func Load() (*Config, error) {
@@ -65,6 +67,8 @@ func Load() (*Config, error) {
 		}
 		cfg.RefreshTokenTTL = val
 	}
+	cfg.WebAuthnRegisterChallengeTTL = parseDurationEnv("WEBAUTHN_REGISTER_CHALLENGE_TTL", 5*time.Minute)
+	cfg.WebAuthnLoginChallengeTTL = parseDurationEnv("WEBAUTHN_LOGIN_CHALLENGE_TTL", 3*time.Minute)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
@@ -89,4 +93,16 @@ func Load() (*Config, error) {
 		cfg.SSHIdleTimeout = time.Duration(val) * time.Second
 	}
 	return cfg, nil
+}
+
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := time.ParseDuration(raw)
+	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
 }

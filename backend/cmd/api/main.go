@@ -68,20 +68,29 @@ func main() {
 		log.Fatalf("webauthn init error: %v", err)
 	}
 	handler := &httpapi.Handler{
-		DB:             dbConn,
-		Encryptor:      enc,
-		Audit:          audit.New(dbConn),
-		Alerts:         alertsSvc,
-		AdminUser:      cfg.AdminUser,
-		AdminPass:      cfg.AdminPass,
-		JWTSecret:      []byte(cfg.JWTSecret),
-		JWTExpiry:      cfg.JWTExpiry,
-		RefreshTTL:     cfg.RefreshTokenTTL,
-		WebAuthn:       webAuthn,
-		SSHClient:      sshclient.New(15 * time.Second),
-		SSHManager:     sshws.NewManager(cfg.SSHMaxSessions),
-		SSHIdleTimeout: cfg.SSHIdleTimeout,
+		DB:                  dbConn,
+		Encryptor:           enc,
+		Audit:               audit.New(dbConn),
+		Alerts:              alertsSvc,
+		AdminUser:           cfg.AdminUser,
+		AdminPass:           cfg.AdminPass,
+		JWTSecret:           []byte(cfg.JWTSecret),
+		JWTExpiry:           cfg.JWTExpiry,
+		RefreshTTL:          cfg.RefreshTokenTTL,
+		WebAuthnRegisterTTL: cfg.WebAuthnRegisterChallengeTTL,
+		WebAuthnLoginTTL:    cfg.WebAuthnLoginChallengeTTL,
+		WebAuthn:            webAuthn,
+		SSHClient:           sshclient.New(15 * time.Second),
+		SSHManager:          sshws.NewManager(cfg.SSHMaxSessions),
+		SSHIdleTimeout:      cfg.SSHIdleTimeout,
 	}
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			handler.CleanupExpiredWebAuthnChallenges(context.Background())
+		}
+	}()
 	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())
 	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
 	checksWorker := checks.New(dbConn, alertsSvc, handler.SSHClient, enc, 10*time.Second)

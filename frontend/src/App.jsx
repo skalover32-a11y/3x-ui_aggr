@@ -1421,13 +1421,24 @@ function NodesPage() {
     }
     setPasskeysBusy(true);
     try {
-      const options = await request("POST", "/auth/webauthn/register/options", {
-        otp: passkeysTotpRequired ? passkeysOTP.trim() : "",
-      });
-      const publicKey = prepareCreationOptions(options);
-      const cred = await navigator.credentials.create({ publicKey });
-      const payload = publicKeyCredentialToJSON(cred);
-      await request("POST", "/auth/webauthn/register/verify", { credential: payload });
+      const attemptRegister = async (retry) => {
+        const options = await request("POST", "/auth/webauthn/register/options", {
+          otp: passkeysTotpRequired ? passkeysOTP.trim() : "",
+        });
+        const publicKey = prepareCreationOptions(options.publicKey || options.options || options);
+        const cred = await navigator.credentials.create({ publicKey });
+        const payload = publicKeyCredentialToJSON(cred);
+        try {
+          await request("POST", "/auth/webauthn/register/verify", { credential: payload });
+        } catch (err) {
+          const code = err?.data?.error?.code;
+          if (!retry && (code === "WEBAUTHN_CHALLENGE_EXPIRED" || code === "WEBAUTHN_CHALLENGE_NOT_FOUND")) {
+            return attemptRegister(true);
+          }
+          throw err;
+        }
+      };
+      await attemptRegister(false);
       await loadPasskeys();
       setPasskeysOTP("");
     } catch (err) {

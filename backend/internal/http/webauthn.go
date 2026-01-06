@@ -23,8 +23,6 @@ import (
 	"agr_3x_ui/internal/db"
 )
 
-const webAuthnChallengeTTL = 5 * time.Minute
-
 type WebAuthnProvider interface {
 	BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	CreateCredential(user webauthn.User, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error)
@@ -116,17 +114,31 @@ func (h *Handler) WebAuthnRegisterOptions(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_USER", "failed to load user")
 		return
 	}
+	if row, _, options, err := h.loadActiveWebAuthnChallenge(c, username, "register"); err == nil && options != nil {
+		log.Printf("webauthn reuse challenge user=%s challenge_id=%s purpose=register expires_at=%s", username, row.ID, row.ExpiresAt.Format(time.RFC3339))
+		respondStatus(c, http.StatusOK, gin.H{
+			"publicKey":    options,
+			"options":      options,
+			"challenge_id": row.ID.String(),
+		})
+		return
+	}
 	creation, session, err := h.WebAuthn.BeginRegistration(&authUser, webauthn.WithConveyancePreference(protocol.PreferNoAttestation))
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_OPTIONS", "failed to create options")
 		return
 	}
-	session.Expires = time.Now().Add(webAuthnChallengeTTL)
-	if _, err := h.saveWebAuthnChallenge(c, username, "register", session); err != nil {
+	session.Expires = time.Now().Add(h.webAuthnRegisterTTL())
+	challengeID, err := h.saveWebAuthnChallenge(c, username, "register", session, creation.Response)
+	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_CHALLENGE", "failed to store challenge")
 		return
 	}
-	respondStatus(c, http.StatusOK, creation.Response)
+	respondStatus(c, http.StatusOK, gin.H{
+		"publicKey":    creation.Response,
+		"options":      creation.Response,
+		"challenge_id": challengeID,
+	})
 }
 
 func (h *Handler) WebAuthnRegisterVerify(c *gin.Context) {
@@ -152,7 +164,11 @@ func (h *Handler) WebAuthnRegisterVerify(c *gin.Context) {
 	}
 	session, challengeID, err := h.loadWebAuthnChallenge(c, username, "register")
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE", "challenge expired")
+		if errors.Is(err, errChallengeExpired) {
+			respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_EXPIRED", "challenge expired")
+			return
+		}
+		respondError(c, http.StatusBadRequest, "WEBAUTHN_CHALLENGE_NOT_FOUND", "challenge not found")
 		return
 	}
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(payload)
@@ -200,13 +216,22 @@ func (h *Handler) WebAuthnLoginOptions(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NO_CREDENTIALS", "no credentials registered")
 		return
 	}
+	if row, _, options, err := h.loadActiveWebAuthnChallenge(c, username, "login"); err == nil && options != nil {
+		log.Printf("webauthn reuse challenge user=%s challenge_id=%s purpose=login expires_at=%s", username, row.ID, row.ExpiresAt.Format(time.RFC3339))
+		respondStatus(c, http.StatusOK, gin.H{
+			"publicKey":    options,
+			"options":      options,
+			"challenge_id": row.ID.String(),
+		})
+		return
+	}
 	assertion, session, err := h.WebAuthn.BeginLogin(&authUser)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_OPTIONS", "failed to create options")
 		return
 	}
-	session.Expires = time.Now().Add(webAuthnChallengeTTL)
-	challengeID, err := h.saveWebAuthnChallenge(c, username, "login", session)
+	session.Expires = time.Now().Add(h.webAuthnLoginTTL())
+	challengeID, err := h.saveWebAuthnChallenge(c, username, "login", session, assertion.Response)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "WEBAUTHN_CHALLENGE", "failed to store challenge")
 		return
@@ -395,18 +420,24 @@ func (h *Handler) loadWebAuthnUser(c *gin.Context, username string) (webAuthnUse
 	}, nil
 }
 
-func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, session *webauthn.SessionData) (string, error) {
+func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, session *webauthn.SessionData, options any) (string, error) {
 	if session == nil {
 		return "", errors.New("session missing")
 	}
 	now := time.Now()
-	_ = h.DB.WithContext(c.Request.Context()).Where("expires_at < ?", now).Delete(&db.WebAuthnChallenge{}).Error
 	payload, _ := json.Marshal(session)
+	optionsPayload := []byte("{}")
+	if options != nil {
+		if data, err := json.Marshal(options); err == nil && len(data) > 0 {
+			optionsPayload = data
+		}
+	}
 	row := db.WebAuthnChallenge{
 		UserID:    username,
 		Type:      typ,
 		Challenge: session.Challenge,
 		Session:   datatypes.JSON(payload),
+		Options:   datatypes.JSON(optionsPayload),
 		CreatedAt: now,
 		ExpiresAt: session.Expires,
 	}
@@ -417,14 +448,17 @@ func (h *Handler) saveWebAuthnChallenge(c *gin.Context, username, typ string, se
 }
 
 func (h *Handler) loadWebAuthnChallenge(c *gin.Context, username, typ string) (webauthn.SessionData, string, error) {
-	now := time.Now()
 	var row db.WebAuthnChallenge
 	err := h.DB.WithContext(c.Request.Context()).
-		Where("user_id = ? AND type = ? AND expires_at > ?", username, typ, now).
+		Where("user_id = ? AND type = ?", username, typ).
 		Order("created_at desc").
 		First(&row).Error
 	if err != nil {
 		return webauthn.SessionData{}, "", err
+	}
+	if row.ExpiresAt.Before(time.Now()) {
+		log.Printf("webauthn challenge expired user=%s challenge_id=%s delta=%s", username, row.ID, time.Since(row.ExpiresAt))
+		return webauthn.SessionData{}, "", errChallengeExpired
 	}
 	var session webauthn.SessionData
 	if err := json.Unmarshal(row.Session, &session); err != nil {
@@ -448,6 +482,7 @@ func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, username, challengeI
 		return webauthn.SessionData{}, gorm.ErrRecordNotFound
 	}
 	if row.ExpiresAt.Before(time.Now()) {
+		log.Printf("webauthn challenge expired user=%s challenge_id=%s delta=%s", username, row.ID, time.Since(row.ExpiresAt))
 		return webauthn.SessionData{}, errChallengeExpired
 	}
 	var session webauthn.SessionData
@@ -459,6 +494,60 @@ func (h *Handler) loadWebAuthnChallengeByID(c *gin.Context, username, challengeI
 
 func (h *Handler) deleteWebAuthnChallenge(c *gin.Context, id string) error {
 	return h.DB.WithContext(c.Request.Context()).Where("id::text = ?", id).Delete(&db.WebAuthnChallenge{}).Error
+}
+
+func (h *Handler) loadActiveWebAuthnChallenge(c *gin.Context, username, typ string) (*db.WebAuthnChallenge, webauthn.SessionData, map[string]any, error) {
+	now := time.Now()
+	var row db.WebAuthnChallenge
+	err := h.DB.WithContext(c.Request.Context()).
+		Where("user_id = ? AND type = ? AND expires_at > ?", username, typ, now).
+		Order("created_at desc").
+		First(&row).Error
+	if err != nil {
+		return nil, webauthn.SessionData{}, nil, err
+	}
+	var session webauthn.SessionData
+	if err := json.Unmarshal(row.Session, &session); err != nil {
+		return nil, webauthn.SessionData{}, nil, err
+	}
+	if len(row.Options) == 0 {
+		return &row, session, nil, nil
+	}
+	var options map[string]any
+	if err := json.Unmarshal(row.Options, &options); err != nil {
+		return nil, webauthn.SessionData{}, nil, err
+	}
+	if len(options) == 0 {
+		return &row, session, nil, nil
+	}
+	return &row, session, options, nil
+}
+
+func (h *Handler) CleanupExpiredWebAuthnChallenges(ctx context.Context) {
+	if h == nil || h.DB == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	now := time.Now()
+	if err := h.DB.WithContext(ctx).Where("expires_at < ?", now).Delete(&db.WebAuthnChallenge{}).Error; err != nil {
+		log.Printf("webauthn cleanup error: %v", err)
+	}
+}
+
+func (h *Handler) webAuthnRegisterTTL() time.Duration {
+	if h != nil && h.WebAuthnRegisterTTL > 0 {
+		return h.WebAuthnRegisterTTL
+	}
+	return 5 * time.Minute
+}
+
+func (h *Handler) webAuthnLoginTTL() time.Duration {
+	if h != nil && h.WebAuthnLoginTTL > 0 {
+		return h.WebAuthnLoginTTL
+	}
+	return 3 * time.Minute
 }
 
 func (h *Handler) storeWebAuthnCredential(c *gin.Context, username string, cred *webauthn.Credential) error {

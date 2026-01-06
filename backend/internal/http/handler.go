@@ -22,20 +22,22 @@ import (
 )
 
 type Handler struct {
-	DB             *gorm.DB
-	Encryptor      *security.Encryptor
-	Audit          *audit.Service
-	Alerts         *alerts.Service
-	Checks         *checks.Worker
-	AdminUser      string
-	AdminPass      string
-	JWTSecret      []byte
-	JWTExpiry      time.Duration
-	RefreshTTL     time.Duration
-	WebAuthn       WebAuthnProvider
-	SSHClient      *sshclient.Client
-	SSHManager     *sshws.Manager
-	SSHIdleTimeout time.Duration
+	DB                  *gorm.DB
+	Encryptor           *security.Encryptor
+	Audit               *audit.Service
+	Alerts              *alerts.Service
+	Checks              *checks.Worker
+	AdminUser           string
+	AdminPass           string
+	JWTSecret           []byte
+	JWTExpiry           time.Duration
+	RefreshTTL          time.Duration
+	WebAuthnRegisterTTL time.Duration
+	WebAuthnLoginTTL    time.Duration
+	WebAuthn            WebAuthnProvider
+	SSHClient           *sshclient.Client
+	SSHManager          *sshws.Manager
+	SSHIdleTimeout      time.Duration
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {
