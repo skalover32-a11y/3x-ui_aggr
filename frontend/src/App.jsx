@@ -1121,6 +1121,42 @@ function NodesPage() {
     };
   }, [deployProgress.open, deployProgress.jobId, t]);
 
+  useEffect(() => {
+    if (!deployProgress.open || !deployProgress.jobId) return;
+    let stopped = false;
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const job = await request("GET", `/ops/jobs/${deployProgress.jobId}`);
+        if (job?.status) {
+          setDeployProgress((prev) => ({ ...prev, status: job.status }));
+        }
+        const items = await request("GET", `/ops/jobs/${deployProgress.jobId}/items`);
+        if (Array.isArray(items)) {
+          setDeployItems(items);
+          const logs = {};
+          items.forEach((item) => {
+            if (item.log) logs[item.id] = item.log;
+          });
+          setDeployLogs((prev) => ({ ...prev, ...logs }));
+        }
+        const status = job?.status;
+        if (status === "success" || status === "failed") {
+          stopped = true;
+          return;
+        }
+      } catch (err) {
+        setDeployError(err.message);
+      }
+    };
+    const interval = setInterval(poll, 5000);
+    poll();
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [deployProgress.open, deployProgress.jobId]);
+
   function openAddForm() {
     setAddOpen(true);
     setMenuOpen(false);
