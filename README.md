@@ -157,6 +157,12 @@ curl -s http://localhost:8080/api/ops/deploy-agent \
   }'
 ```
 
+Notes:
+- `deploy_agent` uses a prebuilt agent binary baked into the backend image at `/app/bin/vlf-agent`.
+- After pulling changes, rebuild backend: `docker compose up -d --build backend`
+- Verify inside container:
+  `docker compose exec backend sh -lc "ls -la /app/bin/vlf-agent"`
+
 Get job and items:
 ```bash
 curl -s http://localhost:8080/api/ops/jobs/<job_id> \
