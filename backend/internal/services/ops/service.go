@@ -3,13 +3,15 @@ package ops
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	mrand "math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,10 +48,10 @@ type Service struct {
 	SudoPasswords []string
 	AllowCIDR     string
 	RepoPath      string
+	AgentBinary   string
 	Hub           *Hub
 	stop          chan struct{}
 	stopOnce      sync.Once
-	buildMu       sync.Mutex
 }
 
 type CreateJobRequest struct {
@@ -90,6 +92,7 @@ func New(dbConn *gorm.DB, exec NodeExecutor, enc *security.Encryptor, sudoPasswo
 		SudoPasswords: sudoPasswords,
 		AllowCIDR:     allowCIDR,
 		RepoPath:      repoPath,
+		AgentBinary:   "/app/bin/vlf-agent",
 		Hub:           NewHub(),
 		stop:          make(chan struct{}),
 	}
@@ -405,6 +408,13 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 			break
 		}
 		output, exitCode, runErr = s.Executor.DeployAgent(cctx, node, params)
+		if params.PreLog != "" {
+			if output != "" {
+				output = params.PreLog + "\n" + output
+			} else {
+				output = params.PreLog
+			}
+		}
 		if runErr == nil {
 			if err := s.persistAgentSettings(ctx, node, params); err != nil {
 				runErr = err
@@ -417,6 +427,9 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	}
 	output = trimLog(output, 4096, 16384)
 	if runErr != nil {
+		if strings.TrimSpace(output) == "" {
+			output = runErr.Error()
+		}
 		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, output, exitCode, &started, runErr)
 		return runErr
 	}
@@ -606,15 +619,16 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 		return DeployAgentParams{}, fmt.Errorf("unsupported agent_token_mode: %s", tokenMode)
 	}
 
-	binaryPath, err := s.ensureAgentBinary(ctx)
+	binaryPath, preLog, err := s.ensureAgentBinary()
 	if err != nil {
 		return DeployAgentParams{}, err
 	}
-	serviceContent, err := s.loadAgentServiceTemplate()
+	serviceContent, servicePath, err := s.loadAgentServiceTemplate()
 	if err != nil {
 		return DeployAgentParams{}, err
 	}
 	configContent := buildAgentConfig(agentPort, token, allowCIDR, statsMode, xrayPath, rateLimit)
+	preLog = appendPreLog(preLog, fmt.Sprintf("service template: %s", servicePath))
 
 	nodeHost := strings.TrimSpace(node.SSHHost)
 	if nodeHost == "" {
@@ -632,6 +646,7 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 		HealthCheck:    healthCheck,
 		SudoPasswords:  s.SudoPasswords,
 		NodeHost:       nodeHost,
+		PreLog:         preLog,
 	}, nil
 }
 
@@ -672,45 +687,52 @@ func (s *Service) persistAgentSettings(ctx context.Context, node *db.Node, param
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", node.ID).Updates(updates).Error
 }
 
-func (s *Service) ensureAgentBinary(ctx context.Context) (string, error) {
+func (s *Service) ensureAgentBinary() (string, string, error) {
 	if s == nil {
-		return "", errors.New("service not configured")
+		return "", "", errors.New("service not configured")
 	}
-	repoPath := strings.TrimSpace(s.RepoPath)
-	if repoPath == "" {
-		repoPath = "/opt/3x-ui_aggr"
+	path := strings.TrimSpace(s.AgentBinary)
+	if path == "" {
+		path = "/app/bin/vlf-agent"
 	}
-	buildDir := filepath.Join(repoPath, "backend")
-	targetPath := filepath.Join(os.TempDir(), "vlf-agent")
-
-	s.buildMu.Lock()
-	defer s.buildMu.Unlock()
-
-	if info, err := os.Stat(targetPath); err == nil {
-		if time.Since(info.ModTime()) < 10*time.Minute {
-			return targetPath, nil
-		}
-	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", targetPath, "./cmd/node-agent")
-	cmd.Dir = buildDir
-	out, err := cmd.CombinedOutput()
+	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("build vlf-agent failed: %s", strings.TrimSpace(string(out)))
+		return "", "", fmt.Errorf("agent binary not found in container at %s; rebuild backend image", path)
 	}
-	return targetPath, nil
+	if info.Mode()&0111 == 0 {
+		return "", "", fmt.Errorf("agent binary not executable at %s; rebuild backend image", path)
+	}
+	hash, err := hashFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("agent binary unreadable at %s: %w", path, err)
+	}
+	preLog := fmt.Sprintf("agent binary: %s size=%d sha256=%s", path, info.Size(), hash)
+	return path, preLog, nil
 }
 
-func (s *Service) loadAgentServiceTemplate() ([]byte, error) {
+func (s *Service) loadAgentServiceTemplate() ([]byte, string, error) {
 	repoPath := strings.TrimSpace(s.RepoPath)
 	if repoPath == "" {
 		repoPath = "/opt/3x-ui_aggr"
 	}
-	servicePath := filepath.Join(repoPath, "deploy", "agent", "vlf-agent.service")
-	data, err := os.ReadFile(servicePath)
-	if err != nil {
-		return nil, fmt.Errorf("read service template: %w", err)
+	paths := []string{
+		filepath.Join("/app", "deploy", "agent", "vlf-agent.service"),
+		filepath.Join(repoPath, "deploy", "agent", "vlf-agent.service"),
 	}
-	return data, nil
+	var data []byte
+	var err error
+	var usedPath string
+	for _, path := range paths {
+		data, err = os.ReadFile(path)
+		if err == nil {
+			usedPath = path
+			break
+		}
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read service template: %w", err)
+	}
+	return data, usedPath, nil
 }
 
 func buildAgentConfig(port int, token string, allowCIDR string, statsMode string, accessLog string, rateLimit int) []byte {
@@ -748,6 +770,29 @@ func normalizeAllowCIDR(raw string) string {
 		}
 	}
 	return ""
+}
+
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func appendPreLog(existing, entry string) string {
+	if entry == "" {
+		return existing
+	}
+	if existing == "" {
+		return entry
+	}
+	return existing + "\n" + entry
 }
 
 func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) error {
