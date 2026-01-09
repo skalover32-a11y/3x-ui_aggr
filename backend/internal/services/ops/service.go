@@ -339,14 +339,9 @@ func (s *Service) runJob(ctx context.Context, job *db.OpsJob) {
 	close(ch)
 	wg.Wait()
 	finished := time.Now()
-	if failed > 0 {
-		msg := fmt.Sprintf("%d items failed", failed)
-		job.Status = JobFailed
-		job.Error = &msg
-	} else {
-		job.Status = JobSuccess
-		job.Error = nil
-	}
+	status, errMsg := jobStatusFromFailures(failed)
+	job.Status = status
+	job.Error = errMsg
 	job.FinishedAt = &finished
 	_ = s.DB.WithContext(ctx).Save(job).Error
 	s.publishJobStatus(job)
@@ -926,4 +921,12 @@ func formatTimePtr(t *time.Time) any {
 		return nil
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func jobStatusFromFailures(failed int) (string, *string) {
+	if failed > 0 {
+		msg := fmt.Sprintf("%d items failed", failed)
+		return JobFailed, &msg
+	}
+	return JobSuccess, nil
 }
