@@ -61,6 +61,9 @@ make run
 - `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED` (optional, default `false`)
 - `DASHBOARD_AGENT_TIMEOUT` (optional, default `5s`)
 - `DASHBOARD_AGENT_PREFER` (optional, default `true`)
+- `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)
+- `AGG_ALLOW_CIDR` (optional, default allow CIDR for agent deploy)
+- `AGG_REPO_PATH` (optional, default `/opt/3x-ui_aggr`, used to build vlf-agent)
 
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
@@ -133,6 +136,27 @@ Update notes:
 - `precheck_only=true` runs diagnostics only (no update)
 - `sandbox=true` restricts targets to nodes with `is_sandbox=true`
 
+Deploy agent on selected nodes:
+```bash
+curl -s http://localhost:8080/api/ops/deploy-agent \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_ids":["<node_id_1>","<node_id_2>"],
+    "parallelism":2,
+    "params":{
+      "agent_port":9191,
+      "agent_token_mode":"per-node",
+      "allow_cidr":"<AGG_IP>/32",
+      "stats_mode":"log",
+      "xray_access_log_path":"/var/log/xray/access.log",
+      "rate_limit_rps":5,
+      "enable_ufw":true,
+      "health_check":true
+    }
+  }'
+```
+
 Get job and items:
 ```bash
 curl -s http://localhost:8080/api/ops/jobs/<job_id> \
@@ -165,6 +189,8 @@ Authorization: Bearer <token>
 ```
 
 ## Node agent (v1)
+You can deploy the agent either via the UI (**Deploy agent**) or via CLI (see `deploy/agent/deploy_agent.sh`).
+
 1) Build agent binary:
 ```bash
 cd backend
@@ -201,6 +227,11 @@ curl -s http://localhost:8080/api/nodes/<node_id> \
   -H "Content-Type: application/json" \
   -X PATCH \
   -d '{"agent_enabled":true,"agent_url":"http://<node-ip>:9191","agent_token":"CHANGE_ME"}'
+```
+
+CLI deploy (uses `/opt/3x-ui_aggr/.env` for `SUDO_PASSWORDS` + `AGG_ALLOW_CIDR`):
+```bash
+deploy/agent/deploy_agent.sh --host <node-ip> --user <ssh_user> --key /path/to/key
 ```
 
 ### Safe testing in prod (dry-run)
