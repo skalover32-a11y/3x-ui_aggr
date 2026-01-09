@@ -1,0 +1,14 @@
+[Unit]
+Description=VLF Node Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/vlf-agent --config /etc/vlf-agent/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

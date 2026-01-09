@@ -30,6 +30,9 @@ type Config struct {
 	DashboardCollectInterval     time.Duration
 	DashboardCollectParallelism  int
 	DashboardCollectTimeout      time.Duration
+	DashboardPanelActiveUsers    bool
+	DashboardAgentTimeout        time.Duration
+	DashboardAgentPrefer         bool
 }
 
 func Load() (*Config, error) {
@@ -81,6 +84,9 @@ func Load() (*Config, error) {
 	cfg.DashboardCollectInterval = parseDurationEnv("DASHBOARD_COLLECT_INTERVAL", 10*time.Second)
 	cfg.DashboardCollectTimeout = parseDurationEnv("DASHBOARD_COLLECT_TIMEOUT", 8*time.Second)
 	cfg.DashboardCollectParallelism = parseIntEnv("DASHBOARD_COLLECT_PARALLELISM", 5)
+	cfg.DashboardPanelActiveUsers = parseBoolEnv("DASHBOARD_PANEL_ACTIVE_USERS_ENABLED", false)
+	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
+	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
@@ -126,6 +132,18 @@ func parseIntEnv(key string, fallback int) int {
 	}
 	val, err := strconv.Atoi(raw)
 	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func parseBoolEnv(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.ParseBool(raw)
+	if err != nil {
 		return fallback
 	}
 	return val

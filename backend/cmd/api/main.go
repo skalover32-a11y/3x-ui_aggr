@@ -104,8 +104,20 @@ func main() {
 	opsSvc := ops.New(dbConn, ops.NewSSHExecutor(enc, 20*time.Second))
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
-	metricsProvider := dashboard.NewSSHMetricsProvider(handler.SSHClient, enc, cfg.DashboardCollectTimeout)
-	usersProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout)
+	sshMetrics := dashboard.NewSSHMetricsProvider(handler.SSHClient, enc, cfg.DashboardCollectTimeout)
+	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)
+	metricsProvider := &dashboard.CompositeMetricsProvider{
+		Agent:       agentProvider,
+		SSH:         sshMetrics,
+		PreferAgent: cfg.DashboardAgentPrefer,
+	}
+	panelUsers := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout)
+	usersProvider := &dashboard.CompositeActiveUsersProvider{
+		Agent:        agentProvider,
+		Panel:        panelUsers,
+		PreferAgent:  cfg.DashboardAgentPrefer,
+		PanelEnabled: cfg.DashboardPanelActiveUsers,
+	}
 	dashboardSvc := dashboard.New(dbConn, metricsProvider, usersProvider, cfg.DashboardCollectInterval, cfg.DashboardCollectParallelism)
 	handler.Dashboard = dashboardSvc
 	dashboardSvc.Start(context.Background())

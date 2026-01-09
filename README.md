@@ -58,6 +58,9 @@ make run
 - `DASHBOARD_COLLECT_INTERVAL` (optional, default `10s`)
 - `DASHBOARD_COLLECT_PARALLELISM` (optional, default `5`)
 - `DASHBOARD_COLLECT_TIMEOUT` (optional, default `8s`)
+- `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED` (optional, default `false`)
+- `DASHBOARD_AGENT_TIMEOUT` (optional, default `5s`)
+- `DASHBOARD_AGENT_PREFER` (optional, default `true`)
 
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
@@ -159,6 +162,45 @@ ws://localhost:8080/api/dashboard/stream?token=<token>
 Authorization header is preferred when available:
 ```
 Authorization: Bearer <token>
+```
+
+## Node agent (v1)
+1) Build agent binary:
+```bash
+cd backend
+go build -o vlf-agent ./cmd/node-agent
+```
+2) Copy deploy artifacts:
+```bash
+sudo mkdir -p /etc/vlf-agent
+sudo cp deploy/agent/config.example.yaml /etc/vlf-agent/config.yaml
+sudo cp deploy/agent/vlf-agent.service /etc/systemd/system/vlf-agent.service
+sudo cp backend/vlf-agent /usr/local/bin/vlf-agent
+```
+3) Edit `/etc/vlf-agent/config.yaml`:
+```yaml
+listen: "0.0.0.0:9191"
+token: "CHANGE_ME"
+allow_cidrs:
+  - "<AGG_IP>/32"
+xray_access_log_path: "/var/log/xray/access.log"
+poll_window_seconds: 60
+stats_mode: "log"
+rate_limit_rps: 5
+```
+4) Start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vlf-agent
+```
+5) Open port 9191 only for aggregator IP.
+6) Enable agent in node:
+```bash
+curl -s http://localhost:8080/api/nodes/<node_id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -X PATCH \
+  -d '{"agent_enabled":true,"agent_url":"http://<node-ip>:9191","agent_token":"CHANGE_ME"}'
 ```
 
 ### Safe testing in prod (dry-run)

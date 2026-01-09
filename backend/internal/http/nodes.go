@@ -26,6 +26,10 @@ type nodeCreateRequest struct {
 	Capabilities  json.RawMessage `json:"capabilities"`
 	AllowedRoots  []string        `json:"allowed_roots"`
 	IsSandbox     *bool           `json:"is_sandbox"`
+	AgentEnabled  *bool           `json:"agent_enabled"`
+	AgentURL      string          `json:"agent_url"`
+	AgentToken    string          `json:"agent_token"`
+	AgentInsecure *bool           `json:"agent_allow_insecure_tls"`
 	IsEnabled     *bool           `json:"is_enabled"`
 	SSHEnabled    *bool           `json:"ssh_enabled"`
 	SSHAuthMethod string          `json:"ssh_auth_method"`
@@ -50,6 +54,10 @@ type nodeUpdateRequest struct {
 	Capabilities  *json.RawMessage `json:"capabilities"`
 	AllowedRoots  *[]string        `json:"allowed_roots"`
 	IsSandbox     *bool            `json:"is_sandbox"`
+	AgentEnabled  *bool            `json:"agent_enabled"`
+	AgentURL      *string          `json:"agent_url"`
+	AgentToken    *string          `json:"agent_token"`
+	AgentInsecure *bool            `json:"agent_allow_insecure_tls"`
 	IsEnabled     *bool            `json:"is_enabled"`
 	SSHEnabled    *bool            `json:"ssh_enabled"`
 	SSHAuthMethod *string          `json:"ssh_auth_method"`
@@ -75,6 +83,9 @@ type nodeResponse struct {
 	Capabilities      json.RawMessage `json:"capabilities"`
 	AllowedRoots      []string        `json:"allowed_roots"`
 	IsSandbox         bool            `json:"is_sandbox"`
+	AgentEnabled      bool            `json:"agent_enabled"`
+	AgentURL          *string         `json:"agent_url"`
+	AgentInsecureTLS  bool            `json:"agent_allow_insecure_tls"`
 	IsEnabled         bool            `json:"is_enabled"`
 	SSHEnabled        bool            `json:"ssh_enabled"`
 	SSHAuthMethod     string          `json:"ssh_auth_method"`
@@ -103,6 +114,9 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		Capabilities:      json.RawMessage(node.Capabilities),
 		AllowedRoots:      []string(node.AllowedRoots),
 		IsSandbox:         node.IsSandbox,
+		AgentEnabled:      node.AgentEnabled,
+		AgentURL:          node.AgentURL,
+		AgentInsecureTLS:  node.AgentInsecureTLS,
 		IsEnabled:         node.IsEnabled,
 		SSHEnabled:        node.SSHEnabled,
 		SSHAuthMethod:     node.SSHAuthMethod,
@@ -182,6 +196,14 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	if req.IsSandbox != nil {
 		isSandbox = *req.IsSandbox
 	}
+	agentEnabled := false
+	if req.AgentEnabled != nil {
+		agentEnabled = *req.AgentEnabled
+	}
+	agentInsecure := false
+	if req.AgentInsecure != nil {
+		agentInsecure = *req.AgentInsecure
+	}
 	sshEnabled := true
 	if req.SSHEnabled != nil {
 		sshEnabled = *req.SSHEnabled
@@ -219,6 +241,10 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		Capabilities:     caps,
 		AllowedRoots:     req.AllowedRoots,
 		IsSandbox:        isSandbox,
+		AgentEnabled:     agentEnabled,
+		AgentURL:         nilifyString(req.AgentURL),
+		AgentTokenEnc:    nil,
+		AgentInsecureTLS: agentInsecure,
 		IsEnabled:        isEnabled,
 		SSHEnabled:       sshEnabled,
 		SSHAuthMethod:    authMethod,
@@ -243,6 +269,16 @@ func (h *Handler) CreateNode(c *gin.Context) {
 			return
 		}
 		node.PanelPasswordEnc = encEmpty
+	}
+	if strings.TrimSpace(req.AgentToken) != "" {
+		encToken, err := h.Encryptor.EncryptString(req.AgentToken)
+		if err != nil {
+			msg := "failed to encrypt agent token"
+			h.auditEvent(c, nil, "NODE_CREATE", "error", &msg, gin.H{"name": req.Name}, errString(err))
+			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt agent token")
+			return
+		}
+		node.AgentTokenEnc = &encToken
 	}
 	if err := h.DB.WithContext(c.Request.Context()).Create(&node).Error; err != nil {
 		msg := "failed to create node"
@@ -294,6 +330,15 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	}
 	if req.IsSandbox != nil {
 		node.IsSandbox = *req.IsSandbox
+	}
+	if req.AgentEnabled != nil {
+		node.AgentEnabled = *req.AgentEnabled
+	}
+	if req.AgentURL != nil {
+		node.AgentURL = nilifyString(*req.AgentURL)
+	}
+	if req.AgentInsecure != nil {
+		node.AgentInsecureTLS = *req.AgentInsecure
 	}
 	if req.IsEnabled != nil {
 		node.IsEnabled = *req.IsEnabled
@@ -389,6 +434,20 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	if req.VerifyTLS != nil {
 		node.VerifyTLS = *req.VerifyTLS
 	}
+	if req.AgentToken != nil {
+		if strings.TrimSpace(*req.AgentToken) == "" {
+			node.AgentTokenEnc = nil
+		} else {
+			encToken, err := h.Encryptor.EncryptString(*req.AgentToken)
+			if err != nil {
+				msg := "failed to encrypt agent token"
+				h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
+				respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt agent token")
+				return
+			}
+			node.AgentTokenEnc = &encToken
+		}
+	}
 	if err := h.DB.WithContext(c.Request.Context()).Save(node).Error; err != nil {
 		msg := "failed to update node"
 		h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name, "base_url": node.BaseURL}, errString(err))
@@ -407,6 +466,14 @@ func parseCapabilities(raw json.RawMessage) (datatypes.JSON, error) {
 		return nil, errors.New("invalid json")
 	}
 	return datatypes.JSON(raw), nil
+}
+
+func nilifyString(val string) *string {
+	if strings.TrimSpace(val) == "" {
+		return nil
+	}
+	v := strings.TrimSpace(val)
+	return &v
 }
 
 func (h *Handler) DeleteNode(c *gin.Context) {
