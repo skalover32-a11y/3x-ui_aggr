@@ -161,6 +161,7 @@ type NodeMetricsLatest struct {
 	NetTxBps       *int64    `json:"net_tx_bps"`
 	NetRxBytes     *int64    `json:"net_rx_bytes"`
 	NetTxBytes     *int64    `json:"net_tx_bytes"`
+	NetIface       *string   `json:"net_iface"`
 	UptimeSec      *int64    `json:"uptime_sec"`
 	PanelVersion   *string   `json:"panel_version"`
 	XrayRunning    *bool     `json:"xray_running"`

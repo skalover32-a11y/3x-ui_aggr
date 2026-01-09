@@ -45,23 +45,21 @@ func (h *Handler) DashboardStream(c *gin.Context) {
 		respondError(c, http.StatusServiceUnavailable, "DASHBOARD_DISABLED", "dashboard service not configured")
 		return
 	}
+	_, role, err := h.authenticateWS(c)
+	if err != nil {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized")
+		return
+	}
+	if !canDashboardRole(role) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	ws, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
 	defer ws.Close()
 	ws.SetReadLimit(wsReadLimit)
-
-	actor, role, err := h.authenticateWS(c)
-	if err != nil {
-		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "unauthorized"))
-		return
-	}
-	if !canDashboardRole(role) {
-		_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "forbidden"))
-		return
-	}
-	_ = actor
 
 	events, unsubscribe := h.Dashboard.Subscribe()
 	defer unsubscribe()

@@ -156,6 +156,10 @@ WebSocket stream (use token query):
 ```
 ws://localhost:8080/api/dashboard/stream?token=<token>
 ```
+Authorization header is preferred when available:
+```
+Authorization: Bearer <token>
+```
 
 ### Safe testing in prod (dry-run)
 Dry-run (no SSH, simulated execution):

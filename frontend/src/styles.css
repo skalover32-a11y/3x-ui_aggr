@@ -416,11 +416,19 @@ button.danger:hover {
   color: #fde68a;
 }
 
-.badge.nosource {
-  background: #334155;
-  color: #e2e8f0;
+.badge.source {
   margin-left: 8px;
   text-transform: none;
+}
+
+.badge.source-ok {
+  background: #0f766e;
+  color: #ccfbf1;
+}
+
+.badge.source-bad {
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .node-name {

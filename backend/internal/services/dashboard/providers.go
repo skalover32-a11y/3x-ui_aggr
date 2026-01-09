@@ -108,6 +108,7 @@ func (p *SSHMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.No
 			rxBps, txBps := p.computeNetBps(node.ID, rx, tx)
 			metrics.NetRxBps = rxBps
 			metrics.NetTxBps = txBps
+			metrics.NetIface = &iface
 		}
 	}
 
@@ -181,25 +182,55 @@ func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration)
 
 func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
 	if node == nil || strings.TrimSpace(node.BaseURL) == "" || strings.TrimSpace(node.PanelUsername) == "" {
-		return ActiveUsersResult{Users: nil, Source: "no_source"}, nil
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "no_source",
+			SourceDetail: "panel api not configured",
+			Available:    false,
+		}, nil
 	}
 	pass, err := p.Encryptor.DecryptString(node.PanelPasswordEnc)
 	if err != nil {
-		return ActiveUsersResult{}, err
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "panel",
+			SourceDetail: "decrypt failed",
+			Available:    false,
+		}, nil
 	}
 	client, err := panelclient.New(node.BaseURL, node.PanelUsername, pass, node.VerifyTLS)
 	if err != nil {
-		return ActiveUsersResult{}, err
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "panel",
+			SourceDetail: fmt.Sprintf("client init failed: %v", err),
+			Available:    false,
+		}, nil
 	}
 	if err := client.Login(); err != nil {
-		return ActiveUsersResult{}, err
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "panel",
+			SourceDetail: fmt.Sprintf("request failed: %v", err),
+			Available:    false,
+		}, nil
 	}
 	listResp, err := client.ListInbounds()
 	if err != nil {
-		return ActiveUsersResult{}, err
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "panel",
+			SourceDetail: fmt.Sprintf("request failed: %v", err),
+			Available:    false,
+		}, nil
 	}
 	users := extractActiveUsers(listResp)
-	return ActiveUsersResult{Users: users, Source: "panel"}, nil
+	return ActiveUsersResult{
+		Users:        users,
+		Source:       "panel",
+		SourceDetail: "ok",
+		Available:    true,
+	}, nil
 }
 
 func extractActiveUsers(listResp map[string]any) []ActiveUser {
@@ -359,6 +390,14 @@ func parseUptime(out string, err error) (*int64, error) {
 
 func detectIface(run func(cmd string) (string, error)) string {
 	out, err := run("sh -lc \"ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i==\\\"dev\\\") {print $(i+1); exit}}'\"")
+	if err == nil && strings.TrimSpace(out) != "" {
+		return strings.TrimSpace(out)
+	}
+	out, err = run("sh -lc \"ip route show default 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i==\\\"dev\\\") {print $(i+1); exit}}'\"")
+	if err == nil && strings.TrimSpace(out) != "" {
+		return strings.TrimSpace(out)
+	}
+	out, err = run("sh -lc \"ls /sys/class/net 2>/dev/null | grep -v '^lo$' | head -n1\"")
 	if err != nil {
 		return ""
 	}

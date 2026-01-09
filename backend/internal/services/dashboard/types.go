@@ -13,6 +13,7 @@ type NodeMetrics struct {
 	NetTxBps       *int64
 	NetRxBytes     *int64
 	NetTxBytes     *int64
+	NetIface       *string
 	UptimeSec      *int64
 	PanelVersion   *string
 	XrayRunning    *bool
@@ -31,6 +32,8 @@ type ActiveUser struct {
 }
 
 type ActiveUsersResult struct {
-	Users  []ActiveUser
-	Source string
+	Users        []ActiveUser
+	Source       string
+	SourceDetail string
+	Available    bool
 }

@@ -22,6 +22,8 @@ type Service struct {
 	Parallelism int
 	stop        chan struct{}
 	stopOnce    sync.Once
+	sourceMu    sync.RWMutex
+	sources     map[uuid.UUID]ActiveUsersSource
 }
 
 func New(dbConn *gorm.DB, metrics NodeMetricsProvider, users ActiveUsersProvider, interval time.Duration, parallelism int) *Service {
@@ -39,6 +41,7 @@ func New(dbConn *gorm.DB, metrics NodeMetricsProvider, users ActiveUsersProvider
 		Interval:    interval,
 		Parallelism: parallelism,
 		stop:        make(chan struct{}),
+		sources:     make(map[uuid.UUID]ActiveUsersSource),
 	}
 }
 
@@ -126,15 +129,24 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 	}
 	if s.Users != nil {
 		usersResult, err := s.Users.CollectActiveUsers(ctx, node)
-		if err == nil {
-			_ = s.replaceActiveUsers(ctx, node.ID, usersResult.Users)
-			s.Hub.Publish(newEvent(EventActiveUsersUpdate, map[string]any{
-				"node_id":   node.ID.String(),
-				"node_name": node.Name,
-				"users":     usersResult.Users,
-				"source":    usersResult.Source,
-			}))
+		if err != nil {
+			usersResult = ActiveUsersResult{
+				Users:        nil,
+				Source:       "unknown",
+				SourceDetail: err.Error(),
+				Available:    false,
+			}
 		}
+		_ = s.replaceActiveUsers(ctx, node.ID, usersResult.Users)
+		s.setActiveUsersSource(node.ID, usersResult.Source, usersResult.SourceDetail, usersResult.Available)
+		s.Hub.Publish(newEvent(EventActiveUsersUpdate, map[string]any{
+			"node_id":       node.ID.String(),
+			"node_name":     node.Name,
+			"users":         usersResult.Users,
+			"source":        usersResult.Source,
+			"source_detail": usersResult.SourceDetail,
+			"available":     usersResult.Available,
+		}))
 	}
 }
 
@@ -151,6 +163,7 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		NetTxBps:       metrics.NetTxBps,
 		NetRxBytes:     metrics.NetRxBytes,
 		NetTxBytes:     metrics.NetTxBytes,
+		NetIface:       metrics.NetIface,
 		UptimeSec:      metrics.UptimeSec,
 		PanelVersion:   metrics.PanelVersion,
 		XrayRunning:    metrics.XrayRunning,
@@ -205,6 +218,7 @@ func (s *Service) LoadSnapshot(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.applySources(nodes)
 	users, err := s.listActiveUsers(ctx, 200, "")
 	if err != nil {
 		return nil, err
@@ -223,7 +237,7 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 		Select(`n.id as node_id, n.name, n.kind, n.is_enabled, n.is_sandbox,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
-			m.net_rx_bytes, m.net_tx_bytes, m.uptime_sec, m.panel_version,
+			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec, m.panel_version,
 			m.xray_running, m.panel_running`).
 		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id").
 		Scan(&rows).Error
@@ -273,6 +287,10 @@ type DashboardNode struct {
 	PanelVersion   *string    `json:"panel_version"`
 	XrayRunning    *bool      `json:"xray_running"`
 	PanelRunning   *bool      `json:"panel_running"`
+	NetIface       *string    `json:"net_iface"`
+	UsersSource    string     `json:"active_users_source"`
+	UsersDetail    string     `json:"active_users_source_detail"`
+	UsersAvailable bool       `json:"active_users_available"`
 }
 
 type DashboardActiveUser struct {
@@ -295,6 +313,7 @@ func (s *Service) Summary(ctx context.Context) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.applySources(nodes)
 	agg := computeAggregate(nodes)
 	return map[string]any{
 		"nodes":     nodes,
@@ -353,9 +372,50 @@ func toMetricsPayload(metrics NodeMetrics) map[string]any {
 		"net_tx_bps":       metrics.NetTxBps,
 		"net_rx_bytes":     metrics.NetRxBytes,
 		"net_tx_bytes":     metrics.NetTxBytes,
+		"net_iface":        metrics.NetIface,
 		"uptime_sec":       metrics.UptimeSec,
 		"panel_version":    metrics.PanelVersion,
 		"xray_running":     metrics.XrayRunning,
 		"panel_running":    metrics.PanelRunning,
+	}
+}
+
+type ActiveUsersSource struct {
+	Source       string
+	SourceDetail string
+	Available    bool
+	UpdatedAt    time.Time
+}
+
+func (s *Service) setActiveUsersSource(nodeID uuid.UUID, source, detail string, available bool) {
+	if s == nil {
+		return
+	}
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+	s.sources[nodeID] = ActiveUsersSource{
+		Source:       source,
+		SourceDetail: detail,
+		Available:    available,
+		UpdatedAt:    time.Now(),
+	}
+}
+
+func (s *Service) applySources(nodes []DashboardNode) {
+	if s == nil {
+		return
+	}
+	s.sourceMu.RLock()
+	defer s.sourceMu.RUnlock()
+	for i := range nodes {
+		if src, ok := s.sources[nodes[i].NodeID]; ok {
+			nodes[i].UsersSource = src.Source
+			nodes[i].UsersDetail = src.SourceDetail
+			nodes[i].UsersAvailable = src.Available
+			continue
+		}
+		nodes[i].UsersSource = "unknown"
+		nodes[i].UsersDetail = "not collected yet"
+		nodes[i].UsersAvailable = false
 	}
 }

@@ -2560,7 +2560,6 @@ function DashboardPage() {
   const navigate = useNavigate();
   const [nodes, setNodes] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
-  const [sources, setSources] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchNodes, setSearchNodes] = useState("");
@@ -2657,7 +2656,18 @@ function DashboardPage() {
         if (payload.type === "active_users_update" && payload.data) {
           const { node_id, users, node_name, source } = payload.data;
           if (!node_id) return;
-          setSources((prev) => ({ ...prev, [node_id]: source }));
+          setNodes((prev) => {
+            const idx = prev.findIndex((n) => n.node_id === node_id);
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              active_users_source: payload.data.source,
+              active_users_source_detail: payload.data.source_detail,
+              active_users_available: payload.data.available,
+            };
+            return next;
+          });
           setActiveUsers((prev) => {
             const filtered = prev.filter((u) => u.node_id !== node_id);
             const mapped = Array.isArray(users)
@@ -2755,6 +2765,12 @@ function DashboardPage() {
     return "online";
   };
 
+  const formatSource = (node) => {
+    const source = node.active_users_source || "unknown";
+    if (source === "no_source") return t("No source");
+    return source;
+  };
+
   return (
     <div className="page page-wide dashboard-page">
       <header className="header">
@@ -2821,12 +2837,14 @@ function DashboardPage() {
             const status = deriveNodeStatus(node);
             const ram = node.ram_total_bytes ? `${formatBytes(node.ram_used_bytes || 0)} / ${formatBytes(node.ram_total_bytes)}` : "-";
             const disk = node.disk_total_bytes ? `${formatBytes(node.disk_used_bytes || 0)} / ${formatBytes(node.disk_total_bytes)}` : "-";
-            const source = sources[node.node_id];
+            const badgeClass = node.active_users_available ? "source-ok" : "source-bad";
             return (
               <div className="table-row" key={node.node_id}>
                 <div>
                   <div className="node-name">{node.name}</div>
-                  {source === "no_source" && <span className="badge nosource">{t("No source")}</span>}
+                  <span className={`badge source ${badgeClass}`} title={node.active_users_source_detail || ""}>
+                    {formatSource(node)}
+                  </span>
                 </div>
                 <div><DashboardStatusBadge status={status} /></div>
                 <div>{formatPercent(node.cpu_pct)}</div>
