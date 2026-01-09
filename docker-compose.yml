@@ -15,15 +15,38 @@ services:
       timeout: 3s
       retries: 30
 
+  migrate:
+    image: migrate/migrate
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command:
+      - -path
+      - /migrations
+      - -database
+      - postgres://agg:agg@postgres:5432/agg?sslmode=disable
+      - up
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ./.env
     environment:
       DB_DSN: postgres://agg:agg@postgres:5432/agg?sslmode=disable
+
       AGG_MASTER_KEY_BASE64: ${AGG_MASTER_KEY_BASE64}
       ADMIN_USER: ${ADMIN_USER}
       ADMIN_PASS: ${ADMIN_PASS}
       JWT_SECRET: ${JWT_SECRET}
+
+      SUDO_PASSWORDS: ${SUDO_PASSWORDS}
+      AGG_ALLOW_CIDR: ${AGG_ALLOW_CIDR}
+      AGG_REPO_PATH: ${AGG_REPO_PATH}
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,21 +72,6 @@ services:
       backend:
         condition: service_started
     restart: unless-stopped
-
-  migrate:
-    image: migrate/migrate
-    volumes:
-      - ./backend/migrations:/migrations:ro
-    command:
-      - -path
-      - /migrations
-      - -database
-      - postgres://agg:agg@postgres:5432/agg?sslmode=disable
-      - up
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
 
 volumes:
   pgdata:
