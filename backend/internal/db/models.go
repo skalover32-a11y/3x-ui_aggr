@@ -25,7 +25,7 @@ type Node struct {
 	AgentEnabled      bool           `gorm:"not null;default:false" json:"agent_enabled"`
 	AgentURL          *string        `gorm:"type:text" json:"agent_url"`
 	AgentTokenEnc     *string        `gorm:"type:text" json:"-"`
-	AgentInsecureTLS  bool           `gorm:"not null;default:false" json:"agent_insecure_tls"`
+	AgentInsecureTLS  bool           `gorm:"column:agent_allow_insecure_tls;not null;default:false" json:"agent_allow_insecure_tls"`
 	IsEnabled         bool           `gorm:"not null;default:true" json:"is_enabled"`
 	SSHEnabled        bool           `gorm:"not null;default:true" json:"ssh_enabled"`
 	SSHHost           string         `gorm:"type:text;not null" json:"ssh_host"`
