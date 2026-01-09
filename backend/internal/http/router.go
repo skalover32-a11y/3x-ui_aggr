@@ -107,6 +107,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/alerts/:fingerprint/retry", middleware.RequireRoles(writeRoles...), h.RetryAlert)
 
 	auth.POST("/ops/jobs", middleware.RequireRoles(writeRoles...), h.CreateOpsJob)
+	auth.POST("/ops/deploy-agent", middleware.RequireRoles(writeRoles...), h.CreateDeployAgent)
 	auth.GET("/ops/jobs/:id", middleware.RequireRoles(readRoles...), h.GetOpsJob)
 	auth.GET("/ops/jobs/:id/items", middleware.RequireRoles(readRoles...), h.GetOpsJobItems)
 	auth.GET("/ops/jobs/:id/stream", middleware.RequireRoles(readRoles...), h.OpsJobStream)

@@ -17,6 +17,13 @@ type createOpsJobRequest struct {
 	Params      map[string]any `json:"params"`
 }
 
+type createDeployAgentRequest struct {
+	NodeIDs     []string       `json:"node_ids"`
+	All         bool           `json:"all"`
+	Parallelism int            `json:"parallelism"`
+	Params      map[string]any `json:"params"`
+}
+
 func (h *Handler) CreateOpsJob(c *gin.Context) {
 	if h.Ops == nil {
 		respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
@@ -28,6 +35,30 @@ func (h *Handler) CreateOpsJob(c *gin.Context) {
 	}
 	job, err := h.Ops.CreateJob(c.Request.Context(), ops.CreateJobRequest{
 		Type:        strings.TrimSpace(req.Type),
+		NodeIDs:     req.NodeIDs,
+		AllNodes:    req.All,
+		Parallelism: req.Parallelism,
+		Params:      req.Params,
+		Actor:       getActor(c),
+	})
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "JOB_CREATE", err.Error())
+		return
+	}
+	respondStatus(c, http.StatusCreated, job)
+}
+
+func (h *Handler) CreateDeployAgent(c *gin.Context) {
+	if h.Ops == nil {
+		respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
+		return
+	}
+	var req createDeployAgentRequest
+	if !parseJSONBody(c, &req) {
+		return
+	}
+	job, err := h.Ops.CreateJob(c.Request.Context(), ops.CreateJobRequest{
+		Type:        ops.JobTypeDeploy,
 		NodeIDs:     req.NodeIDs,
 		AllNodes:    req.All,
 		Parallelism: req.Parallelism,

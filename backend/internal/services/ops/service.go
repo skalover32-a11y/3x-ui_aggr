@@ -2,10 +2,15 @@ package ops
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
+	mrand "math/rand"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +21,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/security"
 )
 
 const (
@@ -28,16 +34,22 @@ const (
 const (
 	JobTypeReboot = "reboot_nodes"
 	JobTypeUpdate = "update_xui_nodes"
+	JobTypeDeploy = "deploy_agent"
 )
 
 const maxParallelism = 10
 
 type Service struct {
-	DB       *gorm.DB
-	Executor NodeExecutor
-	Hub      *Hub
-	stop     chan struct{}
-	stopOnce sync.Once
+	DB            *gorm.DB
+	Executor      NodeExecutor
+	Encryptor     *security.Encryptor
+	SudoPasswords []string
+	AllowCIDR     string
+	RepoPath      string
+	Hub           *Hub
+	stop          chan struct{}
+	stopOnce      sync.Once
+	buildMu       sync.Mutex
 }
 
 type CreateJobRequest struct {
@@ -50,20 +62,36 @@ type CreateJobRequest struct {
 }
 
 type JobParams struct {
-	DryRun          bool   `json:"dry_run"`
-	SimulateDelayMs int    `json:"simulate_delay_ms"`
-	Confirm         string `json:"confirm"`
-	Sandbox         bool   `json:"sandbox"`
-	PrecheckOnly    bool   `json:"precheck_only"`
-	InstallExpect   bool   `json:"install_expect"`
+	DryRun           bool   `json:"dry_run"`
+	SimulateDelayMs  int    `json:"simulate_delay_ms"`
+	Confirm          string `json:"confirm"`
+	Sandbox          bool   `json:"sandbox"`
+	PrecheckOnly     bool   `json:"precheck_only"`
+	InstallExpect    bool   `json:"install_expect"`
+	AgentPort        int    `json:"agent_port"`
+	AgentTokenMode   string `json:"agent_token_mode"`
+	SharedAgentToken string `json:"shared_agent_token"`
+	AllowCIDR        string `json:"allow_cidr"`
+	StatsMode        string `json:"stats_mode"`
+	XrayAccessLog    string `json:"xray_access_log_path"`
+	RateLimitRPS     int    `json:"rate_limit_rps"`
+	EnableUFW        bool   `json:"enable_ufw"`
+	HealthCheck      bool   `json:"health_check"`
 }
 
-func New(dbConn *gorm.DB, exec NodeExecutor) *Service {
+func New(dbConn *gorm.DB, exec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
+	if repoPath == "" {
+		repoPath = "/opt/3x-ui_aggr"
+	}
 	return &Service{
-		DB:       dbConn,
-		Executor: exec,
-		Hub:      NewHub(),
-		stop:     make(chan struct{}),
+		DB:            dbConn,
+		Executor:      exec,
+		Encryptor:     enc,
+		SudoPasswords: sudoPasswords,
+		AllowCIDR:     allowCIDR,
+		RepoPath:      repoPath,
+		Hub:           NewHub(),
+		stop:          make(chan struct{}),
 	}
 }
 
@@ -91,7 +119,7 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	if typ == "" {
 		return nil, errors.New("type required")
 	}
-	if typ != JobTypeReboot && typ != JobTypeUpdate {
+	if typ != JobTypeReboot && typ != JobTypeUpdate && typ != JobTypeDeploy {
 		return nil, errors.New("unsupported job type")
 	}
 	actor := strings.TrimSpace(req.Actor)
@@ -106,9 +134,16 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	if parallelism > maxParallelism {
 		parallelism = maxParallelism
 	}
-	if req.AllNodes && !jobParams.DryRun && (typ == JobTypeReboot || typ == JobTypeUpdate) {
-		if strings.TrimSpace(jobParams.Confirm) != "REALLY_DO_IT" {
-			return nil, errors.New("confirmation required")
+	if req.AllNodes && !jobParams.DryRun {
+		if typ == JobTypeReboot || typ == JobTypeUpdate {
+			if strings.TrimSpace(jobParams.Confirm) != "REALLY_DO_IT" {
+				return nil, errors.New("confirmation required")
+			}
+		}
+		if typ == JobTypeDeploy {
+			if strings.TrimSpace(jobParams.Confirm) != "DEPLOY_AGENT" {
+				return nil, errors.New("confirmation required")
+			}
 		}
 	}
 	nodeIDs, err := s.resolveNodeIDs(ctx, req)
@@ -362,6 +397,20 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	case JobTypeUpdate:
 		params := parseUpdateParams(job.Params)
 		output, exitCode, runErr = s.Executor.Update(cctx, node, params)
+	case JobTypeDeploy:
+		params, err := s.buildDeployParams(ctx, node, job.Params)
+		if err != nil {
+			runErr = err
+			exitCode = 1
+			break
+		}
+		output, exitCode, runErr = s.Executor.DeployAgent(cctx, node, params)
+		if runErr == nil {
+			if err := s.persistAgentSettings(ctx, node, params); err != nil {
+				runErr = err
+				exitCode = 1
+			}
+		}
 	default:
 		runErr = errors.New("unsupported job type")
 		exitCode = 1
@@ -487,8 +536,218 @@ func dryRunDelay(ms int) time.Duration {
 	if ms > 0 {
 		return time.Duration(ms) * time.Millisecond
 	}
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := mrand.New(mrand.NewSource(time.Now().UnixNano()))
 	return time.Duration(100+rng.Intn(201)) * time.Millisecond
+}
+
+func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw datatypes.JSON) (DeployAgentParams, error) {
+	if node == nil {
+		return DeployAgentParams{}, errors.New("node missing")
+	}
+	params := parseJobParams(raw)
+	rawMap := map[string]any{}
+	_ = json.Unmarshal(raw, &rawMap)
+
+	agentPort := params.AgentPort
+	if agentPort <= 0 {
+		agentPort = 9191
+	}
+	allowCIDR := strings.TrimSpace(params.AllowCIDR)
+	if allowCIDR == "" {
+		allowCIDR = strings.TrimSpace(s.AllowCIDR)
+	}
+	allowCIDR = normalizeAllowCIDR(allowCIDR)
+	if allowCIDR == "" {
+		return DeployAgentParams{}, errors.New("allow_cidr is required")
+	}
+	if len(s.SudoPasswords) == 0 {
+		return DeployAgentParams{}, errors.New("sudo passwords not configured")
+	}
+
+	statsMode := strings.TrimSpace(params.StatsMode)
+	if statsMode == "" {
+		statsMode = "log"
+	}
+	xrayPath := strings.TrimSpace(params.XrayAccessLog)
+	if xrayPath == "" {
+		xrayPath = "/var/log/xray/access.log"
+	}
+	rateLimit := params.RateLimitRPS
+	if rateLimit <= 0 {
+		rateLimit = 5
+	}
+	healthCheck := true
+	if _, ok := rawMap["health_check"]; ok {
+		healthCheck = params.HealthCheck
+	}
+	enableUFW := false
+	if _, ok := rawMap["enable_ufw"]; ok {
+		enableUFW = params.EnableUFW
+	}
+
+	tokenMode := strings.TrimSpace(params.AgentTokenMode)
+	if tokenMode == "" {
+		tokenMode = "per-node"
+	}
+	var token string
+	switch tokenMode {
+	case "per-node":
+		gen, err := generateToken()
+		if err != nil {
+			return DeployAgentParams{}, err
+		}
+		token = gen
+	case "shared":
+		token = strings.TrimSpace(params.SharedAgentToken)
+		if token == "" {
+			return DeployAgentParams{}, errors.New("shared_agent_token required for shared mode")
+		}
+	default:
+		return DeployAgentParams{}, fmt.Errorf("unsupported agent_token_mode: %s", tokenMode)
+	}
+
+	binaryPath, err := s.ensureAgentBinary(ctx)
+	if err != nil {
+		return DeployAgentParams{}, err
+	}
+	serviceContent, err := s.loadAgentServiceTemplate()
+	if err != nil {
+		return DeployAgentParams{}, err
+	}
+	configContent := buildAgentConfig(agentPort, token, allowCIDR, statsMode, xrayPath, rateLimit)
+
+	nodeHost := strings.TrimSpace(node.SSHHost)
+	if nodeHost == "" {
+		nodeHost = strings.TrimSpace(node.Host)
+	}
+
+	return DeployAgentParams{
+		BinaryPath:     binaryPath,
+		ServiceContent: serviceContent,
+		ConfigContent:  configContent,
+		AgentPort:      agentPort,
+		AllowCIDR:      allowCIDR,
+		Token:          token,
+		EnableUFW:      enableUFW,
+		HealthCheck:    healthCheck,
+		SudoPasswords:  s.SudoPasswords,
+		NodeHost:       nodeHost,
+	}, nil
+}
+
+func (s *Service) persistAgentSettings(ctx context.Context, node *db.Node, params DeployAgentParams) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db not configured")
+	}
+	if node == nil {
+		return errors.New("node missing")
+	}
+	if s.Encryptor == nil {
+		return errors.New("encryptor missing")
+	}
+	if params.Token == "" {
+		return errors.New("agent token missing")
+	}
+	encToken, err := s.Encryptor.EncryptString(params.Token)
+	if err != nil {
+		return err
+	}
+	host := strings.TrimSpace(params.NodeHost)
+	if host == "" {
+		host = strings.TrimSpace(node.SSHHost)
+	}
+	if host == "" {
+		host = strings.TrimSpace(node.Host)
+	}
+	if host == "" {
+		return errors.New("node host missing for agent_url")
+	}
+	url := fmt.Sprintf("http://%s:%d", host, params.AgentPort)
+	updates := map[string]any{
+		"agent_enabled":      true,
+		"agent_url":          url,
+		"agent_token_enc":    encToken,
+		"agent_insecure_tls": false,
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", node.ID).Updates(updates).Error
+}
+
+func (s *Service) ensureAgentBinary(ctx context.Context) (string, error) {
+	if s == nil {
+		return "", errors.New("service not configured")
+	}
+	repoPath := strings.TrimSpace(s.RepoPath)
+	if repoPath == "" {
+		repoPath = "/opt/3x-ui_aggr"
+	}
+	buildDir := filepath.Join(repoPath, "backend")
+	targetPath := filepath.Join(os.TempDir(), "vlf-agent")
+
+	s.buildMu.Lock()
+	defer s.buildMu.Unlock()
+
+	if info, err := os.Stat(targetPath); err == nil {
+		if time.Since(info.ModTime()) < 10*time.Minute {
+			return targetPath, nil
+		}
+	}
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", targetPath, "./cmd/node-agent")
+	cmd.Dir = buildDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("build vlf-agent failed: %s", strings.TrimSpace(string(out)))
+	}
+	return targetPath, nil
+}
+
+func (s *Service) loadAgentServiceTemplate() ([]byte, error) {
+	repoPath := strings.TrimSpace(s.RepoPath)
+	if repoPath == "" {
+		repoPath = "/opt/3x-ui_aggr"
+	}
+	servicePath := filepath.Join(repoPath, "deploy", "agent", "vlf-agent.service")
+	data, err := os.ReadFile(servicePath)
+	if err != nil {
+		return nil, fmt.Errorf("read service template: %w", err)
+	}
+	return data, nil
+}
+
+func buildAgentConfig(port int, token string, allowCIDR string, statsMode string, accessLog string, rateLimit int) []byte {
+	lines := []string{
+		fmt.Sprintf("listen: \"0.0.0.0:%d\"", port),
+		fmt.Sprintf("token: %q", escapeYAMLString(token)),
+		"allow_cidrs:",
+		fmt.Sprintf("  - %q", escapeYAMLString(allowCIDR)),
+		fmt.Sprintf("xray_access_log_path: %q", escapeYAMLString(accessLog)),
+		fmt.Sprintf("poll_window_seconds: %d", 60),
+		fmt.Sprintf("stats_mode: %q", escapeYAMLString(statsMode)),
+		fmt.Sprintf("rate_limit_rps: %d", rateLimit),
+	}
+	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+func generateToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := crand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(buf), nil
+}
+
+func escapeYAMLString(value string) string {
+	return strings.ReplaceAll(value, "\"", "\\\"")
+}
+
+func normalizeAllowCIDR(raw string) string {
+	parts := strings.Split(raw, ",")
+	for _, part := range parts {
+		trim := strings.TrimSpace(part)
+		if trim != "" {
+			return trim
+		}
+	}
+	return ""
 }
 
 func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) error {

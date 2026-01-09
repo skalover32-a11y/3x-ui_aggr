@@ -5,11 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	"agr_3x_ui/internal/db"
@@ -59,6 +62,261 @@ func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdatePa
 	}
 	cmd := buildXUIUpdateCommand()
 	return e.runCommand(ctx, node, cmd, false)
+}
+
+func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params DeployAgentParams) (string, int, error) {
+	if node == nil {
+		return "", 1, errors.New("node missing")
+	}
+	client, err := e.openClient(node)
+	if err != nil {
+		return "", 1, err
+	}
+	defer client.Close()
+
+	logs := &strings.Builder{}
+	writeLog(logs, "preflight ok")
+
+	sudoPass, usePass, err := detectSudo(ctx, client, params.SudoPasswords)
+	if err != nil {
+		writeLog(logs, "sudo check failed")
+		return logs.String(), 2, err
+	}
+
+	if params.BinaryPath == "" {
+		return logs.String(), 3, errors.New("binary path missing")
+	}
+	if err := uploadFile(ctx, client, params.BinaryPath, "/tmp/vlf-agent"); err != nil {
+		writeLog(logs, "upload agent failed")
+		return logs.String(), 4, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("install -m 755 /tmp/vlf-agent /usr/local/bin/vlf-agent", sudoPass, usePass)); err != nil {
+		writeLog(logs, "install agent binary failed")
+		return logs.String(), 5, err
+	}
+	writeLog(logs, "agent binary installed")
+
+	if err := uploadBytes(ctx, client, params.ConfigContent, "/tmp/vlf-agent.yaml"); err != nil {
+		writeLog(logs, "upload config failed")
+		return logs.String(), 6, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("mkdir -p /etc/vlf-agent", sudoPass, usePass)); err != nil {
+		return logs.String(), 7, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("install -m 600 /tmp/vlf-agent.yaml /etc/vlf-agent/config.yaml", sudoPass, usePass)); err != nil {
+		writeLog(logs, "install config failed")
+		return logs.String(), 8, err
+	}
+	writeLog(logs, "config installed")
+
+	if err := uploadBytes(ctx, client, params.ServiceContent, "/tmp/vlf-agent.service"); err != nil {
+		writeLog(logs, "upload service failed")
+		return logs.String(), 9, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("install -m 644 /tmp/vlf-agent.service /etc/systemd/system/vlf-agent.service", sudoPass, usePass)); err != nil {
+		writeLog(logs, "install service failed")
+		return logs.String(), 10, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("systemctl daemon-reload", sudoPass, usePass)); err != nil {
+		return logs.String(), 11, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("systemctl enable --now vlf-agent", sudoPass, usePass)); err != nil {
+		writeLog(logs, "enable service failed")
+		return logs.String(), 12, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("systemctl restart vlf-agent", sudoPass, usePass)); err != nil {
+		writeLog(logs, "restart service failed")
+		return logs.String(), 13, err
+	}
+	writeLog(logs, "service started")
+
+	if params.EnableUFW && params.AllowCIDR != "" && params.AgentPort > 0 {
+		cmd := fmt.Sprintf("ufw allow from %s to any port %d proto tcp", params.AllowCIDR, params.AgentPort)
+		if _, _, err := runRemote(ctx, client, sudoCmd(cmd, sudoPass, usePass)); err != nil {
+			writeLog(logs, "ufw rule failed")
+			return logs.String(), 14, err
+		}
+		writeLog(logs, "ufw rule applied")
+	}
+
+	if params.HealthCheck && params.AgentPort > 0 {
+		cmd := fmt.Sprintf("curl -fsS http://127.0.0.1:%d/health", params.AgentPort)
+		if _, _, err := runRemote(ctx, client, cmd); err != nil {
+			writeLog(logs, "health check failed")
+			return logs.String(), 15, err
+		}
+		writeLog(logs, "health check ok")
+	}
+
+	return logs.String(), 0, nil
+}
+
+func (e *SSHExecutor) openClient(node *db.Node) (*ssh.Client, error) {
+	if node == nil {
+		return nil, errors.New("node missing")
+	}
+	if !node.SSHEnabled {
+		return nil, errors.New("ssh disabled")
+	}
+	if strings.TrimSpace(node.SSHAuthMethod) != "" && strings.ToLower(node.SSHAuthMethod) != "key" {
+		return nil, errors.New("unsupported ssh auth method")
+	}
+	if strings.TrimSpace(node.SSHHost) == "" || node.SSHPort == 0 || strings.TrimSpace(node.SSHUser) == "" {
+		return nil, errors.New("ssh config missing")
+	}
+	if e == nil || e.Encryptor == nil {
+		return nil, errors.New("encryptor missing")
+	}
+	key, err := e.Encryptor.DecryptString(node.SSHKeyEnc)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKey([]byte(key))
+	if err != nil {
+		return nil, err
+	}
+	timeout := e.Timeout
+	if timeout <= 0 {
+		timeout = 20 * time.Second
+	}
+	cfg := &ssh.ClientConfig{
+		User:            node.SSHUser,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         timeout,
+	}
+	addr := net.JoinHostPort(node.SSHHost, fmt.Sprintf("%d", node.SSHPort))
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return ssh.NewClient(sshConn, chans, reqs), nil
+}
+
+func runRemote(ctx context.Context, client *ssh.Client, cmd string) (string, int, error) {
+	if client == nil {
+		return "", 1, errors.New("ssh client missing")
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		return "", 1, err
+	}
+	defer session.Close()
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	session.Stdout = &stdoutBuf
+	session.Stderr = &stderrBuf
+
+	if err := session.Start("bash -lc " + strconv.Quote(cmd)); err != nil {
+		return "", 1, err
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- session.Wait()
+	}()
+	select {
+	case <-ctx.Done():
+		return stdoutBuf.String() + stderrBuf.String(), 1, ctx.Err()
+	case err := <-done:
+		if err != nil {
+			exitCode := 1
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitCode = exitErr.ExitStatus()
+			}
+			return stdoutBuf.String() + stderrBuf.String(), exitCode, err
+		}
+		return stdoutBuf.String() + stderrBuf.String(), 0, nil
+	}
+}
+
+func detectSudo(ctx context.Context, client *ssh.Client, passwords []string) (string, bool, error) {
+	if _, code, err := runRemote(ctx, client, "sudo -n true"); err == nil && code == 0 {
+		return "", false, nil
+	}
+	for _, pass := range passwords {
+		trim := strings.TrimSpace(pass)
+		if trim == "" {
+			continue
+		}
+		cmd := fmt.Sprintf("echo %s | sudo -S -p '' true", shellEscape(trim))
+		if _, code, err := runRemote(ctx, client, cmd); err == nil && code == 0 {
+			return trim, true, nil
+		}
+	}
+	return "", false, errors.New("sudo password required")
+}
+
+func sudoCmd(cmd string, pass string, usePass bool) string {
+	if usePass && pass != "" {
+		return fmt.Sprintf("echo %s | sudo -S -p '' %s", shellEscape(pass), cmd)
+	}
+	return "sudo -n " + cmd
+}
+
+func shellEscape(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\'"\'"'`) + "'"
+}
+
+func uploadFile(ctx context.Context, client *ssh.Client, localPath string, remotePath string) error {
+	if client == nil {
+		return errors.New("ssh client missing")
+	}
+	file, err := os.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return uploadReader(ctx, client, file, remotePath)
+}
+
+func uploadBytes(ctx context.Context, client *ssh.Client, data []byte, remotePath string) error {
+	if len(data) == 0 {
+		return errors.New("empty payload")
+	}
+	return uploadReader(ctx, client, bytes.NewReader(data), remotePath)
+}
+
+func uploadReader(ctx context.Context, client *ssh.Client, reader io.Reader, remotePath string) error {
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return err
+	}
+	defer sftpClient.Close()
+	remote, err := sftpClient.Create(remotePath)
+	if err != nil {
+		return err
+	}
+	defer remote.Close()
+	done := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(remote, reader)
+		done <- err
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-done:
+		return err
+	}
+}
+
+func writeLog(buf *strings.Builder, line string) {
+	if buf == nil {
+		return
+	}
+	if buf.Len() > 0 {
+		buf.WriteString("\n")
+	}
+	buf.WriteString(line)
 }
 
 func (e *SSHExecutor) runUpdatePrecheck(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error) {

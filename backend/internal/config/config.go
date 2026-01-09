@@ -33,6 +33,9 @@ type Config struct {
 	DashboardPanelActiveUsers    bool
 	DashboardAgentTimeout        time.Duration
 	DashboardAgentPrefer         bool
+	SudoPasswords                []string
+	AllowCIDR                    string
+	RepoPath                     string
 }
 
 func Load() (*Config, error) {
@@ -46,6 +49,9 @@ func Load() (*Config, error) {
 		AuthRPID:      strings.TrimSpace(os.Getenv("AUTH_RP_ID")),
 		AuthRPOrigin:  strings.TrimSpace(os.Getenv("AUTH_RP_ORIGIN")),
 	}
+	cfg.SudoPasswords = parseCSVEnv("SUDO_PASSWORDS", nil)
+	cfg.AllowCIDR = strings.TrimSpace(os.Getenv("AGG_ALLOW_CIDR"))
+	cfg.RepoPath = strings.TrimSpace(os.Getenv("AGG_REPO_PATH"))
 	accessTTL := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL"))
 	if accessTTL != "" {
 		val, err := time.ParseDuration(accessTTL)
