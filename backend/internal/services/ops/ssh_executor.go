@@ -139,15 +139,6 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 		writeLog(logs, "ufw rule applied")
 	}
 
-	if params.HealthCheck && params.AgentPort > 0 {
-		cmd := fmt.Sprintf("curl -fsS http://127.0.0.1:%d/health", params.AgentPort)
-		if _, _, err := runRemote(ctx, client, cmd); err != nil {
-			writeLog(logs, "health check failed")
-			return logs.String(), 15, err
-		}
-		writeLog(logs, "health check ok")
-	}
-
 	return logs.String(), 0, nil
 }
 

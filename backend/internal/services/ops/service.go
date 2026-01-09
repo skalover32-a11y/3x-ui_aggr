@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	mrand "math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -415,6 +416,23 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				output = params.PreLog
 			}
 		}
+		if runErr == nil && params.HealthCheck {
+			status, info, err := s.checkAgentHealth(cctx, params)
+			if info != "" {
+				if output != "" {
+					output += "\n" + info
+				} else {
+					output = info
+				}
+			}
+			if err != nil {
+				runErr = err
+				exitCode = 1
+			} else if status != http.StatusOK {
+				runErr = fmt.Errorf("agent health check failed: status %d", status)
+				exitCode = 1
+			}
+		}
 		if runErr == nil {
 			if err := s.persistAgentSettings(ctx, node, params); err != nil {
 				runErr = err
@@ -793,6 +811,38 @@ func appendPreLog(existing, entry string) string {
 		return entry
 	}
 	return existing + "\n" + entry
+}
+
+func (s *Service) checkAgentHealth(ctx context.Context, params DeployAgentParams) (int, string, error) {
+	if params.AgentPort <= 0 {
+		return 0, "health check skipped: missing agent port", nil
+	}
+	host := strings.TrimSpace(params.NodeHost)
+	if host == "" {
+		return 0, "", errors.New("agent health check missing node host")
+	}
+	url := fmt.Sprintf("http://%s:%d/health", host, params.AgentPort)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	hasAuth := false
+	if strings.TrimSpace(params.Token) != "" {
+		req.Header.Set("Authorization", "Bearer "+params.Token)
+		hasAuth = true
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	info := fmt.Sprintf("health check url=%s auth=%t", url, hasAuth)
+	if err != nil {
+		return 0, info, err
+	}
+	defer resp.Body.Close()
+	info = fmt.Sprintf("%s status=%d", info, resp.StatusCode)
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return resp.StatusCode, info, fmt.Errorf("agent health check unauthorized: status %d", resp.StatusCode)
+	}
+	return resp.StatusCode, info, nil
 }
 
 func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) error {
