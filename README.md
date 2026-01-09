@@ -112,6 +112,19 @@ curl -s http://localhost:8080/api/ops/jobs \
   -d '{"type":"reboot_nodes","all":true,"parallelism":5,"params":{}}'
 ```
 
+Update x-ui on selected nodes (SSH + expect):
+```bash
+curl -s http://localhost:8080/api/ops/jobs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"update_xui_nodes","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{"precheck_only":false,"install_expect":false}}'
+```
+
+Update notes:
+- Uses `expect` with menu prompt: `Please enter your selection [0-25]:`
+- Uses `flock -n /var/lock/x-ui-update.lock` to prevent concurrent updates
+- Timeouts: menu 60s, update 900s
+
 Get job and items:
 ```bash
 curl -s http://localhost:8080/api/ops/jobs/<job_id> \

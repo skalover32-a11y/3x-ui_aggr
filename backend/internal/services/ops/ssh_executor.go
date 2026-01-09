@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,53 +25,65 @@ func NewSSHExecutor(enc *security.Encryptor, timeout time.Duration) *SSHExecutor
 	return &SSHExecutor{Encryptor: enc, Timeout: timeout}
 }
 
-func (e *SSHExecutor) Reboot(ctx context.Context, node *db.Node) (string, error) {
+func (e *SSHExecutor) Reboot(ctx context.Context, node *db.Node) (string, int, error) {
 	return e.runCommand(ctx, node, "sudo /sbin/reboot", true)
 }
 
-func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdateParams) (string, error) {
+func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error) {
+	if _, code, err := e.runCommand(ctx, node, "command -v x-ui", false); err != nil {
+		if code == 0 {
+			code = 10
+		}
+		return "x-ui not installed", code, fmt.Errorf("x-ui not installed")
+	}
+	if _, code, err := e.runCommand(ctx, node, "command -v expect", false); err != nil {
+		if params.InstallExpect {
+			if _, _, err := e.runCommand(ctx, node, "sudo apt-get update && sudo apt-get install -y expect", false); err != nil {
+				return "failed to install expect", 11, err
+			}
+		} else {
+			if code == 0 {
+				code = 11
+			}
+			return "expect not installed", code, fmt.Errorf("expect not installed")
+		}
+	}
+	if _, code, err := e.runCommand(ctx, node, "command -v expect", false); err != nil {
+		if code == 0 {
+			code = 11
+		}
+		return "expect not installed", code, fmt.Errorf("expect not installed")
+	}
 	if params.PrecheckOnly {
-		out, err := e.runCommand(ctx, node, "command -v expect", false)
-		if err != nil {
-			return out, fmt.Errorf("expect not installed")
-		}
-		return out, nil
+		return "precheck ok", 0, nil
 	}
-	if params.InstallExpect {
-		if _, err := e.runCommand(ctx, node, "sudo apt-get update && sudo apt-get install -y expect", false); err != nil {
-			return "", err
-		}
-	}
-	if _, err := e.runCommand(ctx, node, "command -v expect", false); err != nil {
-		return "", fmt.Errorf("expect not installed")
-	}
-	script := `expect -c 'set timeout 900; spawn x-ui; expect -re "(?i)select|option|choice"; send "2\r"; expect eof'`
-	return e.runCommand(ctx, node, script, false)
+	cmd := buildXUIUpdateCommand()
+	return e.runCommand(ctx, node, cmd, false)
 }
 
-func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string, allowDisconnect bool) (string, error) {
+func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string, allowDisconnect bool) (string, int, error) {
 	if node == nil {
-		return "", errors.New("node missing")
+		return "", 1, errors.New("node missing")
 	}
 	if !node.SSHEnabled {
-		return "", errors.New("ssh disabled")
+		return "", 1, errors.New("ssh disabled")
 	}
 	if strings.TrimSpace(node.SSHAuthMethod) != "" && strings.ToLower(node.SSHAuthMethod) != "key" {
-		return "", errors.New("unsupported ssh auth method")
+		return "", 1, errors.New("unsupported ssh auth method")
 	}
 	if strings.TrimSpace(node.SSHHost) == "" || node.SSHPort == 0 || strings.TrimSpace(node.SSHUser) == "" {
-		return "", errors.New("ssh config missing")
+		return "", 1, errors.New("ssh config missing")
 	}
 	if e == nil || e.Encryptor == nil {
-		return "", errors.New("encryptor missing")
+		return "", 1, errors.New("encryptor missing")
 	}
 	key, err := e.Encryptor.DecryptString(node.SSHKeyEnc)
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 	signer, err := ssh.ParsePrivateKey([]byte(key))
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 	timeout := e.Timeout
 	if timeout <= 0 {
@@ -86,19 +99,19 @@ func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string,
 	dialer := net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err != nil {
 		_ = conn.Close()
-		return "", err
+		return "", 1, err
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 	defer client.Close()
 
 	session, err := client.NewSession()
 	if err != nil {
-		return "", err
+		return "", 1, err
 	}
 	defer session.Close()
 
@@ -107,7 +120,7 @@ func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string,
 	session.Stderr = &stderrBuf
 
 	if err := session.Start(cmd); err != nil {
-		return "", err
+		return "", 1, err
 	}
 	waitCh := make(chan error, 1)
 	go func() {
@@ -115,15 +128,19 @@ func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string,
 	}()
 	select {
 	case <-ctx.Done():
-		return stdoutBuf.String() + stderrBuf.String(), ctx.Err()
+		return stdoutBuf.String() + stderrBuf.String(), 1, ctx.Err()
 	case err := <-waitCh:
 		if err != nil {
-			if allowDisconnect && isDisconnectError(err) {
-				return stdoutBuf.String() + stderrBuf.String(), nil
+			exitCode := 1
+			if exitErr, ok := err.(*ssh.ExitError); ok {
+				exitCode = exitErr.ExitStatus()
 			}
-			return stdoutBuf.String() + stderrBuf.String(), err
+			if allowDisconnect && isDisconnectError(err) {
+				return stdoutBuf.String() + stderrBuf.String(), 0, nil
+			}
+			return stdoutBuf.String() + stderrBuf.String(), exitCode, err
 		}
-		return stdoutBuf.String() + stderrBuf.String(), nil
+		return stdoutBuf.String() + stderrBuf.String(), 0, nil
 	}
 }
 
@@ -136,4 +153,35 @@ func isDisconnectError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func buildXUIUpdateCommand() string {
+	script := `flock -n /var/lock/x-ui-update.lock -c "expect <<'EOF'
+set timeout 60
+set env(TERM) \"dumb\"
+log_user 1
+match_max 200000
+spawn x-ui
+expect {
+  -re {Please enter your selection.*} { send \"2\r\" }
+  -re {Enter.*selection.*} { send \"2\r\" }
+  -re {Enter.*choice.*} { send \"2\r\" }
+  timeout { puts \"ERROR: timeout waiting for menu\"; exit 2 }
+}
+set timeout 900
+expect {
+  -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
+  -re {Update.*(completed|success|finished)} { puts \"INFO: update completed\"; exit 0 }
+  -re {Please enter your selection.*} { puts \"INFO: update finished, returned to menu\"; exit 0 }
+  eof { puts \"INFO: x-ui exited after update\"; exit 0 }
+  timeout { puts \"ERROR: update timeout\"; exit 3 }
+}
+EOF"
+rc=$?
+if [ $rc -eq 1 ]; then
+  exit 20
+fi
+exit $rc
+`
+	return "bash -lc " + strconv.Quote(script)
 }

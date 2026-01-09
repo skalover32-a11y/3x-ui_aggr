@@ -253,7 +253,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 
 	node, err := s.loadNode(ctx, item.NodeID)
 	if err != nil {
-		s.finishItem(ctx, item.ID, JobFailed, "", err)
+		s.finishItem(ctx, item.ID, JobFailed, "", 1, err)
 		return err
 	}
 	timeout := 2 * time.Minute
@@ -265,29 +265,33 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 
 	var output string
 	var runErr error
+	exitCode := 0
 	switch job.Type {
 	case JobTypeReboot:
-		output, runErr = s.Executor.Reboot(cctx, node)
+		output, exitCode, runErr = s.Executor.Reboot(cctx, node)
 	case JobTypeUpdate:
 		params := parseUpdateParams(job.Params)
-		output, runErr = s.Executor.Update(cctx, node, params)
+		output, exitCode, runErr = s.Executor.Update(cctx, node, params)
 	default:
 		runErr = errors.New("unsupported job type")
+		exitCode = 1
 	}
+	output = trimLog(output, 4096, 16384)
 	if runErr != nil {
-		s.finishItem(ctx, item.ID, JobFailed, output, runErr)
+		s.finishItem(ctx, item.ID, JobFailed, output, exitCode, runErr)
 		return runErr
 	}
-	s.finishItem(ctx, item.ID, JobSuccess, output, nil)
+	s.finishItem(ctx, item.ID, JobSuccess, output, exitCode, nil)
 	return nil
 }
 
-func (s *Service) finishItem(ctx context.Context, id uuid.UUID, status, logText string, err error) {
+func (s *Service) finishItem(ctx context.Context, id uuid.UUID, status, logText string, exitCode int, err error) {
 	finished := time.Now()
 	updates := map[string]any{
 		"status":      status,
 		"log":         logText,
 		"finished_at": finished,
+		"exit_code":   exitCode,
 	}
 	if err != nil {
 		msg := err.Error()
@@ -331,4 +335,19 @@ func parseUpdateParams(raw datatypes.JSON) UpdateParams {
 	var params UpdateParams
 	_ = json.Unmarshal(raw, &params)
 	return params
+}
+
+func trimLog(input string, headSize int, tailSize int) string {
+	if headSize <= 0 && tailSize <= 0 {
+		return ""
+	}
+	if len(input) <= headSize+tailSize || tailSize == 0 {
+		if len(input) > headSize && headSize > 0 {
+			return input[:headSize]
+		}
+		return input
+	}
+	head := input[:headSize]
+	tail := input[len(input)-tailSize:]
+	return head + "\n...trimmed...\n" + tail
 }

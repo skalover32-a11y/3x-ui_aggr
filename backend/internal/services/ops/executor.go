@@ -7,11 +7,11 @@ import (
 )
 
 type NodeExecutor interface {
-	Reboot(ctx context.Context, node *db.Node) (string, error)
-	Update(ctx context.Context, node *db.Node, params UpdateParams) (string, error)
+	Reboot(ctx context.Context, node *db.Node) (string, int, error)
+	Update(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error)
 }
 
 type UpdateParams struct {
-	PrecheckOnly  bool
-	InstallExpect bool
+	PrecheckOnly  bool `json:"precheck_only"`
+	InstallExpect bool `json:"install_expect"`
 }
