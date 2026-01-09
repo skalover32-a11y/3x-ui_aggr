@@ -172,6 +172,15 @@ curl -s http://localhost:8080/api/ops/jobs/<job_id>/items \
   -H "Authorization: Bearer <token>"
 ```
 
+Debug ops access (no OTP) using master key:
+```bash
+curl -s http://localhost:8080/api/ops/jobs/<job_id> \
+  -H "X-Agg-Master-Key: <AGG_MASTER_KEY_BASE64>"
+```
+Notes:
+- Master auth only works when `AGG_MASTER_KEY_BASE64` is set.
+- If `AGG_ALLOW_CIDR` is set, the client IP must be within that CIDR (localhost always allowed).
+
 ## Dashboard (realtime)
 Summary (nodes + aggregates):
 ```bash
