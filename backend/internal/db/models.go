@@ -21,6 +21,7 @@ type Node struct {
 	PanelPasswordEnc  string         `gorm:"type:text;not null" json:"-"`
 	Capabilities      datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"capabilities"`
 	AllowedRoots      pq.StringArray `gorm:"type:text[]" json:"allowed_roots"`
+	IsSandbox         bool           `gorm:"not null;default:false" json:"is_sandbox"`
 	IsEnabled         bool           `gorm:"not null;default:true" json:"is_enabled"`
 	SSHEnabled        bool           `gorm:"not null;default:true" json:"ssh_enabled"`
 	SSHHost           string         `gorm:"type:text;not null" json:"ssh_host"`
@@ -234,6 +235,15 @@ type OpsJob struct {
 	CreatedAt       time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
 	StartedAt       *time.Time     `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt      *time.Time     `gorm:"type:timestamptz" json:"finished_at"`
+	Summary         *OpsJobSummary `gorm:"-" json:"summary,omitempty"`
+}
+
+type OpsJobSummary struct {
+	Total   int `json:"total"`
+	Queued  int `json:"queued"`
+	Running int `json:"running"`
+	Success int `json:"success"`
+	Failed  int `json:"failed"`
 }
 
 type OpsJobItem struct {

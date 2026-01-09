@@ -30,6 +30,9 @@ func (e *SSHExecutor) Reboot(ctx context.Context, node *db.Node) (string, int, e
 }
 
 func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error) {
+	if params.PrecheckOnly {
+		return e.runUpdatePrecheck(ctx, node, params)
+	}
 	if _, code, err := e.runCommand(ctx, node, "command -v x-ui", false); err != nil {
 		if code == 0 {
 			code = 10
@@ -54,11 +57,66 @@ func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdatePa
 		}
 		return "expect not installed", code, fmt.Errorf("expect not installed")
 	}
-	if params.PrecheckOnly {
-		return "precheck ok", 0, nil
-	}
 	cmd := buildXUIUpdateCommand()
 	return e.runCommand(ctx, node, cmd, false)
+}
+
+func (e *SSHExecutor) runUpdatePrecheck(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error) {
+	var lines []string
+	exitCode := 0
+
+	xuiOut, _, xuiErr := e.runCommand(ctx, node, "command -v x-ui", false)
+	if xuiErr != nil {
+		if isExitError(xuiErr) {
+			lines = append(lines, "ERR: x-ui missing")
+			exitCode = 10
+		} else {
+			return xuiOut, 10, xuiErr
+		}
+	} else {
+		lines = append(lines, "OK: x-ui present")
+	}
+
+	expectOut, _, expectErr := e.runCommand(ctx, node, "command -v expect", false)
+	if expectErr != nil {
+		if isExitError(expectErr) {
+			lines = append(lines, "ERR: expect missing")
+		} else {
+			return expectOut, 11, expectErr
+		}
+	} else {
+		lines = append(lines, "OK: expect present")
+	}
+	if params.InstallExpect {
+		lines = append(lines, "INFO: install_expect requested, skipped in precheck_only")
+	}
+
+	versionOut, _, _ := e.runCommand(ctx, node, "bash -lc \"x-ui version || true\"", false)
+	if strings.TrimSpace(versionOut) != "" {
+		lines = append(lines, "x-ui version: "+strings.TrimSpace(versionOut))
+	}
+
+	sudoOut, _, sudoErr := e.runCommand(ctx, node, "sudo -n true", false)
+	if sudoErr != nil {
+		if isExitError(sudoErr) {
+			lines = append(lines, "ERR: sudo -n failed (passwordless sudo missing)")
+		} else {
+			return sudoOut, 12, sudoErr
+		}
+	} else {
+		lines = append(lines, "OK: sudo -n available")
+	}
+
+	logText := strings.Join(lines, "\n")
+	if exitCode != 0 {
+		return logText, exitCode, fmt.Errorf("precheck failed")
+	}
+	return logText, 0, nil
+}
+
+func isExitError(err error) bool {
+	var exitErr *ssh.ExitError
+	return errors.As(err, &exitErr)
 }
 
 func (e *SSHExecutor) runCommand(ctx context.Context, node *db.Node, cmd string, allowDisconnect bool) (string, int, error) {

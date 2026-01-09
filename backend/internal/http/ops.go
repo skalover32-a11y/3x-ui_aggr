@@ -51,6 +51,9 @@ func (h *Handler) GetOpsJob(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "job not found")
 		return
 	}
+	if summary, err := h.Ops.GetJobSummary(c.Request.Context(), c.Param("id")); err == nil {
+		job.Summary = summary
+	}
 	respondStatus(c, http.StatusOK, job)
 }
 

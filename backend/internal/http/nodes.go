@@ -25,6 +25,7 @@ type nodeCreateRequest struct {
 	Provider      string          `json:"provider"`
 	Capabilities  json.RawMessage `json:"capabilities"`
 	AllowedRoots  []string        `json:"allowed_roots"`
+	IsSandbox     *bool           `json:"is_sandbox"`
 	IsEnabled     *bool           `json:"is_enabled"`
 	SSHEnabled    *bool           `json:"ssh_enabled"`
 	SSHAuthMethod string          `json:"ssh_auth_method"`
@@ -48,6 +49,7 @@ type nodeUpdateRequest struct {
 	Provider      *string          `json:"provider"`
 	Capabilities  *json.RawMessage `json:"capabilities"`
 	AllowedRoots  *[]string        `json:"allowed_roots"`
+	IsSandbox     *bool            `json:"is_sandbox"`
 	IsEnabled     *bool            `json:"is_enabled"`
 	SSHEnabled    *bool            `json:"ssh_enabled"`
 	SSHAuthMethod *string          `json:"ssh_auth_method"`
@@ -72,6 +74,7 @@ type nodeResponse struct {
 	Provider          string          `json:"provider"`
 	Capabilities      json.RawMessage `json:"capabilities"`
 	AllowedRoots      []string        `json:"allowed_roots"`
+	IsSandbox         bool            `json:"is_sandbox"`
 	IsEnabled         bool            `json:"is_enabled"`
 	SSHEnabled        bool            `json:"ssh_enabled"`
 	SSHAuthMethod     string          `json:"ssh_auth_method"`
@@ -99,6 +102,7 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		Provider:          node.Provider,
 		Capabilities:      json.RawMessage(node.Capabilities),
 		AllowedRoots:      []string(node.AllowedRoots),
+		IsSandbox:         node.IsSandbox,
 		IsEnabled:         node.IsEnabled,
 		SSHEnabled:        node.SSHEnabled,
 		SSHAuthMethod:     node.SSHAuthMethod,
@@ -174,6 +178,10 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	if req.IsEnabled != nil {
 		isEnabled = *req.IsEnabled
 	}
+	isSandbox := false
+	if req.IsSandbox != nil {
+		isSandbox = *req.IsSandbox
+	}
 	sshEnabled := true
 	if req.SSHEnabled != nil {
 		sshEnabled = *req.SSHEnabled
@@ -210,6 +218,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		Provider:         req.Provider,
 		Capabilities:     caps,
 		AllowedRoots:     req.AllowedRoots,
+		IsSandbox:        isSandbox,
 		IsEnabled:        isEnabled,
 		SSHEnabled:       sshEnabled,
 		SSHAuthMethod:    authMethod,
@@ -282,6 +291,9 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	}
 	if req.AllowedRoots != nil {
 		node.AllowedRoots = *req.AllowedRoots
+	}
+	if req.IsSandbox != nil {
+		node.IsSandbox = *req.IsSandbox
 	}
 	if req.IsEnabled != nil {
 		node.IsEnabled = *req.IsEnabled

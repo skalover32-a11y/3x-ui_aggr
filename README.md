@@ -109,7 +109,7 @@ Create a reboot job for all nodes:
 curl -s http://localhost:8080/api/ops/jobs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"reboot_nodes","all":true,"parallelism":5,"params":{}}'
+  -d '{"type":"reboot_nodes","all":true,"parallelism":5,"params":{"confirm":"REALLY_DO_IT"}}'
 ```
 
 Update x-ui on selected nodes (SSH + expect):
@@ -124,6 +124,8 @@ Update notes:
 - Uses `expect` with menu prompt: `Please enter your selection [0-25]:`
 - Uses `flock -n /var/lock/x-ui-update.lock` to prevent concurrent updates
 - Timeouts: menu 60s, update 900s
+- `precheck_only=true` runs diagnostics only (no update)
+- `sandbox=true` restricts targets to nodes with `is_sandbox=true`
 
 Get job and items:
 ```bash
@@ -132,6 +134,31 @@ curl -s http://localhost:8080/api/ops/jobs/<job_id> \
 
 curl -s http://localhost:8080/api/ops/jobs/<job_id>/items \
   -H "Authorization: Bearer <token>"
+```
+
+### Safe testing in prod (dry-run)
+Dry-run (no SSH, simulated execution):
+```bash
+curl -s http://localhost:8080/api/ops/jobs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"update_xui_nodes","all":true,"parallelism":5,"params":{"dry_run":true,"simulate_delay_ms":500}}'
+```
+
+Precheck only (no update, diagnostics only):
+```bash
+curl -s http://localhost:8080/api/ops/jobs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"update_xui_nodes","node_ids":["<node_id>"],"parallelism":1,"params":{"precheck_only":true}}'
+```
+
+Real run with confirmation (all=true):
+```bash
+curl -s http://localhost:8080/api/ops/jobs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"update_xui_nodes","all":true,"parallelism":5,"params":{"confirm":"REALLY_DO_IT"}}'
 ```
 
 ## DB reset

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ const (
 	JobTypeUpdate = "update_xui_nodes"
 )
 
+const maxParallelism = 10
+
 type Service struct {
 	DB       *gorm.DB
 	Executor NodeExecutor
@@ -44,6 +47,15 @@ type CreateJobRequest struct {
 	Parallelism int
 	Params      map[string]any
 	Actor       string
+}
+
+type JobParams struct {
+	DryRun          bool   `json:"dry_run"`
+	SimulateDelayMs int    `json:"simulate_delay_ms"`
+	Confirm         string `json:"confirm"`
+	Sandbox         bool   `json:"sandbox"`
+	PrecheckOnly    bool   `json:"precheck_only"`
+	InstallExpect   bool   `json:"install_expect"`
 }
 
 func New(dbConn *gorm.DB, exec NodeExecutor) *Service {
@@ -86,9 +98,18 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	if actor == "" {
 		actor = "admin"
 	}
+	jobParams := parseJobParamsFromMap(req.Params)
 	parallelism := req.Parallelism
 	if parallelism <= 0 {
 		parallelism = 5
+	}
+	if parallelism > maxParallelism {
+		parallelism = maxParallelism
+	}
+	if req.AllNodes && !jobParams.DryRun && (typ == JobTypeReboot || typ == JobTypeUpdate) {
+		if strings.TrimSpace(jobParams.Confirm) != "REALLY_DO_IT" {
+			return nil, errors.New("confirmation required")
+		}
 	}
 	nodeIDs, err := s.resolveNodeIDs(ctx, req)
 	if err != nil {
@@ -96,6 +117,11 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	}
 	if len(nodeIDs) == 0 {
 		return nil, errors.New("no nodes selected")
+	}
+	if jobParams.Sandbox {
+		if err := s.ensureSandboxTargets(ctx, nodeIDs); err != nil {
+			return nil, err
+		}
 	}
 	targetsPayload, _ := json.Marshal(nodeIDs)
 	paramsPayload, _ := json.Marshal(req.Params)
@@ -148,6 +174,39 @@ func (s *Service) GetJob(ctx context.Context, id string) (*db.OpsJob, error) {
 		return nil, err
 	}
 	return &job, nil
+}
+
+func (s *Service) GetJobSummary(ctx context.Context, id string) (*db.OpsJobSummary, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db not configured")
+	}
+	var rows []struct {
+		Status string
+		Count  int
+	}
+	if err := s.DB.WithContext(ctx).
+		Model(&db.OpsJobItem{}).
+		Select("status, count(*) as count").
+		Where("job_id::text = ?", id).
+		Group("status").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	summary := &db.OpsJobSummary{}
+	for _, row := range rows {
+		switch row.Status {
+		case JobQueued:
+			summary.Queued = row.Count
+		case JobRunning:
+			summary.Running = row.Count
+		case JobSuccess:
+			summary.Success = row.Count
+		case JobFailed:
+			summary.Failed = row.Count
+		}
+		summary.Total += row.Count
+	}
+	return summary, nil
 }
 
 func (s *Service) ListJobItems(ctx context.Context, id string) ([]db.OpsJobItem, error) {
@@ -266,6 +325,22 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	_ = s.DB.WithContext(ctx).Model(&db.OpsJobItem{}).Where("id = ?", item.ID).Updates(updates).Error
 	s.publishItemStatus(job.ID, item, JobRunning, &started, nil)
 
+	jobParams := parseJobParams(job.Params)
+	if jobParams.DryRun {
+		logText := fmt.Sprintf("DRY_RUN: would execute %s on node %s", describeJobAction(job.Type, jobParams), item.NodeID)
+		delay := dryRunDelay(jobParams.SimulateDelayMs)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, logText, 1, &started, ctx.Err())
+			return ctx.Err()
+		case <-timer.C:
+		}
+		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
+		return nil
+	}
+
 	node, err := s.loadNode(ctx, item.NodeID)
 	if err != nil {
 		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, "", 1, &started, err)
@@ -321,7 +396,7 @@ func (s *Service) finishItem(ctx context.Context, jobID uuid.UUID, id uuid.UUID,
 }
 
 func (s *Service) resolveNodeIDs(ctx context.Context, req CreateJobRequest) ([]uuid.UUID, error) {
-	if req.AllNodes || len(req.NodeIDs) == 0 {
+	if req.AllNodes {
 		var nodes []db.Node
 		if err := s.DB.WithContext(ctx).Find(&nodes).Error; err != nil {
 			return nil, err
@@ -331,6 +406,9 @@ func (s *Service) resolveNodeIDs(ctx context.Context, req CreateJobRequest) ([]u
 			ids = append(ids, node.ID)
 		}
 		return ids, nil
+	}
+	if len(req.NodeIDs) == 0 {
+		return nil, errors.New("node_ids required when all=false")
 	}
 	ids := make([]uuid.UUID, 0, len(req.NodeIDs))
 	for _, raw := range req.NodeIDs {
@@ -352,9 +430,11 @@ func (s *Service) loadNode(ctx context.Context, id uuid.UUID) (*db.Node, error) 
 }
 
 func parseUpdateParams(raw datatypes.JSON) UpdateParams {
-	var params UpdateParams
-	_ = json.Unmarshal(raw, &params)
-	return params
+	jobParams := parseJobParams(raw)
+	return UpdateParams{
+		PrecheckOnly:  jobParams.PrecheckOnly,
+		InstallExpect: jobParams.InstallExpect,
+	}
 }
 
 func trimLog(input string, headSize int, tailSize int) string {
@@ -370,6 +450,65 @@ func trimLog(input string, headSize int, tailSize int) string {
 	head := input[:headSize]
 	tail := input[len(input)-tailSize:]
 	return head + "\n...trimmed...\n" + tail
+}
+
+func parseJobParams(raw datatypes.JSON) JobParams {
+	var params JobParams
+	_ = json.Unmarshal(raw, &params)
+	return params
+}
+
+func parseJobParamsFromMap(raw map[string]any) JobParams {
+	if len(raw) == 0 {
+		return JobParams{}
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return JobParams{}
+	}
+	return parseJobParams(payload)
+}
+
+func describeJobAction(jobType string, params JobParams) string {
+	switch jobType {
+	case JobTypeReboot:
+		return "reboot (sudo /sbin/reboot)"
+	case JobTypeUpdate:
+		if params.PrecheckOnly {
+			return "update_xui_nodes precheck"
+		}
+		return "update_xui_nodes (expect x-ui)"
+	default:
+		return jobType
+	}
+}
+
+func dryRunDelay(ms int) time.Duration {
+	if ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return time.Duration(100+rng.Intn(201)) * time.Millisecond
+}
+
+func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return errors.New("no nodes selected")
+	}
+	var nodes []db.Node
+	if err := s.DB.WithContext(ctx).Where("id IN ?", ids).Find(&nodes).Error; err != nil {
+		return err
+	}
+	nonSandbox := 0
+	for _, node := range nodes {
+		if !node.IsSandbox {
+			nonSandbox++
+		}
+	}
+	if nonSandbox > 0 {
+		return fmt.Errorf("sandbox mode: %d non-sandbox nodes in targets", nonSandbox)
+	}
+	return nil
 }
 
 func (s *Service) publishJobStatus(job *db.OpsJob) {
