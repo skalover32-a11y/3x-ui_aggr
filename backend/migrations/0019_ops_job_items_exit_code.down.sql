@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS ops_job_items
+  DROP COLUMN IF EXISTS exit_code;

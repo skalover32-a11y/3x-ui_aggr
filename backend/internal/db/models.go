@@ -242,6 +242,7 @@ type OpsJobItem struct {
 	NodeID     uuid.UUID  `gorm:"type:uuid;not null" json:"node_id"`
 	Status     string     `gorm:"type:text;not null" json:"status"`
 	Log        string     `gorm:"type:text;not null;default:''" json:"log"`
+	ExitCode   *int       `gorm:"type:int" json:"exit_code"`
 	Error      *string    `gorm:"type:text" json:"error"`
 	StartedAt  *time.Time `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt *time.Time `gorm:"type:timestamptz" json:"finished_at"`
