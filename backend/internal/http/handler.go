@@ -45,6 +45,8 @@ type Handler struct {
 	SSHClient           *sshclient.Client
 	SSHManager          *sshws.Manager
 	SSHIdleTimeout      time.Duration
+	MasterKey           string
+	AllowCIDR           string
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {

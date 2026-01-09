@@ -88,6 +88,8 @@ func main() {
 		SSHClient:           sshclient.New(15 * time.Second),
 		SSHManager:          sshws.NewManager(cfg.SSHMaxSessions),
 		SSHIdleTimeout:      cfg.SSHIdleTimeout,
+		MasterKey:           cfg.MasterKeyB64,
+		AllowCIDR:           cfg.AllowCIDR,
 	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
