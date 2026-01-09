@@ -526,6 +526,18 @@ button.danger:hover {
   flex-wrap: wrap;
 }
 
+.node-card-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-card-select input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2563eb;
+}
+
 .node-card-title {
   display: flex;
   flex-direction: column;
@@ -1553,6 +1565,74 @@ button.ghost:hover {
 .badge.offline {
   background: #7f1d1d;
   color: #fecaca;
+}
+
+.badge.queued {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.badge.running {
+  background: #0f766e;
+  color: #ccfbf1;
+}
+
+.badge.success {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+.badge.failed {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.deploy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.deploy-status {
+  margin-bottom: 12px;
+}
+
+.deploy-items {
+  display: grid;
+  gap: 12px;
+}
+
+.deploy-item {
+  border: 1px solid #1f2937;
+  background: #0f1724;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.deploy-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.deploy-item-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.deploy-log {
+  white-space: pre-wrap;
+  font-size: 12px;
+  background: #0b1220;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 240px;
+  overflow: auto;
 }
 
 @media (max-width: 700px) {

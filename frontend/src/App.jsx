@@ -60,6 +60,11 @@ function formatDuration(sec) {
   return `${mins}m`;
 }
 
+function buildWsUrl(path) {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${window.location.host}${API_BASE}${path}`;
+}
+
 function base64urlToBuffer(value) {
   if (!value) return new ArrayBuffer(0);
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -418,6 +423,7 @@ function NodesPage() {
   const isOperator = role === "operator";
   const isViewer = role === "viewer";
   const [nodes, setNodes] = useState([]);
+  const [selectedNodes, setSelectedNodes] = useState({});
   const [error, setError] = useState("");
   const [keyPassphrase, setKeyPassphrase] = useState("");
   const [keyFingerprint, setKeyFingerprint] = useState("");
@@ -432,6 +438,7 @@ function NodesPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const menuButtonRef = useRef(null);
+  const deployWsRef = useRef(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditNodeID, setAuditNodeID] = useState("");
@@ -503,6 +510,26 @@ function NodesPage() {
   });
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deployProgress, setDeployProgress] = useState({ open: false, jobId: "", status: null });
+  const [deployItems, setDeployItems] = useState([]);
+  const [deployLogs, setDeployLogs] = useState({});
+  const [deployError, setDeployError] = useState("");
+  const [deployForm, setDeployForm] = useState({
+    agent_port: 9191,
+    agent_token_mode: "per-node",
+    shared_agent_token: "",
+    allow_cidr: "",
+    stats_mode: "log",
+    xray_access_log_path: "/var/log/xray/access.log",
+    rate_limit_rps: 5,
+    enable_ufw: true,
+    health_check: true,
+    parallelism: 3,
+    all: false,
+    sandbox_only: false,
+    confirm: "",
+  });
   const [editModal, setEditModal] = useState({ open: false, node: null });
   const [editKind, setEditKind] = useState("PANEL");
   const [form, setForm] = useState({
@@ -526,6 +553,38 @@ function NodesPage() {
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  useEffect(() => {
+    setSelectedNodes((prev) => {
+      const next = {};
+      nodes.forEach((node) => {
+        if (prev[node.id]) {
+          next[node.id] = true;
+        }
+      });
+      return next;
+    });
+  }, [nodes]);
+
+  const selectedNodeIDs = useMemo(() => {
+    return Object.keys(selectedNodes).filter((id) => selectedNodes[id]);
+  }, [selectedNodes]);
+
+  function toggleNodeSelection(id) {
+    setSelectedNodes((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function selectAllFilteredNodes(list) {
+    const next = {};
+    list.forEach((node) => {
+      next[node.id] = true;
+    });
+    setSelectedNodes(next);
+  }
+
+  function clearSelectedNodes() {
+    setSelectedNodes({});
   }
 
   async function loadServices(nodeID) {
@@ -909,6 +968,158 @@ function NodesPage() {
       setActionBusy(false);
     }
   }
+
+  function openDeployAgent() {
+    setDeployError("");
+    setDeployOpen(true);
+  }
+
+  function closeDeployProgress() {
+    if (deployWsRef.current) {
+      deployWsRef.current.close();
+      deployWsRef.current = null;
+    }
+    setDeployProgress({ open: false, jobId: "", status: null });
+    setDeployItems([]);
+    setDeployLogs({});
+  }
+
+  function updateDeployItem(itemId, patch) {
+    setDeployItems((prev) => {
+      let updated = false;
+      const next = prev.map((item) => {
+        if (item.id !== itemId) return item;
+        updated = true;
+        return { ...item, ...patch };
+      });
+      if (!updated) {
+        next.push({ id: itemId, ...patch });
+      }
+      return next;
+    });
+  }
+
+  function appendDeployLog(itemId, chunk) {
+    if (!chunk) return;
+    setDeployLogs((prev) => {
+      const next = { ...prev };
+      const current = next[itemId] || "";
+      let merged = current ? `${current}\n${chunk}` : chunk;
+      if (merged.length > 20000) {
+        merged = `...trimmed...\n${merged.slice(-18000)}`;
+      }
+      next[itemId] = merged;
+      return next;
+    });
+  }
+
+  async function loadDeployItems(jobId) {
+    try {
+      const items = await request("GET", `/ops/jobs/${jobId}/items`);
+      setDeployItems(items || []);
+      const logs = {};
+      (items || []).forEach((item) => {
+        if (item.log) logs[item.id] = item.log;
+      });
+      setDeployLogs(logs);
+    } catch (err) {
+      setDeployError(err.message);
+    }
+  }
+
+  async function startDeployAgent() {
+    setDeployError("");
+    const params = {
+      agent_port: Number(deployForm.agent_port) || 9191,
+      agent_token_mode: deployForm.agent_token_mode,
+      shared_agent_token: deployForm.agent_token_mode === "shared" ? deployForm.shared_agent_token.trim() : "",
+      allow_cidr: deployForm.allow_cidr.trim(),
+      stats_mode: deployForm.stats_mode,
+      xray_access_log_path: deployForm.xray_access_log_path.trim(),
+      rate_limit_rps: Number(deployForm.rate_limit_rps) || 5,
+      enable_ufw: !!deployForm.enable_ufw,
+      health_check: !!deployForm.health_check,
+      confirm: deployForm.confirm.trim(),
+      sandbox: !!deployForm.sandbox_only,
+    };
+    if (!deployForm.all && selectedNodeIDs.length === 0) {
+      setDeployError(t("Select at least one node"));
+      return;
+    }
+    if (!params.allow_cidr) {
+      setDeployError(t("Allow CIDR is required"));
+      return;
+    }
+    if (deployForm.agent_token_mode === "shared" && !params.shared_agent_token) {
+      setDeployError(t("Shared token required"));
+      return;
+    }
+    if (deployForm.all && params.confirm !== "DEPLOY_AGENT") {
+      setDeployError(t("Type {token} to confirm", { token: "DEPLOY_AGENT" }));
+      return;
+    }
+    const payload = {
+      node_ids: deployForm.all ? [] : selectedNodeIDs,
+      all: !!deployForm.all,
+      parallelism: Number(deployForm.parallelism) || 3,
+      params,
+    };
+    try {
+      const job = await request("POST", "/ops/deploy-agent", payload);
+      setDeployOpen(false);
+      setDeployProgress({ open: true, jobId: job.id, status: job.status || "queued" });
+      await loadDeployItems(job.id);
+    } catch (err) {
+      setDeployError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    if (!deployProgress.open || !deployProgress.jobId) return;
+    const token = getToken();
+    if (!token) return;
+    const wsUrl = buildWsUrl(`/ops/jobs/${deployProgress.jobId}/stream?token=${encodeURIComponent(token)}`);
+    const ws = new WebSocket(wsUrl);
+    deployWsRef.current = ws;
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "job_status") {
+          setDeployProgress((prev) => ({ ...prev, status: payload.data?.status || prev.status }));
+        }
+        if (payload.type === "item_status") {
+          updateDeployItem(payload.data?.item_id, {
+            status: payload.data?.status,
+            started_at: payload.data?.started_at,
+            finished_at: payload.data?.finished_at,
+            node_id: payload.data?.node_id,
+          });
+        }
+        if (payload.type === "item_log_append") {
+          appendDeployLog(payload.data?.item_id, payload.data?.chunk);
+        }
+        if (payload.type === "item_done") {
+          updateDeployItem(payload.data?.item_id, {
+            status: payload.data?.status,
+            exit_code: payload.data?.exit_code,
+            error: payload.data?.error,
+          });
+        }
+      } catch {
+      }
+    };
+    ws.onerror = () => {
+      setDeployError(t("Disconnected"));
+    };
+    ws.onclose = () => {
+      if (deployWsRef.current === ws) {
+        deployWsRef.current = null;
+      }
+    };
+    return () => {
+      ws.close();
+    };
+  }, [deployProgress.open, deployProgress.jobId, t]);
 
   function openAddForm() {
     setAddOpen(true);
@@ -1724,6 +1935,20 @@ function NodesPage() {
                 : t("Servers configured: {count}", { count: filteredNodes.length })}
             </div>
           </div>
+          {!showingBots && (isAdmin || isOperator) && (
+            <div className="node-actions">
+              <div className="muted small">{t("Selected: {count}", { count: selectedNodeIDs.length })}</div>
+              <button type="button" className="secondary" onClick={() => selectAllFilteredNodes(filteredNodes)} disabled={filteredNodes.length === 0}>
+                {t("Select all")}
+              </button>
+              <button type="button" className="secondary" onClick={clearSelectedNodes} disabled={selectedNodeIDs.length === 0}>
+                {t("Clear")}
+              </button>
+              <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
+                {t("Deploy agent")}
+              </button>
+            </div>
+          )}
           <div className="node-type-toggle">
             <button
               type="button"
@@ -1759,6 +1984,15 @@ function NodesPage() {
           return (
             <div className="node-card" key={node.id}>
               <div className="node-card-top">
+                {(isAdmin || isOperator) && (
+                  <label className="node-card-select">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedNodes[node.id]}
+                      onChange={() => toggleNodeSelection(node.id)}
+                    />
+                  </label>
+                )}
                 <div className="node-card-title">
                   <div className="node-name-row">
                     <div className="node-name">{node.name || t("Unnamed node")}</div>
@@ -2335,6 +2569,145 @@ function NodesPage() {
             {totpMessage && <div className="hint">{totpMessage}</div>}
             <div className="actions">
               <button type="button" onClick={() => setTotpOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deployOpen && (
+        <div className="modal overlay-modal">
+          <div className="modal-content wide">
+            <h3>{t("Deploy agent")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.all}
+                  onChange={(e) => setDeployForm({ ...deployForm, all: e.target.checked })}
+                />
+                {t("All nodes")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.sandbox_only}
+                  onChange={(e) => setDeployForm({ ...deployForm, sandbox_only: e.target.checked })}
+                />
+                {t("Sandbox only")}
+              </label>
+              <input
+                type="number"
+                placeholder={t("Agent port")}
+                value={deployForm.agent_port}
+                onChange={(e) => setDeployForm({ ...deployForm, agent_port: Number(e.target.value) })}
+              />
+              <select
+                value={deployForm.agent_token_mode}
+                onChange={(e) => setDeployForm({ ...deployForm, agent_token_mode: e.target.value })}
+              >
+                <option value="per-node">{t("Token per node")}</option>
+                <option value="shared">{t("Shared token")}</option>
+              </select>
+              {deployForm.agent_token_mode === "shared" && (
+                <input
+                  placeholder={t("Shared token")}
+                  value={deployForm.shared_agent_token}
+                  onChange={(e) => setDeployForm({ ...deployForm, shared_agent_token: e.target.value })}
+                />
+              )}
+              <input
+                placeholder={t("Allow CIDR")}
+                value={deployForm.allow_cidr}
+                onChange={(e) => setDeployForm({ ...deployForm, allow_cidr: e.target.value })}
+              />
+              <select
+                value={deployForm.stats_mode}
+                onChange={(e) => setDeployForm({ ...deployForm, stats_mode: e.target.value })}
+              >
+                <option value="log">log</option>
+                <option value="xray_api">xray_api</option>
+              </select>
+              <input
+                placeholder={t("Xray access log path")}
+                value={deployForm.xray_access_log_path}
+                onChange={(e) => setDeployForm({ ...deployForm, xray_access_log_path: e.target.value })}
+              />
+              <input
+                type="number"
+                placeholder={t("Rate limit (rps)")}
+                value={deployForm.rate_limit_rps}
+                onChange={(e) => setDeployForm({ ...deployForm, rate_limit_rps: Number(e.target.value) })}
+              />
+              <input
+                type="number"
+                placeholder={t("Parallelism")}
+                value={deployForm.parallelism}
+                onChange={(e) => setDeployForm({ ...deployForm, parallelism: Number(e.target.value) })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.enable_ufw}
+                  onChange={(e) => setDeployForm({ ...deployForm, enable_ufw: e.target.checked })}
+                />
+                {t("Enable UFW")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.health_check}
+                  onChange={(e) => setDeployForm({ ...deployForm, health_check: e.target.checked })}
+                />
+                {t("Health check")}
+              </label>
+              {deployForm.all && (
+                <input
+                  placeholder={t("Type {token} to confirm", { token: "DEPLOY_AGENT" })}
+                  value={deployForm.confirm}
+                  onChange={(e) => setDeployForm({ ...deployForm, confirm: e.target.value })}
+                />
+              )}
+              <div className="muted small">
+                {t("Selected: {count}", { count: selectedNodeIDs.length })}
+              </div>
+            </div>
+            {deployError && <div className="error">{deployError}</div>}
+            <div className="actions">
+              <button type="button" onClick={startDeployAgent}>{t("Start deploy")}</button>
+              <button type="button" onClick={() => setDeployOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deployProgress.open && (
+        <div className="modal overlay-modal">
+          <div className="modal-content wide">
+            <div className="deploy-header">
+              <div>
+                <h3>{t("Deploy agent progress")}</h3>
+                <div className="muted small">{t("Job")}: {deployProgress.jobId}</div>
+              </div>
+              <button type="button" onClick={closeDeployProgress}>{t("Close")}</button>
+            </div>
+            <div className="deploy-status">
+              {t("Status")}: <span className={`badge ${deployProgress.status || "queued"}`}>{deployProgress.status || "queued"}</span>
+            </div>
+            <div className="deploy-items">
+              {deployItems.length === 0 && <div className="muted small">{t("No data")}</div>}
+              {deployItems.map((item) => {
+                const node = nodes.find((n) => n.id === item.node_id);
+                return (
+                  <div className="deploy-item" key={item.id}>
+                    <div className="deploy-item-head">
+                      <div className="deploy-item-title">{node?.name || item.node_id}</div>
+                      <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
+                    </div>
+                    {item.error && <div className="error">{item.error}</div>}
+                    {deployLogs[item.id] && <pre className="deploy-log">{deployLogs[item.id]}</pre>}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
