@@ -108,6 +108,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/ops/jobs", middleware.RequireRoles(writeRoles...), h.CreateOpsJob)
 	auth.GET("/ops/jobs/:id", middleware.RequireRoles(readRoles...), h.GetOpsJob)
 	auth.GET("/ops/jobs/:id/items", middleware.RequireRoles(readRoles...), h.GetOpsJobItems)
+	auth.GET("/ops/jobs/:id/stream", middleware.RequireRoles(readRoles...), h.OpsJobStream)
 
 	auth.GET("/users", middleware.RequireRoles(middleware.RoleAdmin), h.ListUsers)
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)

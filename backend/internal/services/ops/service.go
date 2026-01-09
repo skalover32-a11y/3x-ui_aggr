@@ -32,6 +32,7 @@ const (
 type Service struct {
 	DB       *gorm.DB
 	Executor NodeExecutor
+	Hub      *Hub
 	stop     chan struct{}
 	stopOnce sync.Once
 }
@@ -49,6 +50,7 @@ func New(dbConn *gorm.DB, exec NodeExecutor) *Service {
 	return &Service{
 		DB:       dbConn,
 		Executor: exec,
+		Hub:      NewHub(),
 		stop:     make(chan struct{}),
 	}
 }
@@ -131,6 +133,15 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	return &job, nil
 }
 
+func (s *Service) Subscribe(jobID string) (<-chan Event, func()) {
+	if s == nil || s.Hub == nil {
+		ch := make(chan Event)
+		close(ch)
+		return ch, func() {}
+	}
+	return s.Hub.Subscribe(jobID)
+}
+
 func (s *Service) GetJob(ctx context.Context, id string) (*db.OpsJob, error) {
 	var job db.OpsJob
 	if err := s.DB.WithContext(ctx).First(&job, "id::text = ?", id).Error; err != nil {
@@ -183,6 +194,7 @@ func (s *Service) pickAndRun(ctx context.Context) {
 	if err := tx.Commit().Error; err != nil {
 		return
 	}
+	s.publishJobStatus(&job)
 	s.runJob(ctx, &job)
 }
 
@@ -199,6 +211,7 @@ func (s *Service) runJob(ctx context.Context, job *db.OpsJob) {
 		job.Status = JobSuccess
 		job.FinishedAt = &finished
 		_ = s.DB.WithContext(ctx).Save(job).Error
+		s.publishJobStatus(job)
 		return
 	}
 	parallelism := job.Parallelism
@@ -238,6 +251,7 @@ func (s *Service) runJob(ctx context.Context, job *db.OpsJob) {
 	}
 	job.FinishedAt = &finished
 	_ = s.DB.WithContext(ctx).Save(job).Error
+	s.publishJobStatus(job)
 }
 
 func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJobItem) error {
@@ -250,10 +264,11 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		"started_at": started,
 	}
 	_ = s.DB.WithContext(ctx).Model(&db.OpsJobItem{}).Where("id = ?", item.ID).Updates(updates).Error
+	s.publishItemStatus(job.ID, item, JobRunning, &started, nil)
 
 	node, err := s.loadNode(ctx, item.NodeID)
 	if err != nil {
-		s.finishItem(ctx, item.ID, JobFailed, "", 1, err)
+		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, "", 1, &started, err)
 		return err
 	}
 	timeout := 2 * time.Minute
@@ -278,14 +293,14 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	}
 	output = trimLog(output, 4096, 16384)
 	if runErr != nil {
-		s.finishItem(ctx, item.ID, JobFailed, output, exitCode, runErr)
+		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, output, exitCode, &started, runErr)
 		return runErr
 	}
-	s.finishItem(ctx, item.ID, JobSuccess, output, exitCode, nil)
+	s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, output, exitCode, &started, nil)
 	return nil
 }
 
-func (s *Service) finishItem(ctx context.Context, id uuid.UUID, status, logText string, exitCode int, err error) {
+func (s *Service) finishItem(ctx context.Context, jobID uuid.UUID, id uuid.UUID, nodeID uuid.UUID, status, logText string, exitCode int, startedAt *time.Time, err error) {
 	finished := time.Now()
 	updates := map[string]any{
 		"status":      status,
@@ -298,6 +313,11 @@ func (s *Service) finishItem(ctx context.Context, id uuid.UUID, status, logText 
 		updates["error"] = msg
 	}
 	_ = s.DB.WithContext(ctx).Model(&db.OpsJobItem{}).Where("id = ?", id).Updates(updates).Error
+	if logText != "" {
+		s.publishItemLog(jobID, id, nodeID, logText)
+	}
+	s.publishItemStatus(jobID, &db.OpsJobItem{ID: id, NodeID: nodeID}, status, startedAt, &finished)
+	s.publishItemDone(jobID, id, nodeID, status, exitCode, err)
 }
 
 func (s *Service) resolveNodeIDs(ctx context.Context, req CreateJobRequest) ([]uuid.UUID, error) {
@@ -350,4 +370,67 @@ func trimLog(input string, headSize int, tailSize int) string {
 	head := input[:headSize]
 	tail := input[len(input)-tailSize:]
 	return head + "\n...trimmed...\n" + tail
+}
+
+func (s *Service) publishJobStatus(job *db.OpsJob) {
+	if s == nil || s.Hub == nil || job == nil {
+		return
+	}
+	data := map[string]any{
+		"status":      job.Status,
+		"started_at":  formatTimePtr(job.StartedAt),
+		"finished_at": formatTimePtr(job.FinishedAt),
+	}
+	s.Hub.Publish(job.ID.String(), newEvent(job.ID.String(), EventJobStatus, data))
+}
+
+func (s *Service) publishItemStatus(jobID uuid.UUID, item *db.OpsJobItem, status string, startedAt *time.Time, finishedAt *time.Time) {
+	if s == nil || s.Hub == nil || item == nil {
+		return
+	}
+	data := map[string]any{
+		"node_id":     item.NodeID.String(),
+		"item_id":     item.ID.String(),
+		"status":      status,
+		"started_at":  formatTimePtr(startedAt),
+		"finished_at": formatTimePtr(finishedAt),
+	}
+	s.Hub.Publish(jobID.String(), newEvent(jobID.String(), EventItemStatus, data))
+}
+
+func (s *Service) publishItemLog(jobID uuid.UUID, itemID uuid.UUID, nodeID uuid.UUID, chunk string) {
+	if s == nil || s.Hub == nil {
+		return
+	}
+	data := map[string]any{
+		"node_id": nodeID.String(),
+		"item_id": itemID.String(),
+		"chunk":   chunk,
+	}
+	s.Hub.Publish(jobID.String(), newEvent(jobID.String(), EventItemLogAppend, data))
+}
+
+func (s *Service) publishItemDone(jobID uuid.UUID, itemID uuid.UUID, nodeID uuid.UUID, status string, exitCode int, err error) {
+	if s == nil || s.Hub == nil {
+		return
+	}
+	var errMsg any = nil
+	if err != nil {
+		errMsg = err.Error()
+	}
+	data := map[string]any{
+		"node_id":   nodeID.String(),
+		"item_id":   itemID.String(),
+		"status":    status,
+		"exit_code": exitCode,
+		"error":     errMsg,
+	}
+	s.Hub.Publish(jobID.String(), newEvent(jobID.String(), EventItemDone, data))
+}
+
+func formatTimePtr(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format(time.RFC3339)
 }
