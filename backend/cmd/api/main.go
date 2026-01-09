@@ -22,6 +22,7 @@ import (
 	"agr_3x_ui/internal/services/checks"
 	"agr_3x_ui/internal/services/metrics"
 	"agr_3x_ui/internal/services/nodecheck"
+	"agr_3x_ui/internal/services/ops"
 	"agr_3x_ui/internal/services/sshclient"
 	"agr_3x_ui/internal/services/sshws"
 )
@@ -99,6 +100,9 @@ func main() {
 	checksWorker := checks.New(dbConn, alertsSvc, handler.SSHClient, enc, 10*time.Second)
 	handler.Checks = checksWorker
 	checksWorker.Start(context.Background())
+	opsSvc := ops.New(dbConn, ops.NewSSHExecutor(enc, 20*time.Second))
+	handler.Ops = opsSvc
+	opsSvc.Start(context.Background())
 	router := httpapi.NewRouter(handler)
 
 	port := os.Getenv("PORT")

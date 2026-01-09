@@ -52,6 +52,9 @@ make run
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
 - `PUBLIC_BASE_URL` (optional, for Telegram alert buttons, example: `https://aggr.example.com`)
+- `NODE_AGENT_ADDR` (node-agent, optional, default `:9090`)
+- `NODE_AGENT_TOKEN` (node-agent, optional bearer token)
+- `NODE_AGENT_ALLOWLIST` (node-agent, optional comma-separated IP allowlist)
 
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
@@ -98,6 +101,24 @@ curl -s http://localhost:8080/api/nodes/<node_id> \
   -H "Content-Type: application/json" \
   -X PATCH \
   -d '{"allowed_roots":["/opt","/var/log","/home/*/backups"]}'
+```
+
+## Ops jobs (bulk operations)
+Create a reboot job for all nodes:
+```bash
+curl -s http://localhost:8080/api/ops/jobs \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"reboot_nodes","all":true,"parallelism":5,"params":{}}'
+```
+
+Get job and items:
+```bash
+curl -s http://localhost:8080/api/ops/jobs/<job_id> \
+  -H "Authorization: Bearer <token>"
+
+curl -s http://localhost:8080/api/ops/jobs/<job_id>/items \
+  -H "Authorization: Bearer <token>"
 ```
 
 ## DB reset

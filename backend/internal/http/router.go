@@ -105,6 +105,10 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/alerts/:fingerprint/mute", middleware.RequireRoles(writeRoles...), h.MuteAlert)
 	auth.POST("/alerts/:fingerprint/retry", middleware.RequireRoles(writeRoles...), h.RetryAlert)
 
+	auth.POST("/ops/jobs", middleware.RequireRoles(writeRoles...), h.CreateOpsJob)
+	auth.GET("/ops/jobs/:id", middleware.RequireRoles(readRoles...), h.GetOpsJob)
+	auth.GET("/ops/jobs/:id/items", middleware.RequireRoles(readRoles...), h.GetOpsJobItems)
+
 	auth.GET("/users", middleware.RequireRoles(middleware.RoleAdmin), h.ListUsers)
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)
 	auth.PATCH("/users/:id", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateUser)
