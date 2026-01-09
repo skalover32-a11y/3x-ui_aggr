@@ -24,6 +24,7 @@ type nodeCreateRequest struct {
 	Region        string          `json:"region"`
 	Provider      string          `json:"provider"`
 	Capabilities  json.RawMessage `json:"capabilities"`
+	AllowedRoots  []string        `json:"allowed_roots"`
 	IsEnabled     *bool           `json:"is_enabled"`
 	SSHEnabled    *bool           `json:"ssh_enabled"`
 	SSHAuthMethod string          `json:"ssh_auth_method"`
@@ -46,6 +47,7 @@ type nodeUpdateRequest struct {
 	Region        *string          `json:"region"`
 	Provider      *string          `json:"provider"`
 	Capabilities  *json.RawMessage `json:"capabilities"`
+	AllowedRoots  *[]string        `json:"allowed_roots"`
 	IsEnabled     *bool            `json:"is_enabled"`
 	SSHEnabled    *bool            `json:"ssh_enabled"`
 	SSHAuthMethod *string          `json:"ssh_auth_method"`
@@ -69,6 +71,7 @@ type nodeResponse struct {
 	Region            string          `json:"region"`
 	Provider          string          `json:"provider"`
 	Capabilities      json.RawMessage `json:"capabilities"`
+	AllowedRoots      []string        `json:"allowed_roots"`
 	IsEnabled         bool            `json:"is_enabled"`
 	SSHEnabled        bool            `json:"ssh_enabled"`
 	SSHAuthMethod     string          `json:"ssh_auth_method"`
@@ -95,6 +98,7 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		Region:            node.Region,
 		Provider:          node.Provider,
 		Capabilities:      json.RawMessage(node.Capabilities),
+		AllowedRoots:      []string(node.AllowedRoots),
 		IsEnabled:         node.IsEnabled,
 		SSHEnabled:        node.SSHEnabled,
 		SSHAuthMethod:     node.SSHAuthMethod,
@@ -205,6 +209,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		Region:           req.Region,
 		Provider:         req.Provider,
 		Capabilities:     caps,
+		AllowedRoots:     req.AllowedRoots,
 		IsEnabled:        isEnabled,
 		SSHEnabled:       sshEnabled,
 		SSHAuthMethod:    authMethod,
@@ -274,6 +279,9 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 			return
 		}
 		node.Capabilities = caps
+	}
+	if req.AllowedRoots != nil {
+		node.AllowedRoots = *req.AllowedRoots
 	}
 	if req.IsEnabled != nil {
 		node.IsEnabled = *req.IsEnabled

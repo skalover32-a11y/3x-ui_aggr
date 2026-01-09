@@ -45,6 +45,9 @@ make run
 - `REFRESH_TOKEN_TTL` (optional, default `720h`)
 - `AUTH_RP_ID` (optional, WebAuthn RP ID, example: `aggr.example.com`)
 - `AUTH_RP_ORIGIN` (optional, WebAuthn RP origin, example: `https://aggr.example.com`)
+- `FILE_ALLOWED_ROOTS` (optional, default `/opt,/var/log,/home/*/backups`)
+- `FILE_PREVIEW_MAX_BYTES` (optional, default `2097152`)
+- `FILE_TAIL_MAX_BYTES` (optional, default `131072`)
 - `PORT` (optional, default 8080)
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
@@ -69,6 +72,32 @@ curl -s http://localhost:8080/api/nodes \
     "ssh_user": "root",
     "ssh_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
   }'
+```
+
+## Files (SFTP)
+The **Files** section provides a mini file browser over SFTP for a selected node. Access is limited to allowed roots:
+- Global default allowlist via `FILE_ALLOWED_ROOTS`
+- Optional per-node override via `allowed_roots` (array of paths)
+
+Examples:
+```bash
+curl -s http://localhost:8080/api/nodes/<node_id>/files/roots \
+  -H "Authorization: Bearer <token>"
+
+curl -s "http://localhost:8080/api/nodes/<node_id>/files/list?path=/var/log" \
+  -H "Authorization: Bearer <token>"
+
+curl -s "http://localhost:8080/api/nodes/<node_id>/files/download?path=/var/log/syslog" \
+  -H "Authorization: Bearer <token>" -o syslog
+```
+
+Update node allowed roots:
+```bash
+curl -s http://localhost:8080/api/nodes/<node_id> \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -X PATCH \
+  -d '{"allowed_roots":["/opt","/var/log","/home/*/backups"]}'
 ```
 
 ## DB reset

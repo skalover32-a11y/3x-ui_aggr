@@ -21,6 +21,9 @@ type Config struct {
 	AuthRPOrigin                 string
 	WebAuthnRegisterChallengeTTL time.Duration
 	WebAuthnLoginChallengeTTL    time.Duration
+	FileAllowedRoots             []string
+	FilePreviewMaxBytes          int64
+	FileTailMaxBytes             int64
 	SSHMaxSessions               int
 	SSHIdleTimeout               time.Duration
 	PublicBaseURL                string
@@ -69,6 +72,9 @@ func Load() (*Config, error) {
 	}
 	cfg.WebAuthnRegisterChallengeTTL = parseDurationEnv("WEBAUTHN_REGISTER_CHALLENGE_TTL", 5*time.Minute)
 	cfg.WebAuthnLoginChallengeTTL = parseDurationEnv("WEBAUTHN_LOGIN_CHALLENGE_TTL", 3*time.Minute)
+	cfg.FileAllowedRoots = parseCSVEnv("FILE_ALLOWED_ROOTS", []string{"/opt", "/var/log", "/home/*/backups"})
+	cfg.FilePreviewMaxBytes = parseInt64Env("FILE_PREVIEW_MAX_BYTES", 2*1024*1024)
+	cfg.FileTailMaxBytes = parseInt64Env("FILE_TAIL_MAX_BYTES", 128*1024)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
@@ -101,6 +107,37 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	val, err := time.ParseDuration(raw)
+	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func parseCSVEnv(key string, fallback []string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
+}
+
+func parseInt64Env(key string, fallback int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || val <= 0 {
 		return fallback
 	}

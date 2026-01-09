@@ -34,6 +34,9 @@ type Handler struct {
 	RefreshTTL          time.Duration
 	WebAuthnRegisterTTL time.Duration
 	WebAuthnLoginTTL    time.Duration
+	FileAllowedRoots    []string
+	FilePreviewMaxBytes int64
+	FileTailMaxBytes    int64
 	WebAuthn            WebAuthnProvider
 	SSHClient           *sshclient.Client
 	SSHManager          *sshws.Manager
