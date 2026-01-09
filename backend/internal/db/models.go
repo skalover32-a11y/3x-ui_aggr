@@ -149,6 +149,38 @@ type NodeMetric struct {
 	Error             *string   `json:"error"`
 }
 
+type NodeMetricsLatest struct {
+	NodeID         uuid.UUID `gorm:"type:uuid;primaryKey" json:"node_id"`
+	CollectedAt    time.Time `gorm:"type:timestamptz;not null" json:"collected_at"`
+	CPUPct         *float64  `json:"cpu_pct"`
+	RAMUsedBytes   *int64    `json:"ram_used_bytes"`
+	RAMTotalBytes  *int64    `json:"ram_total_bytes"`
+	DiskUsedBytes  *int64    `json:"disk_used_bytes"`
+	DiskTotalBytes *int64    `json:"disk_total_bytes"`
+	NetRxBps       *int64    `json:"net_rx_bps"`
+	NetTxBps       *int64    `json:"net_tx_bps"`
+	NetRxBytes     *int64    `json:"net_rx_bytes"`
+	NetTxBytes     *int64    `json:"net_tx_bytes"`
+	UptimeSec      *int64    `json:"uptime_sec"`
+	PanelVersion   *string   `json:"panel_version"`
+	XrayRunning    *bool     `json:"xray_running"`
+	PanelRunning   *bool     `json:"panel_running"`
+}
+
+type ActiveUserLatest struct {
+	ID             uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	NodeID         uuid.UUID `gorm:"type:uuid;not null" json:"node_id"`
+	InboundTag     *string   `gorm:"type:text" json:"inbound_tag"`
+	ClientEmail    string    `gorm:"type:text;not null" json:"client_email"`
+	IP             string    `gorm:"type:text;not null;default:''" json:"ip"`
+	RxBps          *int64    `json:"rx_bps"`
+	TxBps          *int64    `json:"tx_bps"`
+	TotalUpBytes   *int64    `json:"total_up_bytes"`
+	TotalDownBytes *int64    `json:"total_down_bytes"`
+	LastSeen       time.Time `gorm:"type:timestamptz;not null" json:"last_seen"`
+	CollectedAt    time.Time `gorm:"type:timestamptz;not null" json:"collected_at"`
+}
+
 type TelegramSettings struct {
 	ID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	BotTokenEnc     string    `gorm:"type:text;not null" json:"-"`

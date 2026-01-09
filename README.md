@@ -55,6 +55,9 @@ make run
 - `NODE_AGENT_ADDR` (node-agent, optional, default `:9090`)
 - `NODE_AGENT_TOKEN` (node-agent, optional bearer token)
 - `NODE_AGENT_ALLOWLIST` (node-agent, optional comma-separated IP allowlist)
+- `DASHBOARD_COLLECT_INTERVAL` (optional, default `10s`)
+- `DASHBOARD_COLLECT_PARALLELISM` (optional, default `5`)
+- `DASHBOARD_COLLECT_TIMEOUT` (optional, default `8s`)
 
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
@@ -134,6 +137,24 @@ curl -s http://localhost:8080/api/ops/jobs/<job_id> \
 
 curl -s http://localhost:8080/api/ops/jobs/<job_id>/items \
   -H "Authorization: Bearer <token>"
+```
+
+## Dashboard (realtime)
+Summary (nodes + aggregates):
+```bash
+curl -s http://localhost:8080/api/dashboard/summary \
+  -H "Authorization: Bearer <token>"
+```
+
+Active users (latest):
+```bash
+curl -s "http://localhost:8080/api/dashboard/active-users?limit=200&search=" \
+  -H "Authorization: Bearer <token>"
+```
+
+WebSocket stream (use token query):
+```
+ws://localhost:8080/api/dashboard/stream?token=<token>
 ```
 
 ### Safe testing in prod (dry-run)

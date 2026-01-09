@@ -20,6 +20,7 @@ import (
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/alerts"
 	"agr_3x_ui/internal/services/checks"
+	"agr_3x_ui/internal/services/dashboard"
 	"agr_3x_ui/internal/services/metrics"
 	"agr_3x_ui/internal/services/nodecheck"
 	"agr_3x_ui/internal/services/ops"
@@ -103,6 +104,11 @@ func main() {
 	opsSvc := ops.New(dbConn, ops.NewSSHExecutor(enc, 20*time.Second))
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
+	metricsProvider := dashboard.NewSSHMetricsProvider(handler.SSHClient, enc, cfg.DashboardCollectTimeout)
+	usersProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout)
+	dashboardSvc := dashboard.New(dbConn, metricsProvider, usersProvider, cfg.DashboardCollectInterval, cfg.DashboardCollectParallelism)
+	handler.Dashboard = dashboardSvc
+	dashboardSvc.Start(context.Background())
 	router := httpapi.NewRouter(handler)
 
 	port := os.Getenv("PORT")

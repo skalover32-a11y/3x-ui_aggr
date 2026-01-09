@@ -16,6 +16,7 @@ import (
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/alerts"
 	"agr_3x_ui/internal/services/checks"
+	"agr_3x_ui/internal/services/dashboard"
 	"agr_3x_ui/internal/services/ops"
 	"agr_3x_ui/internal/services/panelclient"
 	"agr_3x_ui/internal/services/sshclient"
@@ -39,6 +40,7 @@ type Handler struct {
 	FilePreviewMaxBytes int64
 	FileTailMaxBytes    int64
 	Ops                 *ops.Service
+	Dashboard           *dashboard.Service
 	WebAuthn            WebAuthnProvider
 	SSHClient           *sshclient.Client
 	SSHManager          *sshws.Manager

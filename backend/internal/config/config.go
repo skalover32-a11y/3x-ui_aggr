@@ -27,6 +27,9 @@ type Config struct {
 	SSHMaxSessions               int
 	SSHIdleTimeout               time.Duration
 	PublicBaseURL                string
+	DashboardCollectInterval     time.Duration
+	DashboardCollectParallelism  int
+	DashboardCollectTimeout      time.Duration
 }
 
 func Load() (*Config, error) {
@@ -75,6 +78,9 @@ func Load() (*Config, error) {
 	cfg.FileAllowedRoots = parseCSVEnv("FILE_ALLOWED_ROOTS", []string{"/opt", "/var/log", "/home/*/backups"})
 	cfg.FilePreviewMaxBytes = parseInt64Env("FILE_PREVIEW_MAX_BYTES", 2*1024*1024)
 	cfg.FileTailMaxBytes = parseInt64Env("FILE_TAIL_MAX_BYTES", 128*1024)
+	cfg.DashboardCollectInterval = parseDurationEnv("DASHBOARD_COLLECT_INTERVAL", 10*time.Second)
+	cfg.DashboardCollectTimeout = parseDurationEnv("DASHBOARD_COLLECT_TIMEOUT", 8*time.Second)
+	cfg.DashboardCollectParallelism = parseIntEnv("DASHBOARD_COLLECT_PARALLELISM", 5)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
@@ -107,6 +113,18 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	val, err := time.ParseDuration(raw)
+	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func parseIntEnv(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.Atoi(raw)
 	if err != nil || val <= 0 {
 		return fallback
 	}

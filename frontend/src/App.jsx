@@ -39,6 +39,27 @@ function formatBytes(bytes) {
   return `${v.toFixed(1)} ${units[idx]}`;
 }
 
+function formatBps(value) {
+  if (value == null) return "-";
+  return `${formatBytes(value)}/s`;
+}
+
+function formatPercent(value) {
+  if (value == null || Number.isNaN(value)) return "-";
+  return `${value.toFixed(1)}%`;
+}
+
+function formatDuration(sec) {
+  if (sec == null || sec <= 0) return "-";
+  const total = Math.floor(sec);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
 function base64urlToBuffer(value) {
   if (!value) return new ArrayBuffer(0);
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -110,6 +131,13 @@ function StatusBadge({ status }) {
   const { t } = useI18n();
   const label = status || "unknown";
   const textKey = label === "online" ? "Online" : label === "degraded" ? "Degraded" : label === "offline" ? "Offline" : label;
+  return <span className={`badge ${label}`}>{t(textKey)}</span>;
+}
+
+function DashboardStatusBadge({ status }) {
+  const { t } = useI18n();
+  const label = status || "unknown";
+  const textKey = label === "online" ? "Online" : label === "stale" ? "Stale" : label === "offline" ? "Offline" : label;
   return <span className={`badge ${label}`}>{t(textKey)}</span>;
 }
 
@@ -1588,6 +1616,7 @@ function NodesPage() {
           {menuOpen && (
             <div className="menu" ref={menuRef}>
               {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>{t("Add node")}</button>}
+              <button type="button" onClick={() => { setMenuOpen(false); navigate("/dashboard"); }}>{t("Dashboard")}</button>
               <button type="button" onClick={() => { setMenuOpen(false); navigate("/files"); }}>{t("Files")}</button>
               {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>{t("Users & roles")}</button>}
               {!isViewer && <button type="button" onClick={openTOTP}>{t("2FA settings")}</button>}
@@ -2526,6 +2555,340 @@ function NodesPage() {
   );
 }
 
+function DashboardPage() {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [nodes, setNodes] = useState([]);
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [sources, setSources] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [searchNodes, setSearchNodes] = useState("");
+  const [searchUsers, setSearchUsers] = useState("");
+  const [sandboxOnly, setSandboxOnly] = useState(false);
+  const [wsStatus, setWsStatus] = useState("disconnected");
+  const [now, setNow] = useState(Date.now());
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  async function loadSummary() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await request("GET", "/dashboard/summary");
+      setNodes(data.nodes || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadUsers() {
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "200");
+      if (searchUsers.trim()) {
+        params.set("search", searchUsers.trim());
+      }
+      const data = await request("GET", `/dashboard/active-users?${params.toString()}`);
+      setActiveUsers(data || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    loadSummary();
+    loadUsers();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadUsers();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchUsers]);
+
+  useEffect(() => {
+    let stopped = false;
+    let retries = 0;
+    const connect = () => {
+      const token = getToken();
+      if (!token) return;
+      setWsStatus("connecting");
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = `${protocol}://${window.location.host}${API_BASE}/dashboard/stream?token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        retries = 0;
+        setWsStatus("connected");
+      };
+      ws.onmessage = (event) => {
+        if (!event.data) return;
+        let payload = null;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!payload?.type) return;
+        if (payload.type === "snapshot" && payload.data) {
+          setNodes(payload.data.nodes || []);
+          setActiveUsers(payload.data.active_users || []);
+          return;
+        }
+        if (payload.type === "node_metrics_update" && payload.data) {
+          const { node_id, metrics } = payload.data;
+          if (!node_id || !metrics) return;
+          setNodes((prev) => {
+            const idx = prev.findIndex((n) => n.node_id === node_id);
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...metrics, collected_at: metrics.collected_at || next[idx].collected_at };
+            return next;
+          });
+        }
+        if (payload.type === "active_users_update" && payload.data) {
+          const { node_id, users, node_name, source } = payload.data;
+          if (!node_id) return;
+          setSources((prev) => ({ ...prev, [node_id]: source }));
+          setActiveUsers((prev) => {
+            const filtered = prev.filter((u) => u.node_id !== node_id);
+            const mapped = Array.isArray(users)
+              ? users.map((u) => ({
+                  ...u,
+                  node_id,
+                  node_name: node_name || u.node_name,
+                }))
+              : [];
+            return [...filtered, ...mapped].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+          });
+        }
+      };
+      ws.onclose = () => {
+        setWsStatus("disconnected");
+        if (stopped) return;
+        retries += 1;
+        const delay = Math.min(10000, 1000 * retries);
+        setTimeout(connect, delay);
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+    connect();
+    return () => {
+      stopped = true;
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (wsStatus === "connected") return;
+    const timer = setInterval(() => {
+      loadSummary();
+      loadUsers();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [wsStatus, searchUsers]);
+
+  const staleMs = 20000;
+  const nowTs = now;
+  const nodesFiltered = useMemo(() => {
+    const term = searchNodes.trim().toLowerCase();
+    return nodes.filter((node) => {
+      if (sandboxOnly && !node.is_sandbox) return false;
+      if (!term) return true;
+      return (node.name || "").toLowerCase().includes(term);
+    });
+  }, [nodes, searchNodes, sandboxOnly]);
+
+  const usersFiltered = useMemo(() => {
+    const term = searchUsers.trim().toLowerCase();
+    if (!term) return activeUsers;
+    return activeUsers.filter((u) => (u.client_email || "").toLowerCase().includes(term));
+  }, [activeUsers, searchUsers]);
+
+  const aggregate = useMemo(() => {
+    let online = 0;
+    let cpuSum = 0;
+    let cpuCount = 0;
+    let rx = 0;
+    let tx = 0;
+    nodesFiltered.forEach((node) => {
+      const collected = node.collected_at ? new Date(node.collected_at).getTime() : 0;
+      if (collected && nowTs - collected <= staleMs) {
+        online += 1;
+      }
+      if (node.cpu_pct != null) {
+        cpuSum += node.cpu_pct;
+        cpuCount += 1;
+      }
+      if (node.net_rx_bps != null) rx += node.net_rx_bps;
+      if (node.net_tx_bps != null) tx += node.net_tx_bps;
+    });
+    return {
+      nodesOnline: online,
+      nodesTotal: nodesFiltered.length,
+      avgCPU: cpuCount > 0 ? cpuSum / cpuCount : 0,
+      totalRx: rx,
+      totalTx: tx,
+      activeUsers: activeUsers.length,
+    };
+  }, [nodesFiltered, activeUsers, nowTs]);
+
+  const deriveNodeStatus = (node) => {
+    if (!node.collected_at) return "offline";
+    const collected = new Date(node.collected_at).getTime();
+    if (Number.isNaN(collected)) return "offline";
+    const age = nowTs - collected;
+    if (age > staleMs * 3) return "offline";
+    if (age > staleMs) return "stale";
+    return "online";
+  };
+
+  return (
+    <div className="page page-wide dashboard-page">
+      <header className="header">
+        <div className="header-left">
+          <button className="icon-button" onClick={() => navigate("/nodes")}>{"<"}</button>
+          <h2>{t("Dashboard")}</h2>
+          <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
+        </div>
+        <div className="header-right">
+          <button onClick={() => { loadSummary(); loadUsers(); }}>{t("Refresh")}</button>
+        </div>
+      </header>
+
+      {error && <div className="error">{error}</div>}
+
+      <div className="dashboard-cards">
+        <div className="dashboard-card">
+          <div className="muted small">{t("Nodes online")}</div>
+          <div className="dashboard-value">{aggregate.nodesOnline} / {aggregate.nodesTotal}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="muted small">{t("Total RX")}</div>
+          <div className="dashboard-value">{formatBps(aggregate.totalRx)}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="muted small">{t("Total TX")}</div>
+          <div className="dashboard-value">{formatBps(aggregate.totalTx)}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="muted small">{t("Avg CPU")}</div>
+          <div className="dashboard-value">{formatPercent(aggregate.avgCPU)}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="muted small">{t("Active users")}</div>
+          <div className="dashboard-value">{aggregate.activeUsers}</div>
+        </div>
+      </div>
+
+      <div className="dashboard-section">
+        <div className="dashboard-section-header">
+          <h3>{t("Nodes")}</h3>
+          <div className="dashboard-filters">
+            <input value={searchNodes} onChange={(e) => setSearchNodes(e.target.value)} placeholder={t("Search")} />
+            <label className="checkbox">
+              <input type="checkbox" checked={sandboxOnly} onChange={(e) => setSandboxOnly(e.target.checked)} />
+              <span>{t("Sandbox only")}</span>
+            </label>
+          </div>
+        </div>
+        <div className="table dashboard-nodes">
+          <div className="table-row head">
+            <div>{t("Node")}</div>
+            <div>{t("Status")}</div>
+            <div>{t("CPU")}</div>
+            <div>{t("RAM")}</div>
+            <div>{t("Disk")}</div>
+            <div>{t("RX")}</div>
+            <div>{t("TX")}</div>
+            <div>{t("Uptime")}</div>
+            <div>{t("Last seen")}</div>
+            <div>{t("Panel version")}</div>
+          </div>
+          {nodesFiltered.map((node) => {
+            const status = deriveNodeStatus(node);
+            const ram = node.ram_total_bytes ? `${formatBytes(node.ram_used_bytes || 0)} / ${formatBytes(node.ram_total_bytes)}` : "-";
+            const disk = node.disk_total_bytes ? `${formatBytes(node.disk_used_bytes || 0)} / ${formatBytes(node.disk_total_bytes)}` : "-";
+            const source = sources[node.node_id];
+            return (
+              <div className="table-row" key={node.node_id}>
+                <div>
+                  <div className="node-name">{node.name}</div>
+                  {source === "no_source" && <span className="badge nosource">{t("No source")}</span>}
+                </div>
+                <div><DashboardStatusBadge status={status} /></div>
+                <div>{formatPercent(node.cpu_pct)}</div>
+                <div>{ram}</div>
+                <div>{disk}</div>
+                <div>{formatBps(node.net_rx_bps)}</div>
+                <div>{formatBps(node.net_tx_bps)}</div>
+                <div>{formatDuration(node.uptime_sec)}</div>
+                <div>{formatTS(node.collected_at)}</div>
+                <div>{node.panel_version || "-"}</div>
+              </div>
+            );
+          })}
+          {nodesFiltered.length === 0 && (
+            <div className="table-row">
+              <div>{loading ? t("Loading...") : t("No data")}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dashboard-section">
+        <div className="dashboard-section-header">
+          <h3>{t("Active users")}</h3>
+          <div className="dashboard-filters">
+            <input value={searchUsers} onChange={(e) => setSearchUsers(e.target.value)} placeholder={t("Search")} />
+          </div>
+        </div>
+        <div className="table dashboard-users">
+          <div className="table-row head">
+            <div>{t("Client")}</div>
+            <div>{t("Node")}</div>
+            <div>{t("Inbound")}</div>
+            <div>{t("IP")}</div>
+            <div>{t("RX")}</div>
+            <div>{t("TX")}</div>
+            <div>{t("Total")}</div>
+            <div>{t("Last seen")}</div>
+          </div>
+          {usersFiltered.map((user) => (
+            <div className="table-row" key={user.id || `${user.node_id}-${user.client_email}-${user.ip || ""}`}>
+              <div>{user.client_email}</div>
+              <div>{user.node_name || "-"}</div>
+              <div>{user.inbound_tag || "-"}</div>
+              <div>{user.ip || "-"}</div>
+              <div>{formatBps(user.rx_bps)}</div>
+              <div>{formatBps(user.tx_bps)}</div>
+              <div>{user.total_up_bytes || user.total_down_bytes ? `${formatBytes(user.total_up_bytes || 0)} / ${formatBytes(user.total_down_bytes || 0)}` : "-"}</div>
+              <div>{formatTS(user.last_seen)}</div>
+            </div>
+          ))}
+          {usersFiltered.length === 0 && (
+            <div className="table-row">
+              <div>{loading ? t("Loading...") : t("No data")}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FilesPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -3100,6 +3463,14 @@ export default function App() {
           element={
             <RequireAuth>
               <NodesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireAuth>
+              <DashboardPage />
             </RequireAuth>
           }
         />

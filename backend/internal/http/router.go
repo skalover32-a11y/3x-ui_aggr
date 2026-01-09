@@ -31,6 +31,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
 	api.POST("/telegram/webhook", h.TelegramWebhook)
 	api.GET("/healthz", h.Healthz)
+	api.GET("/dashboard/stream", h.DashboardStream)
 
 	auth := api.Group("")
 	auth.Use(middleware.JWTAuth(h.JWTSecret))
@@ -109,6 +110,8 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/ops/jobs/:id", middleware.RequireRoles(readRoles...), h.GetOpsJob)
 	auth.GET("/ops/jobs/:id/items", middleware.RequireRoles(readRoles...), h.GetOpsJobItems)
 	auth.GET("/ops/jobs/:id/stream", middleware.RequireRoles(readRoles...), h.OpsJobStream)
+	auth.GET("/dashboard/summary", middleware.RequireRoles(readRoles...), h.GetDashboardSummary)
+	auth.GET("/dashboard/active-users", middleware.RequireRoles(readRoles...), h.GetDashboardActiveUsers)
 
 	auth.GET("/users", middleware.RequireRoles(middleware.RoleAdmin), h.ListUsers)
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)

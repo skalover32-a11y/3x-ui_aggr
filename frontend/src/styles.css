@@ -329,6 +329,104 @@ button.danger:hover {
   grid-auto-rows: max-content;
 }
 
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dashboard-card {
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.dashboard-value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.dashboard-section {
+  margin-top: 24px;
+}
+
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-filters input {
+  background: #0b1220;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.dashboard-filters .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.table.dashboard-nodes .table-row {
+  grid-template-columns:
+    minmax(140px, 1.4fr)
+    minmax(90px, 0.6fr)
+    minmax(70px, 0.5fr)
+    minmax(120px, 0.9fr)
+    minmax(120px, 0.9fr)
+    minmax(90px, 0.7fr)
+    minmax(90px, 0.7fr)
+    minmax(90px, 0.7fr)
+    minmax(140px, 1fr)
+    minmax(120px, 0.8fr);
+}
+
+.table.dashboard-users .table-row {
+  grid-template-columns:
+    minmax(140px, 1.2fr)
+    minmax(120px, 1fr)
+    minmax(110px, 0.8fr)
+    minmax(120px, 0.9fr)
+    minmax(90px, 0.7fr)
+    minmax(90px, 0.7fr)
+    minmax(140px, 1fr)
+    minmax(140px, 1fr);
+}
+
+.badge.stale {
+  background: #7c2d12;
+  color: #fde68a;
+}
+
+.badge.nosource {
+  background: #334155;
+  color: #e2e8f0;
+  margin-left: 8px;
+  text-transform: none;
+}
+
+.node-name {
+  font-weight: 600;
+}
+
 .nodes-cards-head {
   display: flex;
   justify-content: space-between;
