@@ -385,6 +385,12 @@ Health check:
 curl -s http://localhost:8080/api/healthz
 ```
 
+Agent ping (backend):
+```bash
+curl -s http://localhost:8080/api/agent/ping
+curl -s "http://localhost:8080/api/agent/ping?node_id=<node_id>"
+```
+
 List services:
 ```bash
 curl -s http://localhost:8080/api/services \
