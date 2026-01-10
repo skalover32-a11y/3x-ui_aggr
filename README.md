@@ -181,6 +181,13 @@ Notes:
 - Master auth only works when `AGG_MASTER_KEY_BASE64` is set.
 - If `AGG_ALLOW_CIDR` is set, the client IP must be within that CIDR (localhost always allowed).
 
+Public job status (no login, per-job token):
+```bash
+curl -s "http://localhost:8080/api/ops/jobs/<job_id>/public?token=<public_token>"
+```
+Notes:
+- `public_token` is returned on job creation (`POST /api/ops/jobs`, `POST /api/ops/deploy-agent`).
+
 ## Dashboard (realtime)
 Summary (nodes + aggregates):
 ```bash
