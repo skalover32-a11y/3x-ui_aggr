@@ -427,7 +427,9 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	case JobTypeUpdatePanel:
 		output, exitCode, runErr = s.AgentExecutor.Update(cctx, node, UpdateParams{})
 	case JobTypeRebootAgent:
-		output, exitCode, runErr = s.AgentExecutor.Reboot(cctx, node)
+		jobParams := parseJobParams(job.Params)
+		rebootCtx := withRebootConfirm(cctx, jobParams.Confirm)
+		output, exitCode, runErr = s.AgentExecutor.Reboot(rebootCtx, node)
 	case JobTypeRestartSvc:
 		params := parseJobParams(job.Params)
 		output, exitCode, runErr = s.AgentExecutor.RestartService(cctx, node, params.RestartService)

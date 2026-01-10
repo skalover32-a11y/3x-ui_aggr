@@ -182,6 +182,7 @@ curl -s http://localhost:8080/api/tasks/bulk \
   -H "Content-Type: application/json" \
   -d '{"type":"reboot_node","node_ids":["<node_id_1>"],"parallelism":2,"params":{}}'
 ```
+Note: the agent API expects confirm="REBOOT", the backend sends it automatically.
 
 Bulk restart service (whitelist):
 ```bash

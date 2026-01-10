@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -28,8 +29,13 @@ func NewAgentExecutor(enc *security.Encryptor, timeout time.Duration) *AgentExec
 }
 
 func (e *AgentExecutor) Reboot(ctx context.Context, node *db.Node) (string, int, error) {
+	confirm := strings.TrimSpace(rebootConfirmFromContext(ctx))
+	if confirm == "" {
+		confirm = "REBOOT"
+	}
+	payload := map[string]string{"confirm": confirm}
 	var resp agentOpResponse
-	if err := e.doRequest(ctx, node, http.MethodPost, "/ops/reboot", nil, &resp, 15*time.Second); err != nil {
+	if err := e.doRequest(ctx, node, http.MethodPost, "/ops/reboot", payload, &resp, 15*time.Second); err != nil {
 		return "", 1, err
 	}
 	if !resp.OK {
@@ -58,7 +64,14 @@ func (e *AgentExecutor) Reboot(ctx context.Context, node *db.Node) (string, int,
 func (e *AgentExecutor) Update(ctx context.Context, node *db.Node, _ UpdateParams) (string, int, error) {
 	var resp agentOpResponse
 	if err := e.doRequest(ctx, node, http.MethodPost, "/ops/update-panel", nil, &resp, 20*time.Minute); err != nil {
-		return "", 1, err
+		var statusErr *agentStatusError
+		if errors.As(err, &statusErr) && (statusErr.Status == http.StatusNotFound || statusErr.Status == http.StatusMethodNotAllowed) {
+			if retryErr := e.doRequest(ctx, node, http.MethodPost, "/ops/update", nil, &resp, 20*time.Minute); retryErr != nil {
+				return "", 1, retryErr
+			}
+		} else {
+			return "", 1, err
+		}
 	}
 	if !resp.OK {
 		return resp.Log, resp.ExitCodeOr(1), errors.New(resp.MessageOr("update failed"))
@@ -130,7 +143,8 @@ func (e *AgentExecutor) doRequest(ctx context.Context, node *db.Node, method, pa
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("agent status %d", resp.StatusCode)
+		bodyBytes, _ := readAgentErrorBody(resp.Body)
+		return formatAgentStatusError(resp.StatusCode, bodyBytes)
 	}
 	if dest == nil {
 		return nil
@@ -192,4 +206,75 @@ func (r agentOpResponse) MessageOr(fallback string) string {
 type agentHealthResponse struct {
 	OK     bool   `json:"ok"`
 	BootID string `json:"boot_id"`
+}
+
+const maxAgentErrorBodyBytes = 8 * 1024
+
+type agentStatusError struct {
+	Status int
+	Body   string
+}
+
+func (e *agentStatusError) Error() string {
+	if strings.TrimSpace(e.Body) == "" {
+		return fmt.Sprintf("agent status %d", e.Status)
+	}
+	return fmt.Sprintf("agent status %d: %s", e.Status, e.Body)
+}
+
+func formatAgentStatusError(status int, body []byte) error {
+	msg := parseAgentErrorMessage(body)
+	return &agentStatusError{Status: status, Body: msg}
+}
+
+func readAgentErrorBody(r io.Reader) ([]byte, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return io.ReadAll(io.LimitReader(r, maxAgentErrorBodyBytes))
+}
+
+func parseAgentErrorMessage(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if msg, ok := extractAgentMessage(payload); ok {
+			return msg
+		}
+	}
+	return text
+}
+
+func extractAgentMessage(payload map[string]any) (string, bool) {
+	if payload == nil {
+		return "", false
+	}
+	if val, ok := payload["message"]; ok {
+		if msg, ok := val.(string); ok && strings.TrimSpace(msg) != "" {
+			return strings.TrimSpace(msg), true
+		}
+	}
+	if val, ok := payload["error"]; ok {
+		switch typed := val.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return strings.TrimSpace(typed), true
+			}
+		case map[string]any:
+			if msg, ok := typed["message"]; ok {
+				if s, ok := msg.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s), true
+				}
+			}
+		}
+	}
+	if val, ok := payload["detail"]; ok {
+		if msg, ok := val.(string); ok && strings.TrimSpace(msg) != "" {
+			return strings.TrimSpace(msg), true
+		}
+	}
+	return "", false
 }
