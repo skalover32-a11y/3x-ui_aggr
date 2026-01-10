@@ -1109,7 +1109,7 @@ function NodesPage() {
       }
     };
     ws.onerror = () => {
-      setDeployError(t("Disconnected"));
+      setDeployError(`${t("Failed to get status")}: ${t("Disconnected")}`);
     };
     ws.onclose = () => {
       if (deployWsRef.current === ws) {
@@ -1146,7 +1146,7 @@ function NodesPage() {
           return;
         }
       } catch (err) {
-        setDeployError(err.message);
+        setDeployError(`${t("Failed to get status")}: ${err.message}`);
       }
     };
     const interval = setInterval(poll, 5000);
@@ -2726,6 +2726,7 @@ function NodesPage() {
               </div>
               <button type="button" onClick={closeDeployProgress}>{t("Close")}</button>
             </div>
+            {deployError && <div className="error">{deployError}</div>}
             <div className="deploy-status">
               {t("Status")}: <span className={`badge ${deployProgress.status || "queued"}`}>{deployProgress.status || "queued"}</span>
             </div>
