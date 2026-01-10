@@ -86,6 +86,8 @@ type nodeResponse struct {
 	AgentEnabled      bool            `json:"agent_enabled"`
 	AgentURL          *string         `json:"agent_url"`
 	AgentInsecureTLS  bool            `json:"agent_allow_insecure_tls"`
+	AgentLastSeenAt   *time.Time      `json:"agent_last_seen_at"`
+	Online            bool            `json:"online"`
 	IsEnabled         bool            `json:"is_enabled"`
 	SSHEnabled        bool            `json:"ssh_enabled"`
 	SSHAuthMethod     string          `json:"ssh_auth_method"`
@@ -103,6 +105,7 @@ type nodeResponse struct {
 }
 
 func toNodeResponse(node *db.Node) nodeResponse {
+	online := computeAgentOnline(node.AgentLastSeenAt, 90*time.Second)
 	return nodeResponse{
 		ID:                node.ID.String(),
 		Name:              node.Name,
@@ -117,6 +120,8 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		AgentEnabled:      node.AgentEnabled,
 		AgentURL:          node.AgentURL,
 		AgentInsecureTLS:  node.AgentInsecureTLS,
+		AgentLastSeenAt:   node.AgentLastSeenAt,
+		Online:            online,
 		IsEnabled:         node.IsEnabled,
 		SSHEnabled:        node.SSHEnabled,
 		SSHAuthMethod:     node.SSHAuthMethod,
@@ -132,6 +137,13 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		CreatedAt:         node.CreatedAt,
 		UpdatedAt:         node.UpdatedAt,
 	}
+}
+
+func computeAgentOnline(lastSeen *time.Time, ttl time.Duration) bool {
+	if lastSeen == nil {
+		return false
+	}
+	return time.Since(*lastSeen) <= ttl
 }
 
 func (h *Handler) ListNodes(c *gin.Context) {

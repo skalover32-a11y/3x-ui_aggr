@@ -4,6 +4,7 @@ import "time"
 
 type NodeMetrics struct {
 	CollectedAt    time.Time
+	FromAgent      bool
 	CPUPct         *float64
 	RAMUsedBytes   *int64
 	RAMTotalBytes  *int64

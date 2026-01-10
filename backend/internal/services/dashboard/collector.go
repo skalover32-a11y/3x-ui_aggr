@@ -122,6 +122,9 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 	metrics, err := s.Metrics.CollectNodeMetrics(ctx, node)
 	if err == nil {
 		_ = s.upsertMetrics(ctx, node.ID, metrics)
+		if metrics.FromAgent && node.AgentEnabled {
+			_ = s.updateAgentLastSeen(ctx, node.ID, metrics.CollectedAt)
+		}
 		s.Hub.Publish(newEvent(EventNodeMetricsUpdate, map[string]any{
 			"node_id": node.ID.String(),
 			"metrics": toMetricsPayload(metrics),
@@ -138,6 +141,9 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 			}
 		}
 		_ = s.replaceActiveUsers(ctx, node.ID, usersResult.Users)
+		if usersResult.Source == "agent" && usersResult.Available && node.AgentEnabled {
+			_ = s.updateAgentLastSeen(ctx, node.ID, time.Now())
+		}
 		s.setActiveUsersSource(node.ID, usersResult.Source, usersResult.SourceDetail, usersResult.Available)
 		s.Hub.Publish(newEvent(EventActiveUsersUpdate, map[string]any{
 			"node_id":       node.ID.String(),
@@ -148,6 +154,13 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 			"available":     usersResult.Available,
 		}))
 	}
+}
+
+func (s *Service) updateAgentLastSeen(ctx context.Context, nodeID uuid.UUID, ts time.Time) error {
+	if s == nil || s.DB == nil {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_last_seen_at", ts).Error
 }
 
 func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics NodeMetrics) error {

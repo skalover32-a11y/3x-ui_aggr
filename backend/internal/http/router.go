@@ -32,6 +32,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.POST("/telegram/webhook", h.TelegramWebhook)
 	api.GET("/healthz", h.Healthz)
 	api.GET("/dashboard/stream", h.DashboardStream)
+	api.GET("/agent/ping", h.AgentPing)
 	api.GET("/ops/jobs/:id/public", h.GetOpsJobPublic)
 	api.GET("/ops/jobs/:id", h.OpsReadAuth(), h.GetOpsJob)
 	api.GET("/ops/jobs/:id/items", h.OpsReadAuth(), h.GetOpsJobItems)

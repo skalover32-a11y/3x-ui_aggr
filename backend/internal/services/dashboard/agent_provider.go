@@ -41,6 +41,7 @@ func (p *AgentProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (
 	}
 	metrics := NodeMetrics{
 		CollectedAt:    resp.CollectedAt,
+		FromAgent:      true,
 		CPUPct:         resp.CPUPct,
 		RAMUsedBytes:   resp.RAMUsedBytes,
 		RAMTotalBytes:  resp.RAMTotalBytes,

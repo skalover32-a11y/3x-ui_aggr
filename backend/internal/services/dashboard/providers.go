@@ -72,6 +72,7 @@ func (p *SSHMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.No
 
 	metrics := NodeMetrics{
 		CollectedAt:  time.Now(),
+		FromAgent:    false,
 		PanelVersion: node.PanelVersion,
 	}
 
