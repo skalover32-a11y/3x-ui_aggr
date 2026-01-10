@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -75,6 +76,7 @@ func main() {
 		allowlist: allow,
 		limiter:   newRateLimiter(cfg.RateLimitRPS),
 	}
+	logUserContext()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", st.withMiddleware(healthHandler))
@@ -327,13 +329,13 @@ func rebootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bootID := readBootID()
-	logText, err := scheduleReboot()
-	if err != nil {
+	choice, probeLog, probeErr := probeRebootCommand()
+	if probeErr != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"ok":        false,
 			"status":    "failed",
 			"message":   "reboot failed",
-			"log":       logText,
+			"log":       probeLog,
 			"exit_code": 1,
 			"boot_id":   bootID,
 		})
@@ -343,9 +345,14 @@ func rebootHandler(w http.ResponseWriter, r *http.Request) {
 		"ok":        true,
 		"status":    "scheduled",
 		"message":   "reboot scheduled",
-		"log":       logText,
+		"log":       probeLog,
 		"exit_code": 0,
 		"boot_id":   bootID,
+	})
+	time.AfterFunc(300*time.Millisecond, func() {
+		if err := startReboot(choice); err != nil {
+			log.Printf("reboot command failed: %v", err)
+		}
 	})
 }
 
@@ -356,9 +363,10 @@ type rebootCommand struct {
 
 func rebootCommandCandidates() []rebootCommand {
 	candidates := []rebootCommand{
-		{Name: "systemd-run", Args: []string{"--unit=vlf-agent-reboot", "--on-active=1s", "/usr/bin/systemctl", "reboot", "--no-wall"}},
-		{Name: "sh", Args: []string{"-lc", "(sleep 1; /usr/bin/systemctl reboot --no-wall) >/tmp/vlf-agent-reboot.log 2>&1 &"}},
-		{Name: "sh", Args: []string{"-lc", "(sleep 1; /usr/sbin/reboot) >/tmp/vlf-agent-reboot.log 2>&1 &"}},
+		{Name: "/usr/bin/systemctl", Args: []string{"reboot", "--no-wall"}},
+		{Name: "/usr/sbin/reboot"},
+		{Name: "/sbin/reboot"},
+		{Name: "/usr/sbin/shutdown", Args: []string{"-r", "now"}},
 	}
 	available := make([]rebootCommand, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -370,65 +378,67 @@ func rebootCommandCandidates() []rebootCommand {
 		} else if _, err := os.Stat(name); err != nil {
 			continue
 		}
-		if strings.Contains(strings.Join(candidate.Args, " "), "/usr/bin/systemctl") {
-			if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
-				continue
-			}
-		}
-		if strings.Contains(strings.Join(candidate.Args, " "), "/usr/sbin/reboot") {
-			if _, err := os.Stat("/usr/sbin/reboot"); err != nil {
-				continue
-			}
-		}
 		available = append(available, candidate)
 	}
 	return available
 }
 
-func scheduleReboot() (string, error) {
+func probeRebootCommand() (rebootCommand, string, error) {
 	commands := rebootCommandCandidates()
 	if len(commands) == 0 {
-		return "no reboot command available", errors.New("no reboot command available")
+		return rebootCommand{}, "no reboot command available", errors.New("no reboot command available")
 	}
-	logs := &strings.Builder{}
-	if err := runRebootCommands(commands, logs); err != nil {
-		return strings.TrimSpace(logs.String()), err
-	}
-	return strings.TrimSpace(logs.String()), nil
-}
-
-func runRebootCommands(commands []rebootCommand, logs *strings.Builder) error {
 	var lastErr error
+	var lastLog string
 	for _, candidate := range commands {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		cmd := exec.CommandContext(ctx, candidate.Name, candidate.Args...)
-		cmdOut := &bytes.Buffer{}
-		cmdErr := &bytes.Buffer{}
-		cmd.Stdout = cmdOut
-		cmd.Stderr = cmdErr
-		log.Printf("reboot: exec %s %s", candidate.Name, strings.Join(candidate.Args, " "))
-		err := cmd.Run()
-		cancel()
-		if logs != nil {
-			if cmdOut.Len() > 0 {
-				logs.WriteString(cmdOut.String())
-			}
-			if cmdErr.Len() > 0 {
-				if logs.Len() > 0 {
-					logs.WriteString("\n")
-				}
-				logs.WriteString(cmdErr.String())
-			}
-		}
+		exitCode, output, err := runRebootProbe(candidate)
+		logLine := fmt.Sprintf("cmd=%s %s exit=%d out=%s", candidate.Name, strings.Join(candidate.Args, " "), exitCode, output)
+		log.Printf("reboot probe: %s", logLine)
+		lastLog = logLine
 		if err == nil {
-			return nil
+			return candidate, logLine, nil
 		}
 		lastErr = err
 	}
 	if lastErr == nil {
 		lastErr = errors.New("reboot command failed")
 	}
-	return lastErr
+	return rebootCommand{}, lastLog, lastErr
+}
+
+func runRebootProbe(cmd rebootCommand) (int, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
+	out, err := command.CombinedOutput()
+	output := trimOutput(out, 8192)
+	if err == nil {
+		return 0, output, nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		exitCode := exitErr.ExitCode()
+		if strings.Contains(exitErr.Error(), "signal: terminated") || strings.Contains(exitErr.Error(), "signal: killed") {
+			return 0, output, nil
+		}
+		return exitCode, output, err
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return 124, output, err
+	}
+	return 1, output, err
+}
+
+func startReboot(cmd rebootCommand) error {
+	command := exec.Command(cmd.Name, cmd.Args...)
+	return command.Start()
+}
+
+func trimOutput(output []byte, max int) string {
+	text := strings.TrimSpace(string(output))
+	if len(text) <= max {
+		return text
+	}
+	return text[:max]
 }
 
 type statusWriter struct {
@@ -446,6 +456,16 @@ func (s *statusWriter) Write(p []byte) (int, error) {
 		s.status = http.StatusOK
 	}
 	return s.ResponseWriter.Write(p)
+}
+
+func logUserContext() {
+	uid := os.Geteuid()
+	gid := os.Getegid()
+	username := "unknown"
+	if u, err := user.Current(); err == nil {
+		username = u.Username
+	}
+	log.Printf("node-agent uid=%d gid=%d user=%s", uid, gid, username)
 }
 
 func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
