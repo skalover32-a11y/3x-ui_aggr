@@ -446,8 +446,14 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				output = params.PreLog
 			}
 		}
+		if runErr == nil {
+			if err := s.persistAgentSettings(ctx, node, params); err != nil {
+				runErr = err
+				exitCode = 1
+			}
+		}
 		if runErr == nil && params.HealthCheck {
-			status, info, err := s.checkAgentHealth(cctx, params)
+			info, err := s.waitForAgentFirstContact(cctx, job.ID, item.ID, item.NodeID, params)
 			if info != "" {
 				if output != "" {
 					output += "\n" + info
@@ -456,15 +462,6 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				}
 			}
 			if err != nil {
-				runErr = err
-				exitCode = 1
-			} else if status != http.StatusOK {
-				runErr = fmt.Errorf("agent health check failed: status %d", status)
-				exitCode = 1
-			}
-		}
-		if runErr == nil {
-			if err := s.persistAgentSettings(ctx, node, params); err != nil {
 				runErr = err
 				exitCode = 1
 			}
@@ -741,6 +738,20 @@ func (s *Service) persistAgentSettings(ctx context.Context, node *db.Node, param
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", node.ID).Updates(updates).Error
 }
 
+func (s *Service) persistAgentContact(ctx context.Context, nodeID uuid.UUID, lastSeen time.Time, agentVersion string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db not configured")
+	}
+	updates := map[string]any{
+		"agent_installed":    true,
+		"agent_last_seen_at": lastSeen,
+	}
+	if strings.TrimSpace(agentVersion) != "" {
+		updates["agent_version"] = strings.TrimSpace(agentVersion)
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error
+}
+
 func (s *Service) ensureAgentBinary() (string, string, error) {
 	if s == nil {
 		return "", "", errors.New("service not configured")
@@ -863,36 +874,70 @@ func appendPreLog(existing, entry string) string {
 	return existing + "\n" + entry
 }
 
-func (s *Service) checkAgentHealth(ctx context.Context, params DeployAgentParams) (int, string, error) {
+type agentHealth struct {
+	OK           bool   `json:"ok"`
+	AgentVersion string `json:"agent_version"`
+	BootID       string `json:"boot_id"`
+}
+
+func (s *Service) waitForAgentFirstContact(ctx context.Context, jobID uuid.UUID, itemID uuid.UUID, nodeID uuid.UUID, params DeployAgentParams) (string, error) {
 	if params.AgentPort <= 0 {
-		return 0, "health check skipped: missing agent port", nil
+		return "waiting_first_contact skipped: missing agent port", nil
 	}
 	host := strings.TrimSpace(params.NodeHost)
 	if host == "" {
-		return 0, "", errors.New("agent health check missing node host")
+		return "", errors.New("agent health check missing node host")
 	}
 	url := fmt.Sprintf("http://%s:%d/health", host, params.AgentPort)
+	s.publishItemStage(jobID, itemID, nodeID, "waiting_first_contact")
+	info := fmt.Sprintf("waiting_first_contact url=%s auth=%t", url, strings.TrimSpace(params.Token) != "")
+
+	deadline := time.Now().Add(60 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		if time.Now().After(deadline) {
+			return info + " status=timeout", fmt.Errorf("agent first contact timeout")
+		}
+		status, resp, err := s.checkAgentHealth(ctx, url, params.Token)
+		if err == nil && status == http.StatusOK && resp.OK {
+			_ = s.persistAgentContact(ctx, nodeID, time.Now().UTC(), resp.AgentVersion)
+			return info + " status=ok", nil
+		}
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return info + fmt.Sprintf(" status=%d", status), fmt.Errorf("agent health unauthorized: status %d", status)
+		}
+		select {
+		case <-ctx.Done():
+			return info + " status=cancelled", ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Service) checkAgentHealth(ctx context.Context, url string, token string) (int, agentHealth, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, "", err
+		return 0, agentHealth{}, err
 	}
-	hasAuth := false
-	if strings.TrimSpace(params.Token) != "" {
-		req.Header.Set("Authorization", "Bearer "+params.Token)
-		hasAuth = true
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
-	info := fmt.Sprintf("health check url=%s auth=%t", url, hasAuth)
 	if err != nil {
-		return 0, info, err
+		return 0, agentHealth{}, err
 	}
 	defer resp.Body.Close()
-	info = fmt.Sprintf("%s status=%d", info, resp.StatusCode)
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, info, fmt.Errorf("agent health check unauthorized: status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return resp.StatusCode, agentHealth{}, nil
 	}
-	return resp.StatusCode, info, nil
+	var payload agentHealth
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return resp.StatusCode, agentHealth{}, err
+	}
+	return resp.StatusCode, payload, nil
 }
 
 func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) error {
@@ -979,6 +1024,19 @@ func (s *Service) publishItemStatus(jobID uuid.UUID, item *db.OpsJobItem, status
 		"status":      status,
 		"started_at":  formatTimePtr(startedAt),
 		"finished_at": formatTimePtr(finishedAt),
+	}
+	s.Hub.Publish(jobID.String(), newEvent(jobID.String(), EventItemStatus, data))
+}
+
+func (s *Service) publishItemStage(jobID uuid.UUID, itemID uuid.UUID, nodeID uuid.UUID, stage string) {
+	if s == nil || s.Hub == nil || strings.TrimSpace(stage) == "" {
+		return
+	}
+	data := map[string]any{
+		"node_id": nodeID.String(),
+		"item_id": itemID.String(),
+		"status":  JobRunning,
+		"stage":   stage,
 	}
 	s.Hub.Publish(jobID.String(), newEvent(jobID.String(), EventItemStatus, data))
 }

@@ -142,7 +142,7 @@ function StatusBadge({ status }) {
 function DashboardStatusBadge({ status }) {
   const { t } = useI18n();
   const label = status || "unknown";
-  const textKey = label === "online" ? "Online" : label === "stale" ? "Stale" : label === "offline" ? "Offline" : label;
+  const textKey = label === "online" ? "Online" : label === "stale" ? "Stale" : label === "offline" ? "Offline" : label === "no_agent" ? "No agent" : label;
   return <span className={`badge ${label}`}>{t(textKey)}</span>;
 }
 
@@ -992,6 +992,7 @@ function NodesPage() {
   function openDeployAgent() {
     setDeployError("");
     setDeployOpen(true);
+    loadAgentDeployDefaults();
   }
 
   function openTaskModal(type) {
@@ -1203,6 +1204,7 @@ function NodesPage() {
         if (payload.type === "item_status") {
           updateDeployItem(payload.data?.item_id, {
             status: payload.data?.status,
+            stage: payload.data?.stage,
             started_at: payload.data?.started_at,
             finished_at: payload.data?.finished_at,
             node_id: payload.data?.node_id,
@@ -1222,7 +1224,7 @@ function NodesPage() {
       }
     };
     ws.onerror = () => {
-      setDeployError(`${t("Failed to get status")}: ${t("Disconnected")}`);
+      // WS is optional; polling will keep status fresh.
     };
     ws.onclose = () => {
       if (deployWsRef.current === ws) {
@@ -1253,6 +1255,7 @@ function NodesPage() {
           });
           setDeployLogs((prev) => ({ ...prev, ...logs }));
         }
+        setDeployError("");
         const status = job?.status;
         if (status === "success" || status === "failed") {
           stopped = true;
@@ -1285,6 +1288,7 @@ function NodesPage() {
         if (payload.type === "item_status") {
           updateTaskItem(payload.data?.item_id, {
             status: payload.data?.status,
+            stage: payload.data?.stage,
             started_at: payload.data?.started_at,
             finished_at: payload.data?.finished_at,
             node_id: payload.data?.node_id,
@@ -1877,6 +1881,26 @@ function NodesPage() {
     }
   }
 
+  async function loadAgentDeployDefaults() {
+    try {
+      const data = await request("GET", "/settings/agent-deploy-defaults");
+      if (!data) return;
+      setDeployForm((prev) => ({
+        ...prev,
+        allow_cidr: prev.allow_cidr || data.default_allow_cidr || "",
+        agent_port: prev.agent_port || data.default_agent_port || 9191,
+        stats_mode: prev.stats_mode || data.default_stats_mode || "log",
+        xray_access_log_path: prev.xray_access_log_path || data.default_xray_access_log_path || "/var/log/xray/access.log",
+        rate_limit_rps: prev.rate_limit_rps || data.default_rate_limit_rps || 5,
+        health_check: typeof data.default_health_check === "boolean" ? data.default_health_check : prev.health_check,
+        enable_ufw: typeof data.default_enable_ufw === "boolean" ? data.default_enable_ufw : prev.enable_ufw,
+        parallelism: prev.parallelism || data.default_parallelism || 3,
+      }));
+    } catch (err) {
+      setDeployError(err.message);
+    }
+  }
+
   async function registerPasskey() {
     setPasskeysError("");
     if (!window.PublicKeyCredential) {
@@ -2260,6 +2284,14 @@ function NodesPage() {
                       <span className="muted small">{t("Panel: {panel}", { panel: node.panel_version || t("unknown") })}</span>
                     )}
                     <span className="muted small">{t("Xray: {xray}", { xray: node.xray_version || t("unknown") })}</span>
+                    <span className="muted small">
+                      {node.agent_installed
+                        ? node.agent_online
+                          ? t("Agent online")
+                          : t("Agent offline")
+                        : t("No agent")}
+                      {node.agent_version ? ` v${node.agent_version}` : ""}
+                    </span>
                   </div>
                   {lastTs && <div className="muted small">{t("Last check: {ts}", { ts: formatTS(lastTs) })}</div>}
                 </div>
@@ -2994,15 +3026,16 @@ function NodesPage() {
                 const node = nodes.find((n) => n.id === item.node_id);
                 return (
                   <div className="deploy-item" key={item.id}>
-                    <div className="deploy-item-head">
-                      <div className="deploy-item-title">{node?.name || item.node_id}</div>
-                      <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
-                    </div>
-                    {item.error && <div className="error">{item.error}</div>}
-                    {deployLogs[item.id] && <pre className="deploy-log">{deployLogs[item.id]}</pre>}
+                  <div className="deploy-item-head">
+                    <div className="deploy-item-title">{node?.name || item.node_id}</div>
+                    <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
                   </div>
-                );
-              })}
+                  {item.stage && <div className="muted small">{t("Stage")}: {item.stage}</div>}
+                  {item.error && <div className="error">{item.error}</div>}
+                  {deployLogs[item.id] && <pre className="deploy-log">{deployLogs[item.id]}</pre>}
+                </div>
+              );
+            })}
             </div>
           </div>
         </div>
@@ -3028,15 +3061,16 @@ function NodesPage() {
                 const node = nodes.find((n) => n.id === item.node_id);
                 return (
                   <div className="deploy-item" key={item.id}>
-                    <div className="deploy-item-head">
-                      <div className="deploy-item-title">{node?.name || item.node_id}</div>
-                      <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
-                    </div>
-                    {item.error && <div className="error">{item.error}</div>}
-                    {taskLogs[item.id] && <pre className="deploy-log">{taskLogs[item.id]}</pre>}
+                  <div className="deploy-item-head">
+                    <div className="deploy-item-title">{node?.name || item.node_id}</div>
+                    <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
                   </div>
-                );
-              })}
+                  {item.stage && <div className="muted small">{t("Stage")}: {item.stage}</div>}
+                  {item.error && <div className="error">{item.error}</div>}
+                  {taskLogs[item.id] && <pre className="deploy-log">{taskLogs[item.id]}</pre>}
+                </div>
+              );
+            })}
             </div>
           </div>
         </div>
@@ -3431,14 +3465,19 @@ function DashboardPage() {
 
   const aggregate = useMemo(() => {
     let online = 0;
+    let agentsOnline = 0;
+    let agentsTotal = 0;
     let cpuSum = 0;
     let cpuCount = 0;
     let rx = 0;
     let tx = 0;
     nodesFiltered.forEach((node) => {
-      const collected = node.collected_at ? new Date(node.collected_at).getTime() : 0;
-      if (collected && nowTs - collected <= staleMs) {
+      if (node.agent_installed) {
+        agentsTotal += 1;
+      }
+      if (node.agent_online) {
         online += 1;
+        agentsOnline += 1;
       }
       if (node.cpu_pct != null) {
         cpuSum += node.cpu_pct;
@@ -3449,6 +3488,8 @@ function DashboardPage() {
     });
     return {
       nodesOnline: online,
+      agentsOnline,
+      agentsTotal,
       nodesTotal: nodesFiltered.length,
       avgCPU: cpuCount > 0 ? cpuSum / cpuCount : 0,
       totalRx: rx,
@@ -3458,13 +3499,9 @@ function DashboardPage() {
   }, [nodesFiltered, activeUsers, nowTs]);
 
   const deriveNodeStatus = (node) => {
-    if (!node.collected_at) return "offline";
-    const collected = new Date(node.collected_at).getTime();
-    if (Number.isNaN(collected)) return "offline";
-    const age = nowTs - collected;
-    if (age > staleMs * 3) return "offline";
-    if (age > staleMs) return "stale";
-    return "online";
+    if (!node.agent_installed) return "no_agent";
+    if (node.agent_online) return "online";
+    return "offline";
   };
 
   const formatSource = (node) => {
@@ -3492,6 +3529,10 @@ function DashboardPage() {
         <div className="dashboard-card">
           <div className="muted small">{t("Nodes online")}</div>
           <div className="dashboard-value">{aggregate.nodesOnline} / {aggregate.nodesTotal}</div>
+        </div>
+        <div className="dashboard-card">
+          <div className="muted small">{t("Agents online")}</div>
+          <div className="dashboard-value">{aggregate.agentsOnline} / {aggregate.agentsTotal}</div>
         </div>
         <div className="dashboard-card">
           <div className="muted small">{t("Total RX")}</div>
@@ -3526,6 +3567,7 @@ function DashboardPage() {
           <div className="table-row head">
             <div>{t("Node")}</div>
             <div>{t("Status")}</div>
+            <div>{t("Agent")}</div>
             <div>{t("CPU")}</div>
             <div>{t("RAM")}</div>
             <div>{t("Disk")}</div>
@@ -3540,6 +3582,12 @@ function DashboardPage() {
             const ram = node.ram_total_bytes ? `${formatBytes(node.ram_used_bytes || 0)} / ${formatBytes(node.ram_total_bytes)}` : "-";
             const disk = node.disk_total_bytes ? `${formatBytes(node.disk_used_bytes || 0)} / ${formatBytes(node.disk_total_bytes)}` : "-";
             const badgeClass = node.active_users_available ? "source-ok" : "source-bad";
+            const agentLabel = node.agent_installed
+              ? node.agent_online ? t("Agent online") : t("Agent offline")
+              : t("No agent");
+            const agentClass = node.agent_installed
+              ? node.agent_online ? "badge online" : "badge offline"
+              : "badge muted";
             return (
               <div className="table-row" key={node.node_id}>
                 <div>
@@ -3549,6 +3597,11 @@ function DashboardPage() {
                   </span>
                 </div>
                 <div><DashboardStatusBadge status={status} /></div>
+                <div>
+                  <span className={agentClass} title={node.agent_version ? `v${node.agent_version}` : ""}>
+                    {agentLabel}
+                  </span>
+                </div>
                 <div>{formatPercent(node.cpu_pct)}</div>
                 <div>{ram}</div>
                 <div>{disk}</div>

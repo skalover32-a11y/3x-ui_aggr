@@ -116,6 +116,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/ops/jobs/:id/stream", middleware.RequireRoles(readRoles...), h.OpsJobStream)
 	auth.GET("/tasks/:id", middleware.RequireRoles(readRoles...), h.GetTask)
 	auth.GET("/tasks/:id/items", middleware.RequireRoles(readRoles...), h.GetTaskItems)
+	auth.GET("/settings/agent-deploy-defaults", middleware.RequireRoles(readRoles...), h.GetAgentDeployDefaults)
 	auth.GET("/dashboard/summary", middleware.RequireRoles(readRoles...), h.GetDashboardSummary)
 	auth.GET("/dashboard/active-users", middleware.RequireRoles(readRoles...), h.GetDashboardActiveUsers)
 

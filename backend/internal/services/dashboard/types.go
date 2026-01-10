@@ -16,6 +16,7 @@ type NodeMetrics struct {
 	NetTxBytes     *int64
 	NetIface       *string
 	UptimeSec      *int64
+	AgentVersion   *string
 	PanelVersion   *string
 	XrayRunning    *bool
 	PanelRunning   *bool

@@ -86,7 +86,10 @@ type nodeResponse struct {
 	AgentEnabled      bool            `json:"agent_enabled"`
 	AgentURL          *string         `json:"agent_url"`
 	AgentInsecureTLS  bool            `json:"agent_allow_insecure_tls"`
+	AgentInstalled    bool            `json:"agent_installed"`
+	AgentVersion      *string         `json:"agent_version"`
 	AgentLastSeenAt   *time.Time      `json:"agent_last_seen_at"`
+	AgentOnline       bool            `json:"agent_online"`
 	Online            bool            `json:"online"`
 	IsEnabled         bool            `json:"is_enabled"`
 	SSHEnabled        bool            `json:"ssh_enabled"`
@@ -105,7 +108,8 @@ type nodeResponse struct {
 }
 
 func toNodeResponse(node *db.Node) nodeResponse {
-	online := computeAgentOnline(node.AgentLastSeenAt, 90*time.Second)
+	agentInstalled := node.AgentInstalled || node.AgentEnabled
+	agentOnline := computeAgentOnline(node.AgentLastSeenAt, agentInstalled, 90*time.Second)
 	return nodeResponse{
 		ID:                node.ID.String(),
 		Name:              node.Name,
@@ -120,8 +124,11 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		AgentEnabled:      node.AgentEnabled,
 		AgentURL:          node.AgentURL,
 		AgentInsecureTLS:  node.AgentInsecureTLS,
+		AgentInstalled:    agentInstalled,
+		AgentVersion:      node.AgentVersion,
 		AgentLastSeenAt:   node.AgentLastSeenAt,
-		Online:            online,
+		AgentOnline:       agentOnline,
+		Online:            agentOnline,
 		IsEnabled:         node.IsEnabled,
 		SSHEnabled:        node.SSHEnabled,
 		SSHAuthMethod:     node.SSHAuthMethod,
@@ -139,8 +146,8 @@ func toNodeResponse(node *db.Node) nodeResponse {
 	}
 }
 
-func computeAgentOnline(lastSeen *time.Time, ttl time.Duration) bool {
-	if lastSeen == nil {
+func computeAgentOnline(lastSeen *time.Time, installed bool, ttl time.Duration) bool {
+	if !installed || lastSeen == nil {
 		return false
 	}
 	return time.Since(*lastSeen) <= ttl

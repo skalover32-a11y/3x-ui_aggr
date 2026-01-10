@@ -13,6 +13,13 @@ import (
 	"agr_3x_ui/internal/db"
 )
 
+func computeAgentOnline(lastSeen *time.Time, installed bool, ttl time.Duration) bool {
+	if !installed || lastSeen == nil {
+		return false
+	}
+	return time.Since(*lastSeen) <= ttl
+}
+
 type Service struct {
 	DB          *gorm.DB
 	Metrics     NodeMetricsProvider
@@ -124,13 +131,24 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 		_ = s.upsertMetrics(ctx, node.ID, metrics)
 		if metrics.FromAgent && node.AgentEnabled {
 			_ = s.updateAgentLastSeen(ctx, node.ID, metrics.CollectedAt)
+			_ = s.updateAgentInstalled(ctx, node.ID, true)
+			if metrics.AgentVersion != nil {
+				_ = s.updateAgentVersion(ctx, node.ID, *metrics.AgentVersion)
+			}
 			if metrics.PanelVersion != nil {
 				_ = s.updateNodePanelVersion(ctx, node.ID, *metrics.PanelVersion)
 			}
 		}
+		payload := toMetricsPayload(metrics)
+		if metrics.FromAgent {
+			payload["agent_last_seen_at"] = metrics.CollectedAt
+			payload["agent_online"] = true
+			payload["agent_installed"] = true
+			payload["agent_version"] = metrics.AgentVersion
+		}
 		s.Hub.Publish(newEvent(EventNodeMetricsUpdate, map[string]any{
 			"node_id": node.ID.String(),
-			"metrics": toMetricsPayload(metrics),
+			"metrics": payload,
 		}))
 	}
 	if s.Users != nil {
@@ -164,6 +182,20 @@ func (s *Service) updateAgentLastSeen(ctx context.Context, nodeID uuid.UUID, ts 
 		return nil
 	}
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_last_seen_at", ts).Error
+}
+
+func (s *Service) updateAgentInstalled(ctx context.Context, nodeID uuid.UUID, installed bool) error {
+	if s == nil || s.DB == nil {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_installed", installed).Error
+}
+
+func (s *Service) updateAgentVersion(ctx context.Context, nodeID uuid.UUID, version string) error {
+	if s == nil || s.DB == nil || strings.TrimSpace(version) == "" {
+		return nil
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_version", version).Error
 }
 
 func (s *Service) updateNodePanelVersion(ctx context.Context, nodeID uuid.UUID, version string) error {
@@ -262,6 +294,7 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 	err := s.DB.WithContext(ctx).
 		Table("nodes n").
 		Select(`n.id as node_id, n.name, n.kind, n.is_enabled, n.is_sandbox,
+			n.agent_installed, n.agent_last_seen_at, n.agent_version,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec, m.panel_version,
@@ -270,6 +303,9 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
+	}
+	for i := range rows {
+		rows[i].AgentOnline = computeAgentOnline(rows[i].AgentLastSeenAt, rows[i].AgentInstalled, 90*time.Second)
 	}
 	return rows, nil
 }
@@ -295,29 +331,33 @@ func (s *Service) listActiveUsers(ctx context.Context, limit int, search string)
 }
 
 type DashboardNode struct {
-	NodeID         uuid.UUID  `json:"node_id"`
-	Name           string     `json:"name"`
-	Kind           string     `json:"kind"`
-	IsEnabled      bool       `json:"is_enabled"`
-	IsSandbox      bool       `json:"is_sandbox"`
-	CollectedAt    *time.Time `json:"collected_at"`
-	CPUPct         *float64   `json:"cpu_pct"`
-	RAMUsedBytes   *int64     `json:"ram_used_bytes"`
-	RAMTotalBytes  *int64     `json:"ram_total_bytes"`
-	DiskUsedBytes  *int64     `json:"disk_used_bytes"`
-	DiskTotalBytes *int64     `json:"disk_total_bytes"`
-	NetRxBps       *int64     `json:"net_rx_bps"`
-	NetTxBps       *int64     `json:"net_tx_bps"`
-	NetRxBytes     *int64     `json:"net_rx_bytes"`
-	NetTxBytes     *int64     `json:"net_tx_bytes"`
-	UptimeSec      *int64     `json:"uptime_sec"`
-	PanelVersion   *string    `json:"panel_version"`
-	XrayRunning    *bool      `json:"xray_running"`
-	PanelRunning   *bool      `json:"panel_running"`
-	NetIface       *string    `json:"net_iface"`
-	UsersSource    string     `json:"active_users_source"`
-	UsersDetail    string     `json:"active_users_source_detail"`
-	UsersAvailable bool       `json:"active_users_available"`
+	NodeID          uuid.UUID  `json:"node_id"`
+	Name            string     `json:"name"`
+	Kind            string     `json:"kind"`
+	IsEnabled       bool       `json:"is_enabled"`
+	IsSandbox       bool       `json:"is_sandbox"`
+	AgentInstalled  bool       `json:"agent_installed"`
+	AgentLastSeenAt *time.Time `json:"agent_last_seen_at"`
+	AgentOnline     bool       `json:"agent_online"`
+	AgentVersion    *string    `json:"agent_version"`
+	CollectedAt     *time.Time `json:"collected_at"`
+	CPUPct          *float64   `json:"cpu_pct"`
+	RAMUsedBytes    *int64     `json:"ram_used_bytes"`
+	RAMTotalBytes   *int64     `json:"ram_total_bytes"`
+	DiskUsedBytes   *int64     `json:"disk_used_bytes"`
+	DiskTotalBytes  *int64     `json:"disk_total_bytes"`
+	NetRxBps        *int64     `json:"net_rx_bps"`
+	NetTxBps        *int64     `json:"net_tx_bps"`
+	NetRxBytes      *int64     `json:"net_rx_bytes"`
+	NetTxBytes      *int64     `json:"net_tx_bytes"`
+	UptimeSec       *int64     `json:"uptime_sec"`
+	PanelVersion    *string    `json:"panel_version"`
+	XrayRunning     *bool      `json:"xray_running"`
+	PanelRunning    *bool      `json:"panel_running"`
+	NetIface        *string    `json:"net_iface"`
+	UsersSource     string     `json:"active_users_source"`
+	UsersDetail     string     `json:"active_users_source_detail"`
+	UsersAvailable  bool       `json:"active_users_available"`
 }
 
 type DashboardActiveUser struct {
@@ -367,7 +407,7 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 	var cpuSum float64
 	for _, node := range nodes {
 		agg.NodesTotal++
-		if node.CollectedAt != nil {
+		if node.AgentOnline {
 			agg.NodesOnline++
 		}
 		if node.CPUPct != nil {
@@ -401,6 +441,7 @@ func toMetricsPayload(metrics NodeMetrics) map[string]any {
 		"net_tx_bytes":     metrics.NetTxBytes,
 		"net_iface":        metrics.NetIface,
 		"uptime_sec":       metrics.UptimeSec,
+		"agent_version":    metrics.AgentVersion,
 		"panel_version":    metrics.PanelVersion,
 		"xray_running":     metrics.XrayRunning,
 		"panel_running":    metrics.PanelRunning,

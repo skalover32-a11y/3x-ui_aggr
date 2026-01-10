@@ -53,6 +53,7 @@ func (p *AgentProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (
 		NetTxBytes:     resp.NetTxBytes,
 		NetIface:       resp.NetIface,
 		UptimeSec:      resp.UptimeSec,
+		AgentVersion:   resp.AgentVersion,
 		PanelVersion:   resp.PanelVersion,
 		XrayRunning:    resp.XrayRunning,
 		PanelRunning:   resp.PanelRunning,
@@ -138,6 +139,7 @@ type agentStatsResponse struct {
 	NetTxBytes     *int64    `json:"net_tx_bytes"`
 	NetIface       *string   `json:"net_iface"`
 	UptimeSec      *int64    `json:"uptime_sec"`
+	AgentVersion   *string   `json:"agent_version"`
 	PanelVersion   *string   `json:"panel_version"`
 	XrayRunning    *bool     `json:"xray_running"`
 	PanelRunning   *bool     `json:"panel_running"`

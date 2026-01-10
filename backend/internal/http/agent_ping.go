@@ -19,7 +19,7 @@ func (h *Handler) AgentPing(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
-	online := computeAgentOnline(node.AgentLastSeenAt, 90*time.Second)
+	online := computeAgentOnline(node.AgentLastSeenAt, node.AgentInstalled || node.AgentEnabled, 90*time.Second)
 	respondStatus(c, http.StatusOK, gin.H{
 		"ok":           true,
 		"node_id":      node.ID.String(),
