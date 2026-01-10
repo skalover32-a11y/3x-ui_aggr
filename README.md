@@ -189,6 +189,9 @@ Notes:
 - `public_token` is returned on job creation (`POST /api/ops/jobs`, `POST /api/ops/deploy-agent`).
 
 ## Dashboard (realtime)
+Dashboard data is collected via node-agent (`/stats`, `/active-users`). SSH and panel API are not used for dashboard telemetry.
+Panel version is reported by the agent and shown in the dashboard table.
+
 Summary (nodes + aggregates):
 ```bash
 curl -s http://localhost:8080/api/dashboard/summary \

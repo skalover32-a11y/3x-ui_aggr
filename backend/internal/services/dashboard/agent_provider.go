@@ -158,15 +158,10 @@ type CompositeMetricsProvider struct {
 }
 
 func (p *CompositeMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (NodeMetrics, error) {
-	if p.PreferAgent && p.Agent != nil && node != nil && node.AgentEnabled {
-		if metrics, err := p.Agent.CollectNodeMetrics(ctx, node); err == nil {
-			return metrics, nil
-		}
+	if p.Agent == nil || node == nil || !node.AgentEnabled {
+		return NodeMetrics{}, errors.New("agent not configured")
 	}
-	if p.SSH != nil {
-		return p.SSH.CollectNodeMetrics(ctx, node)
-	}
-	return NodeMetrics{}, errors.New("no metrics provider")
+	return p.Agent.CollectNodeMetrics(ctx, node)
 }
 
 type CompositeActiveUsersProvider struct {
@@ -177,16 +172,13 @@ type CompositeActiveUsersProvider struct {
 }
 
 func (p *CompositeActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
-	if p.PreferAgent && p.Agent != nil && node != nil && node.AgentEnabled {
-		return p.Agent.CollectActiveUsers(ctx, node)
+	if p.Agent == nil || node == nil || !node.AgentEnabled {
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "no_source",
+			SourceDetail: "agent not configured",
+			Available:    false,
+		}, nil
 	}
-	if p.PanelEnabled && p.Panel != nil {
-		return p.Panel.CollectActiveUsers(ctx, node)
-	}
-	return ActiveUsersResult{
-		Users:        nil,
-		Source:       "no_source",
-		SourceDetail: "active users disabled",
-		Available:    false,
-	}, nil
+	return p.Agent.CollectActiveUsers(ctx, node)
 }

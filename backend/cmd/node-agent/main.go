@@ -303,8 +303,10 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 	uptime := readUptime()
 	panelRunning := checkSystemctl("x-ui")
 	xrayRunning := checkSystemctl("xray")
+	panelVersion := readPanelVersion()
 
 	return map[string]any{
+		"agent_version":    agentVersion,
 		"collected_at":     now.Format(time.RFC3339),
 		"cpu_pct":          cpuPct,
 		"ram_used_bytes":   ramUsed,
@@ -317,6 +319,7 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 		"net_rx_bps":       rxBps,
 		"net_tx_bps":       txBps,
 		"uptime_sec":       uptime,
+		"panel_version":    panelVersion,
 		"panel_running":    panelRunning,
 		"xray_running":     xrayRunning,
 	}

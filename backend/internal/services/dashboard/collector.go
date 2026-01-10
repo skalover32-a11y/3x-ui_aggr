@@ -116,7 +116,7 @@ func (s *Service) collectOnce(ctx context.Context) {
 }
 
 func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
-	if node == nil || !node.SSHEnabled {
+	if node == nil {
 		return
 	}
 	metrics, err := s.Metrics.CollectNodeMetrics(ctx, node)
@@ -124,6 +124,9 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 		_ = s.upsertMetrics(ctx, node.ID, metrics)
 		if metrics.FromAgent && node.AgentEnabled {
 			_ = s.updateAgentLastSeen(ctx, node.ID, metrics.CollectedAt)
+			if metrics.PanelVersion != nil {
+				_ = s.updateNodePanelVersion(ctx, node.ID, *metrics.PanelVersion)
+			}
 		}
 		s.Hub.Publish(newEvent(EventNodeMetricsUpdate, map[string]any{
 			"node_id": node.ID.String(),
@@ -161,6 +164,17 @@ func (s *Service) updateAgentLastSeen(ctx context.Context, nodeID uuid.UUID, ts 
 		return nil
 	}
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_last_seen_at", ts).Error
+}
+
+func (s *Service) updateNodePanelVersion(ctx context.Context, nodeID uuid.UUID, version string) error {
+	if s == nil || s.DB == nil || strings.TrimSpace(version) == "" {
+		return nil
+	}
+	updates := map[string]any{
+		"panel_version":       version,
+		"versions_checked_at": time.Now().UTC(),
+	}
+	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error
 }
 
 func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics NodeMetrics) error {
