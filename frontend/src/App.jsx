@@ -713,24 +713,18 @@ function NodesPage() {
     if (nodes.length === 0) return;
     const fetchChecks = async () => {
       try {
-        const statusEntries = await Promise.all(
-          nodes.map((node) => request("GET", `/nodes/${node.id}/status`).catch(() => null))
-        );
         const uptimeEntries = await Promise.all(
           nodes.map((node) => request("GET", `/nodes/${node.id}/uptime?minutes=60`).catch(() => []))
         );
         const metricEntries = await Promise.all(
           nodes.map((node) => request("GET", `/nodes/${node.id}/metrics?minutes=720`).catch(() => []))
         );
-        const statusNext = {};
         const uptimeNext = {};
         const metricsNext = {};
         nodes.forEach((node, idx) => {
-          statusNext[node.id] = statusEntries[idx];
           uptimeNext[node.id] = uptimeEntries[idx] || [];
           metricsNext[node.id] = metricEntries[idx] || [];
         });
-        setStatusMap(statusNext);
         setUptimeMap(uptimeNext);
         setMetricsMap(metricsNext);
       } catch {
@@ -740,6 +734,20 @@ function NodesPage() {
     fetchChecks();
     const interval = setInterval(fetchChecks, 30000);
     return () => clearInterval(interval);
+  }, [nodes]);
+
+  useEffect(() => {
+    const next = {};
+    nodes.forEach((node) => {
+      if (node.online === true) {
+        next[node.id] = { status: "online" };
+      } else if (node.online === false) {
+        next[node.id] = { status: "offline" };
+      }
+    });
+    if (Object.keys(next).length > 0) {
+      setStatusMap(next);
+    }
   }, [nodes]);
 
   const showingBots = nodeTypeFilter === "BOT";
