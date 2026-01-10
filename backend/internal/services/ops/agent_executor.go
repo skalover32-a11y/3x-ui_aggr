@@ -41,9 +41,14 @@ func (e *AgentExecutor) Reboot(ctx context.Context, node *db.Node) (string, int,
 	if !resp.OK {
 		return resp.Log, resp.ExitCodeOr(1), errors.New(resp.MessageOr("reboot failed"))
 	}
+	if strings.TrimSpace(resp.BootID) == "" {
+		return resp.Log, resp.ExitCodeOr(1), errors.New("agent did not return boot_id")
+	}
 	logText := resp.Log
 	if resp.BootID != "" {
-		waitLog, err := e.waitForReboot(ctx, node, resp.BootID)
+		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		waitLog, err := e.waitForReboot(waitCtx, node, resp.BootID)
 		if waitLog != "" {
 			if logText != "" {
 				logText += "\n" + waitLog

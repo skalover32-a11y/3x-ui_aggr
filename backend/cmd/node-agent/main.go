@@ -216,15 +216,18 @@ func newRequestID() string {
 }
 
 func (s *state) allowIP(remote string) bool {
-	if len(s.allowlist) == 0 {
-		return false
-	}
 	ip := remote
 	if host, _, err := net.SplitHostPort(remote); err == nil {
 		ip = host
 	}
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
+		return false
+	}
+	if parsed.IsLoopback() {
+		return true
+	}
+	if len(s.allowlist) == 0 {
 		return false
 	}
 	for _, netblock := range s.allowlist {
@@ -296,18 +299,90 @@ func (s *state) activeUsersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func rebootHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "/sbin/reboot")
-	if err := cmd.Start(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "status": "failed", "message": err.Error()})
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "status": "failed", "message": "method not allowed"})
+		return
+	}
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.Confirm) != "REBOOT" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":      false,
+			"status":  "failed",
+			"message": "confirm must be REBOOT",
+		})
+		return
+	}
+	bootID := readBootID()
+	commands := rebootCommandCandidates()
+	if len(commands) == 0 {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"status":  "failed",
+			"message": "no reboot command available",
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"status":  "scheduled",
-		"boot_id": readBootID(),
+		"message": "reboot scheduled",
+		"boot_id": bootID,
 	})
+	go func() {
+		delay := time.Duration(500+rand.Intn(1000)) * time.Millisecond
+		time.Sleep(delay)
+		if err := runRebootCommands(commands); err != nil {
+			log.Printf("reboot command failed: %v", err)
+		}
+	}()
+}
+
+type rebootCommand struct {
+	Name string
+	Args []string
+}
+
+func rebootCommandCandidates() []rebootCommand {
+	candidates := []rebootCommand{
+		{Name: "systemctl", Args: []string{"reboot"}},
+		{Name: "/sbin/reboot"},
+		{Name: "shutdown", Args: []string{"-r", "now"}},
+	}
+	available := make([]rebootCommand, 0, len(candidates))
+	for _, candidate := range candidates {
+		name := candidate.Name
+		if !strings.Contains(name, "/") {
+			if _, err := exec.LookPath(name); err != nil {
+				continue
+			}
+		} else if _, err := os.Stat(name); err != nil {
+			continue
+		}
+		available = append(available, candidate)
+	}
+	return available
+}
+
+func runRebootCommands(commands []rebootCommand) error {
+	var lastErr error
+	for _, candidate := range commands {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cmd := exec.CommandContext(ctx, candidate.Name, candidate.Args...)
+		log.Printf("reboot: exec %s %s", candidate.Name, strings.Join(candidate.Args, " "))
+		err := cmd.Run()
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = errors.New("reboot command failed")
+	}
+	return lastErr
 }
 
 func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
