@@ -173,28 +173,39 @@ func parseAllowlist(cidrs []string) ([]*net.IPNet, error) {
 func (s *state) withMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := newRequestID()
-		w.Header().Set("X-Request-Id", reqID)
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		sw.Header().Set("X-Request-Id", reqID)
 		if !s.allowIP(r.RemoteAddr) {
 			log.Printf("req=%s path=%s ip=%s blocked", reqID, r.URL.Path, r.RemoteAddr)
-			writeJSON(w, http.StatusForbidden, map[string]any{"ok": false, "message": "forbidden"})
+			writeJSON(sw, http.StatusForbidden, map[string]any{"ok": false, "message": "forbidden"})
 			return
 		}
 		if !s.authOK(r) {
 			log.Printf("req=%s path=%s ip=%s unauthorized", reqID, r.URL.Path, r.RemoteAddr)
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "message": "unauthorized"})
+			writeJSON(sw, http.StatusUnauthorized, map[string]any{"ok": false, "message": "unauthorized"})
 			return
 		}
 		if !s.limiter.Allow() {
 			log.Printf("req=%s path=%s ip=%s rate_limited", reqID, r.URL.Path, r.RemoteAddr)
-			writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": false, "message": "rate limit"})
+			writeJSON(sw, http.StatusTooManyRequests, map[string]any{"ok": false, "message": "rate limit"})
 			return
 		}
 		timeout := s.timeoutForPath(r.URL.Path)
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		r = r.WithContext(ctx)
-		next(w, r)
-		log.Printf("req=%s path=%s ok", reqID, r.URL.Path)
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("req=%s path=%s panic=%v", reqID, r.URL.Path, rec)
+				writeJSON(sw, http.StatusInternalServerError, map[string]any{"ok": false, "message": "internal error"})
+			}
+		}()
+		next(sw, r)
+		if sw.status < http.StatusBadRequest {
+			log.Printf("req=%s path=%s ok", reqID, r.URL.Path)
+		} else {
+			log.Printf("req=%s path=%s failed status=%d", reqID, r.URL.Path, sw.status)
+		}
 	}
 }
 
@@ -316,28 +327,26 @@ func rebootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bootID := readBootID()
-	commands := rebootCommandCandidates()
-	if len(commands) == 0 {
+	logText, err := scheduleReboot()
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":      false,
-			"status":  "failed",
-			"message": "no reboot command available",
+			"ok":        false,
+			"status":    "failed",
+			"message":   "reboot failed",
+			"log":       logText,
+			"exit_code": 1,
+			"boot_id":   bootID,
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"status":  "scheduled",
-		"message": "reboot scheduled",
-		"boot_id": bootID,
+		"ok":        true,
+		"status":    "scheduled",
+		"message":   "reboot scheduled",
+		"log":       logText,
+		"exit_code": 0,
+		"boot_id":   bootID,
 	})
-	go func() {
-		delay := time.Duration(500+rand.Intn(1000)) * time.Millisecond
-		time.Sleep(delay)
-		if err := runRebootCommands(commands); err != nil {
-			log.Printf("reboot command failed: %v", err)
-		}
-	}()
 }
 
 type rebootCommand struct {
@@ -347,9 +356,9 @@ type rebootCommand struct {
 
 func rebootCommandCandidates() []rebootCommand {
 	candidates := []rebootCommand{
-		{Name: "systemctl", Args: []string{"reboot"}},
-		{Name: "/sbin/reboot"},
-		{Name: "shutdown", Args: []string{"-r", "now"}},
+		{Name: "systemd-run", Args: []string{"--unit=vlf-agent-reboot", "--on-active=1s", "/usr/bin/systemctl", "reboot", "--no-wall"}},
+		{Name: "sh", Args: []string{"-lc", "(sleep 1; /usr/bin/systemctl reboot --no-wall) >/tmp/vlf-agent-reboot.log 2>&1 &"}},
+		{Name: "sh", Args: []string{"-lc", "(sleep 1; /usr/sbin/reboot) >/tmp/vlf-agent-reboot.log 2>&1 &"}},
 	}
 	available := make([]rebootCommand, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -361,19 +370,56 @@ func rebootCommandCandidates() []rebootCommand {
 		} else if _, err := os.Stat(name); err != nil {
 			continue
 		}
+		if strings.Contains(strings.Join(candidate.Args, " "), "/usr/bin/systemctl") {
+			if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
+				continue
+			}
+		}
+		if strings.Contains(strings.Join(candidate.Args, " "), "/usr/sbin/reboot") {
+			if _, err := os.Stat("/usr/sbin/reboot"); err != nil {
+				continue
+			}
+		}
 		available = append(available, candidate)
 	}
 	return available
 }
 
-func runRebootCommands(commands []rebootCommand) error {
+func scheduleReboot() (string, error) {
+	commands := rebootCommandCandidates()
+	if len(commands) == 0 {
+		return "no reboot command available", errors.New("no reboot command available")
+	}
+	logs := &strings.Builder{}
+	if err := runRebootCommands(commands, logs); err != nil {
+		return strings.TrimSpace(logs.String()), err
+	}
+	return strings.TrimSpace(logs.String()), nil
+}
+
+func runRebootCommands(commands []rebootCommand, logs *strings.Builder) error {
 	var lastErr error
 	for _, candidate := range commands {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		cmd := exec.CommandContext(ctx, candidate.Name, candidate.Args...)
+		cmdOut := &bytes.Buffer{}
+		cmdErr := &bytes.Buffer{}
+		cmd.Stdout = cmdOut
+		cmd.Stderr = cmdErr
 		log.Printf("reboot: exec %s %s", candidate.Name, strings.Join(candidate.Args, " "))
 		err := cmd.Run()
 		cancel()
+		if logs != nil {
+			if cmdOut.Len() > 0 {
+				logs.WriteString(cmdOut.String())
+			}
+			if cmdErr.Len() > 0 {
+				if logs.Len() > 0 {
+					logs.WriteString("\n")
+				}
+				logs.WriteString(cmdErr.String())
+			}
+		}
 		if err == nil {
 			return nil
 		}
@@ -383,6 +429,23 @@ func runRebootCommands(commands []rebootCommand) error {
 		lastErr = errors.New("reboot command failed")
 	}
 	return lastErr
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Write(p []byte) (int, error) {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return s.ResponseWriter.Write(p)
 }
 
 func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
