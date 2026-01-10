@@ -163,6 +163,34 @@ Notes:
 - Verify inside container:
   `docker compose exec backend sh -lc "ls -la /app/bin/vlf-agent"`
 
+## Agent tasks (control plane, no SSH)
+Agent is the single control plane for bulk actions (update/reboot/restart). Backend never SSH-es for these tasks.
+Nodes must have `agent_enabled=true` + `agent_url` + `agent_token`.
+
+Bulk update panels:
+```bash
+curl -s http://localhost:8080/api/tasks/bulk \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"update_panel","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{}}'
+```
+
+Bulk reboot nodes:
+```bash
+curl -s http://localhost:8080/api/tasks/bulk \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"reboot_node","node_ids":["<node_id_1>"],"parallelism":2,"params":{}}'
+```
+
+Bulk restart service (whitelist):
+```bash
+curl -s http://localhost:8080/api/tasks/bulk \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"restart_service","node_ids":["<node_id_1>"],"parallelism":2,"params":{"restart_service":"xray"}}'
+```
+
 Get job and items:
 ```bash
 curl -s http://localhost:8080/api/ops/jobs/<job_id> \

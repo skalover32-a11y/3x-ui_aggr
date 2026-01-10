@@ -515,6 +515,18 @@ function NodesPage() {
   const [deployItems, setDeployItems] = useState([]);
   const [deployLogs, setDeployLogs] = useState({});
   const [deployError, setDeployError] = useState("");
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [taskProgress, setTaskProgress] = useState({ open: false, jobId: "", status: null, title: "" });
+  const [taskItems, setTaskItems] = useState([]);
+  const [taskLogs, setTaskLogs] = useState({});
+  const [taskError, setTaskError] = useState("");
+  const [taskForm, setTaskForm] = useState({
+    type: "update_panel",
+    service: "xray",
+    parallelism: 3,
+    all: false,
+    confirm: "",
+  });
   const [deployForm, setDeployForm] = useState({
     agent_port: 9191,
     agent_token_mode: "per-node",
@@ -982,6 +994,22 @@ function NodesPage() {
     setDeployOpen(true);
   }
 
+  function openTaskModal(type) {
+    setTaskError("");
+    setTaskForm((prev) => ({
+      ...prev,
+      type,
+      confirm: "",
+    }));
+    setTaskOpen(true);
+  }
+
+  function closeTaskProgress() {
+    setTaskProgress({ open: false, jobId: "", status: null, title: "" });
+    setTaskItems([]);
+    setTaskLogs({});
+  }
+
   function closeDeployProgress() {
     if (deployWsRef.current) {
       deployWsRef.current.close();
@@ -1035,6 +1063,49 @@ function NodesPage() {
     }
   }
 
+  function updateTaskItem(itemId, patch) {
+    setTaskItems((prev) => {
+      let updated = false;
+      const next = prev.map((item) => {
+        if (item.id !== itemId) return item;
+        updated = true;
+        return { ...item, ...patch };
+      });
+      if (!updated) {
+        next.push({ id: itemId, ...patch });
+      }
+      return next;
+    });
+  }
+
+  function appendTaskLog(itemId, chunk) {
+    if (!chunk) return;
+    setTaskLogs((prev) => {
+      const next = { ...prev };
+      const current = next[itemId] || "";
+      let merged = current ? `${current}\n${chunk}` : chunk;
+      if (merged.length > 20000) {
+        merged = `...trimmed...\n${merged.slice(-18000)}`;
+      }
+      next[itemId] = merged;
+      return next;
+    });
+  }
+
+  async function loadTaskItems(jobId) {
+    try {
+      const items = await request("GET", `/ops/jobs/${jobId}/items`);
+      setTaskItems(items || []);
+      const logs = {};
+      (items || []).forEach((item) => {
+        if (item.log) logs[item.id] = item.log;
+      });
+      setTaskLogs(logs);
+    } catch (err) {
+      setTaskError(err.message);
+    }
+  }
+
   async function startDeployAgent() {
     setDeployError("");
     const params = {
@@ -1079,6 +1150,40 @@ function NodesPage() {
       await loadDeployItems(job.id);
     } catch (err) {
       setDeployError(err.message);
+    }
+  }
+
+  async function startTask() {
+    setTaskError("");
+    const selectedNodeIDs = Object.keys(selectedNodes).filter((id) => selectedNodes[id]);
+    if (!taskForm.all && selectedNodeIDs.length === 0) {
+      setTaskError(t("Select at least one node"));
+      return;
+    }
+    const params = {
+      confirm: taskForm.confirm.trim(),
+    };
+    if (taskForm.type === "restart_service") {
+      params.restart_service = taskForm.service;
+    }
+    if (taskForm.all && params.confirm !== "REALLY_DO_IT") {
+      setTaskError(t("Type {token} to confirm", { token: "REALLY_DO_IT" }));
+      return;
+    }
+    const payload = {
+      type: taskForm.type,
+      node_ids: taskForm.all ? [] : selectedNodeIDs,
+      all: !!taskForm.all,
+      parallelism: Number(taskForm.parallelism) || 3,
+      params,
+    };
+    try {
+      const job = await request("POST", "/tasks/bulk", payload);
+      setTaskOpen(false);
+      setTaskProgress({ open: true, jobId: job.id, status: job.status || "queued", title: taskForm.type });
+      await loadTaskItems(job.id);
+    } catch (err) {
+      setTaskError(err.message);
     }
   }
 
@@ -1164,6 +1269,82 @@ function NodesPage() {
       clearInterval(interval);
     };
   }, [deployProgress.open, deployProgress.jobId]);
+
+  useEffect(() => {
+    if (!taskProgress.open || !taskProgress.jobId) return;
+    const token = getToken();
+    if (!token) return;
+    const wsUrl = buildWsUrl(`/ops/jobs/${taskProgress.jobId}/stream?token=${encodeURIComponent(token)}`);
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "job_status") {
+          setTaskProgress((prev) => ({ ...prev, status: payload.data?.status || prev.status }));
+        }
+        if (payload.type === "item_status") {
+          updateTaskItem(payload.data?.item_id, {
+            status: payload.data?.status,
+            started_at: payload.data?.started_at,
+            finished_at: payload.data?.finished_at,
+            node_id: payload.data?.node_id,
+          });
+        }
+        if (payload.type === "item_log_append") {
+          appendTaskLog(payload.data?.item_id, payload.data?.chunk);
+        }
+        if (payload.type === "item_done") {
+          updateTaskItem(payload.data?.item_id, {
+            status: payload.data?.status,
+            exit_code: payload.data?.exit_code,
+            error: payload.data?.error,
+          });
+        }
+      } catch {
+      }
+    };
+    ws.onerror = () => {
+      setTaskError(`${t("Failed to get status")}: ${t("Disconnected")}`);
+    };
+    ws.onclose = () => {};
+    return () => ws.close();
+  }, [taskProgress.open, taskProgress.jobId, t]);
+
+  useEffect(() => {
+    if (!taskProgress.open || !taskProgress.jobId) return;
+    let stopped = false;
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const job = await request("GET", `/ops/jobs/${taskProgress.jobId}`);
+        if (job?.status) {
+          setTaskProgress((prev) => ({ ...prev, status: job.status }));
+        }
+        const items = await request("GET", `/ops/jobs/${taskProgress.jobId}/items`);
+        if (Array.isArray(items)) {
+          setTaskItems(items);
+          const logs = {};
+          items.forEach((item) => {
+            if (item.log) logs[item.id] = item.log;
+          });
+          setTaskLogs((prev) => ({ ...prev, ...logs }));
+        }
+        const status = job?.status;
+        if (status === "success" || status === "failed") {
+          stopped = true;
+          return;
+        }
+      } catch (err) {
+        setTaskError(`${t("Failed to get status")}: ${err.message}`);
+      }
+    };
+    const interval = setInterval(poll, 5000);
+    poll();
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [taskProgress.open, taskProgress.jobId]);
 
   function openAddForm() {
     setAddOpen(true);
@@ -1991,6 +2172,15 @@ function NodesPage() {
               <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
                 {t("Deploy agent")}
               </button>
+              <button type="button" className="secondary" onClick={() => openTaskModal("update_panel")} disabled={filteredNodes.length === 0}>
+                {t("Update panels")}
+              </button>
+              <button type="button" className="secondary" onClick={() => openTaskModal("reboot_node")} disabled={filteredNodes.length === 0}>
+                {t("Reboot nodes")}
+              </button>
+              <button type="button" className="secondary" onClick={() => openTaskModal("restart_service")} disabled={filteredNodes.length === 0}>
+                {t("Restart service")}
+              </button>
             </div>
           )}
           <div className="node-type-toggle">
@@ -2724,6 +2914,66 @@ function NodesPage() {
         </div>
       )}
 
+      {taskOpen && (
+        <div className="modal overlay-modal">
+          <div className="modal-content wide">
+            <h3>{t("Bulk action")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <select
+                value={taskForm.type}
+                onChange={(e) => setTaskForm({ ...taskForm, type: e.target.value })}
+              >
+                <option value="update_panel">{t("Update panels")}</option>
+                <option value="reboot_node">{t("Reboot nodes")}</option>
+                <option value="restart_service">{t("Restart service")}</option>
+              </select>
+              {taskForm.type === "restart_service" && (
+                <select
+                  value={taskForm.service}
+                  onChange={(e) => setTaskForm({ ...taskForm, service: e.target.value })}
+                >
+                  <option value="3x-ui">3x-ui</option>
+                  <option value="xray">xray</option>
+                  <option value="sing-box">sing-box</option>
+                  <option value="docker">docker</option>
+                  <option value="adguard">adguard</option>
+                  <option value="agent">agent</option>
+                </select>
+              )}
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={taskForm.all}
+                  onChange={(e) => setTaskForm({ ...taskForm, all: e.target.checked })}
+                />
+                {t("All nodes")}
+              </label>
+              <input
+                type="number"
+                placeholder={t("Parallelism")}
+                value={taskForm.parallelism}
+                onChange={(e) => setTaskForm({ ...taskForm, parallelism: Number(e.target.value) })}
+              />
+              {taskForm.all && (
+                <input
+                  placeholder={t("Type {token} to confirm", { token: "REALLY_DO_IT" })}
+                  value={taskForm.confirm}
+                  onChange={(e) => setTaskForm({ ...taskForm, confirm: e.target.value })}
+                />
+              )}
+              <div className="muted small">
+                {t("Selected: {count}", { count: selectedNodeIDs.length })}
+              </div>
+            </div>
+            {taskError && <div className="error">{taskError}</div>}
+            <div className="actions">
+              <button type="button" onClick={startTask}>{t("Start task")}</button>
+              <button type="button" onClick={() => setTaskOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deployProgress.open && (
         <div className="modal overlay-modal">
           <div className="modal-content wide">
@@ -2750,6 +3000,40 @@ function NodesPage() {
                     </div>
                     {item.error && <div className="error">{item.error}</div>}
                     {deployLogs[item.id] && <pre className="deploy-log">{deployLogs[item.id]}</pre>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {taskProgress.open && (
+        <div className="modal overlay-modal">
+          <div className="modal-content wide">
+            <div className="deploy-header">
+              <div>
+                <h3>{t("Task progress")}</h3>
+                <div className="muted small">{t("Job")}: {taskProgress.jobId}</div>
+              </div>
+              <button type="button" onClick={closeTaskProgress}>{t("Close")}</button>
+            </div>
+            {taskError && <div className="error">{taskError}</div>}
+            <div className="deploy-status">
+              {t("Status")}: <span className={`badge ${taskProgress.status || "queued"}`}>{taskProgress.status || "queued"}</span>
+            </div>
+            <div className="deploy-items">
+              {taskItems.length === 0 && <div className="muted small">{t("No data")}</div>}
+              {taskItems.map((item) => {
+                const node = nodes.find((n) => n.id === item.node_id);
+                return (
+                  <div className="deploy-item" key={item.id}>
+                    <div className="deploy-item-head">
+                      <div className="deploy-item-title">{node?.name || item.node_id}</div>
+                      <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
+                    </div>
+                    {item.error && <div className="error">{item.error}</div>}
+                    {taskLogs[item.id] && <pre className="deploy-log">{taskLogs[item.id]}</pre>}
                   </div>
                 );
               })}
