@@ -165,13 +165,18 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	targetsPayload, _ := json.Marshal(nodeIDs)
 	paramsPayload, _ := json.Marshal(req.Params)
 
+	publicToken, publicTokenHash, err := generatePublicToken()
+	if err != nil {
+		return nil, err
+	}
 	job := db.OpsJob{
-		Type:           typ,
-		Status:         JobQueued,
-		CreatedByActor: actor,
-		Parallelism:    parallelism,
-		Targets:        targetsPayload,
-		Params:         paramsPayload,
+		Type:            typ,
+		Status:          JobQueued,
+		CreatedByActor:  actor,
+		Parallelism:     parallelism,
+		Targets:         targetsPayload,
+		Params:          paramsPayload,
+		PublicTokenHash: &publicTokenHash,
 	}
 
 	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -195,6 +200,7 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	if err != nil {
 		return nil, err
 	}
+	job.PublicToken = &publicToken
 	return &job, nil
 }
 
@@ -768,6 +774,20 @@ func generateToken() (string, error) {
 		return "", err
 	}
 	return base64.RawStdEncoding.EncodeToString(buf), nil
+}
+
+func generatePublicToken() (string, string, error) {
+	token, err := generateToken()
+	if err != nil {
+		return "", "", err
+	}
+	hash := sha256.Sum256([]byte(token))
+	return token, hex.EncodeToString(hash[:]), nil
+}
+
+func hashPublicToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func escapeYAMLString(value string) string {

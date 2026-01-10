@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -22,6 +24,21 @@ type createDeployAgentRequest struct {
 	All         bool           `json:"all"`
 	Parallelism int            `json:"parallelism"`
 	Params      map[string]any `json:"params"`
+}
+
+type publicJobResponse struct {
+	Job   *opsJobPublic `json:"job"`
+	Items []any         `json:"items"`
+}
+
+type opsJobPublic struct {
+	ID         string  `json:"id"`
+	Type       string  `json:"type"`
+	Status     string  `json:"status"`
+	Error      *string `json:"error"`
+	CreatedAt  any     `json:"created_at"`
+	StartedAt  any     `json:"started_at"`
+	FinishedAt any     `json:"finished_at"`
 }
 
 func (h *Handler) CreateOpsJob(c *gin.Context) {
@@ -103,4 +120,56 @@ func (h *Handler) GetOpsJobItems(c *gin.Context) {
 		return
 	}
 	respondStatus(c, http.StatusOK, items)
+}
+
+func (h *Handler) GetOpsJobPublic(c *gin.Context) {
+	if h.Ops == nil {
+		respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
+		return
+	}
+	token := strings.TrimSpace(c.GetHeader("X-Job-Token"))
+	if token == "" {
+		token = strings.TrimSpace(c.Query("token"))
+	}
+	if token == "" {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing job token")
+		return
+	}
+	job, err := h.Ops.GetJob(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "job not found")
+		return
+	}
+	if job.PublicTokenHash == nil || *job.PublicTokenHash == "" {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "job token not configured")
+		return
+	}
+	sum := sha256.Sum256([]byte(token))
+	hash := hex.EncodeToString(sum[:])
+	if hash != *job.PublicTokenHash {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "invalid job token")
+		return
+	}
+	items, err := h.Ops.ListJobItems(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "job not found")
+		return
+	}
+	respJob := &opsJobPublic{
+		ID:         job.ID.String(),
+		Type:       job.Type,
+		Status:     job.Status,
+		Error:      job.Error,
+		CreatedAt:  job.CreatedAt,
+		StartedAt:  job.StartedAt,
+		FinishedAt: job.FinishedAt,
+	}
+	respItems := make([]any, 0, len(items))
+	for _, item := range items {
+		respItems = append(respItems, item)
+	}
+	respondStatus(c, http.StatusOK, publicJobResponse{
+		Job:   respJob,
+		Items: respItems,
+	})
 }
