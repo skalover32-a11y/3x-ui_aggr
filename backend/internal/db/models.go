@@ -268,11 +268,13 @@ type OpsJob struct {
 	Parallelism     int            `gorm:"not null;default:5" json:"parallelism"`
 	Targets         datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb" json:"targets"`
 	Params          datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"params"`
+	PublicTokenHash *string        `gorm:"type:text" json:"-"`
 	Error           *string        `gorm:"type:text" json:"error"`
 	CreatedAt       time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
 	StartedAt       *time.Time     `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt      *time.Time     `gorm:"type:timestamptz" json:"finished_at"`
 	Summary         *OpsJobSummary `gorm:"-" json:"summary,omitempty"`
+	PublicToken     *string        `gorm:"-" json:"public_token,omitempty"`
 }
 
 type OpsJobSummary struct {
