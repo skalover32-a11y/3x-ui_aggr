@@ -142,6 +142,10 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 	return logs.String(), 0, nil
 }
 
+func (e *SSHExecutor) RestartService(ctx context.Context, node *db.Node, service string) (string, int, error) {
+	return "", 1, errors.New("restart_service not supported via ssh")
+}
+
 func (e *SSHExecutor) openClient(node *db.Node) (*ssh.Client, error) {
 	if node == nil {
 		return nil, errors.New("node missing")

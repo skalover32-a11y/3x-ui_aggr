@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -81,7 +82,9 @@ func main() {
 	mux.HandleFunc("/stats", st.withMiddleware(st.statsHandler))
 	mux.HandleFunc("/active-users", st.withMiddleware(st.activeUsersHandler))
 	mux.HandleFunc("/ops/reboot", st.withMiddleware(rebootHandler))
-	mux.HandleFunc("/ops/update", st.withMiddleware(updateHandler))
+	mux.HandleFunc("/ops/update", st.withMiddleware(st.updatePanelHandler))
+	mux.HandleFunc("/ops/update-panel", st.withMiddleware(st.updatePanelHandler))
+	mux.HandleFunc("/ops/restart-service", st.withMiddleware(st.restartServiceHandler))
 
 	addr := cfg.Listen
 	if addr == "" {
@@ -186,11 +189,25 @@ func (s *state) withMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": false, "message": "rate limit"})
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		timeout := s.timeoutForPath(r.URL.Path)
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		r = r.WithContext(ctx)
 		next(w, r)
 		log.Printf("req=%s path=%s ok", reqID, r.URL.Path)
+	}
+}
+
+func (s *state) timeoutForPath(path string) time.Duration {
+	switch {
+	case strings.HasPrefix(path, "/ops/update"):
+		return 20 * time.Minute
+	case strings.HasPrefix(path, "/ops/restart-service"):
+		return 30 * time.Second
+	case strings.HasPrefix(path, "/ops/reboot"):
+		return 15 * time.Second
+	default:
+		return 8 * time.Second
 	}
 }
 
@@ -234,6 +251,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"hostname":      host,
 		"now":           time.Now().UTC().Format(time.RFC3339),
 		"agent_version": agentVersion,
+		"boot_id":       readBootID(),
 	})
 }
 
@@ -280,16 +298,196 @@ func (s *state) activeUsersHandler(w http.ResponseWriter, r *http.Request) {
 func rebootHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sudo", "/sbin/reboot")
+	cmd := exec.CommandContext(ctx, "/sbin/reboot")
 	if err := cmd.Start(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "status": "failed", "message": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"status":  "scheduled",
+		"boot_id": readBootID(),
+	})
 }
 
-func updateHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotImplemented, map[string]any{"ok": false, "message": "not implemented"})
+func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
+	logs := &strings.Builder{}
+	install := detectPanelInstall()
+	if install == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":        false,
+			"status":    "failed",
+			"message":   "panel not detected",
+			"exit_code": 10,
+		})
+		return
+	}
+	writeLog(logs, fmt.Sprintf("detected: %s", install.Kind))
+
+	switch install.Kind {
+	case "docker":
+		if install.Container == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":        false,
+				"status":    "failed",
+				"message":   "docker container not found",
+				"exit_code": 11,
+			})
+			return
+		}
+		writeLog(logs, fmt.Sprintf("container: %s", install.Container))
+		if install.Image != "" {
+			writeLog(logs, fmt.Sprintf("pull image: %s", install.Image))
+			if out, code, err := runShell(r.Context(), fmt.Sprintf("docker pull %s", shellEscape(install.Image))); err != nil {
+				writeLog(logs, out)
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"ok":        false,
+					"status":    "failed",
+					"message":   "docker pull failed",
+					"log":       logs.String(),
+					"exit_code": code,
+				})
+				return
+			}
+		}
+		if out, code, err := runShell(r.Context(), fmt.Sprintf("docker restart %s", shellEscape(install.Container))); err != nil {
+			writeLog(logs, out)
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":        false,
+				"status":    "failed",
+				"message":   "docker restart failed",
+				"log":       logs.String(),
+				"exit_code": code,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":        true,
+			"status":    "success",
+			"log":       logs.String(),
+			"exit_code": 0,
+		})
+		return
+	case "systemd", "binary":
+		if !commandExists("x-ui") && !fileExists("/usr/local/x-ui/x-ui") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":        false,
+				"status":    "failed",
+				"message":   "x-ui not installed",
+				"exit_code": 12,
+			})
+			return
+		}
+		if !commandExists("expect") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":        false,
+				"status":    "failed",
+				"message":   "expect not installed",
+				"exit_code": 13,
+			})
+			return
+		}
+		out, code, err := runShell(r.Context(), buildXUIUpdateCommand())
+		writeLog(logs, out)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":        false,
+				"status":    "failed",
+				"message":   "update failed",
+				"log":       logs.String(),
+				"exit_code": code,
+			})
+			return
+		}
+		if install.Kind == "systemd" && install.Unit != "" {
+			writeLog(logs, fmt.Sprintf("restart unit: %s", install.Unit))
+			if out, code, err := runShell(r.Context(), fmt.Sprintf("systemctl restart %s", shellEscape(install.Unit))); err != nil {
+				writeLog(logs, out)
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"ok":        false,
+					"status":    "failed",
+					"message":   "restart failed",
+					"log":       logs.String(),
+					"exit_code": code,
+				})
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":        true,
+			"status":    "success",
+			"log":       logs.String(),
+			"exit_code": 0,
+		})
+		return
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":        false,
+			"status":    "failed",
+			"message":   "unsupported panel type",
+			"exit_code": 14,
+		})
+	}
+}
+
+type restartRequest struct {
+	Service string `json:"service"`
+}
+
+func (s *state) restartServiceHandler(w http.ResponseWriter, r *http.Request) {
+	var req restartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "status": "failed", "message": "invalid payload"})
+		return
+	}
+	service := strings.TrimSpace(req.Service)
+	if service == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "status": "failed", "message": "service required"})
+		return
+	}
+	logs := &strings.Builder{}
+	if strings.EqualFold(service, "agent") {
+		go func() {
+			time.Sleep(1 * time.Second)
+			_, _, _ = runShell(context.Background(), "systemctl restart vlf-agent")
+		}()
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":        true,
+			"status":    "scheduled",
+			"log":       "agent restart scheduled",
+			"exit_code": 0,
+		})
+		return
+	}
+	unit := resolveServiceUnit(service)
+	if unit == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":        false,
+			"status":    "failed",
+			"message":   "unsupported service",
+			"exit_code": 20,
+		})
+		return
+	}
+	writeLog(logs, fmt.Sprintf("restart unit: %s", unit))
+	out, code, err := runShell(r.Context(), fmt.Sprintf("systemctl restart %s", shellEscape(unit)))
+	writeLog(logs, out)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":        false,
+			"status":    "failed",
+			"message":   "restart failed",
+			"log":       logs.String(),
+			"exit_code": code,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"status":    "success",
+		"log":       logs.String(),
+		"exit_code": 0,
+	})
 }
 
 func (s *state) collectStats(ctx context.Context) map[string]any {
@@ -477,6 +675,14 @@ func readUptime() *int64 {
 	return &sec
 }
 
+func readBootID() string {
+	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func detectIface() string {
 	if iface := runCommand("sh", "-lc", "ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i==\"dev\") {print $(i+1); exit}}'"); strings.TrimSpace(iface) != "" {
 		return strings.TrimSpace(iface)
@@ -547,6 +753,166 @@ func runCommand(name string, args ...string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func runShell(ctx context.Context, cmd string) (string, int, error) {
+	command := exec.CommandContext(ctx, "bash", "-lc", cmd)
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	output := strings.TrimSpace(stdout.String() + stderr.String())
+	if err != nil {
+		exitCode := 1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		return output, exitCode, err
+	}
+	return output, 0, nil
+}
+
+func writeLog(buf *strings.Builder, line string) {
+	if buf == nil || strings.TrimSpace(line) == "" {
+		return
+	}
+	if buf.Len() > 0 {
+		buf.WriteString("\n")
+	}
+	buf.WriteString(strings.TrimSpace(line))
+}
+
+func commandExists(cmd string) bool {
+	return runCommand("sh", "-lc", "command -v "+shellEscape(cmd)+" >/dev/null 2>&1; echo $?") == "0"
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func shellEscape(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\'"\'"'`) + "'"
+}
+
+type panelInstall struct {
+	Kind      string
+	Container string
+	Image     string
+	Unit      string
+}
+
+func detectPanelInstall() *panelInstall {
+	if container, image := detectDockerPanel(); container != "" {
+		return &panelInstall{Kind: "docker", Container: container, Image: image}
+	}
+	if unit := detectSystemdPanel(); unit != "" {
+		return &panelInstall{Kind: "systemd", Unit: unit}
+	}
+	if commandExists("x-ui") || fileExists("/usr/local/x-ui/x-ui") {
+		return &panelInstall{Kind: "binary"}
+	}
+	return nil
+}
+
+func detectDockerPanel() (string, string) {
+	if !commandExists("docker") {
+		return "", ""
+	}
+	out := runCommand("sh", "-lc", "docker ps --format '{{.Names}}'")
+	if strings.TrimSpace(out) == "" {
+		return "", ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		if name == "x-ui" || name == "3x-ui" {
+			image := strings.TrimSpace(runCommand("sh", "-lc", "docker inspect -f '{{.Config.Image}}' "+shellEscape(name)))
+			return name, image
+		}
+	}
+	return "", ""
+}
+
+func detectSystemdPanel() string {
+	units := listSystemdUnits()
+	if _, ok := units["x-ui.service"]; ok {
+		return "x-ui"
+	}
+	if _, ok := units["3x-ui.service"]; ok {
+		return "3x-ui"
+	}
+	return ""
+}
+
+func listSystemdUnits() map[string]struct{} {
+	out := runCommand("sh", "-lc", "systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}'")
+	result := map[string]struct{}{}
+	for _, line := range strings.Split(out, "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
+		}
+		result[name] = struct{}{}
+	}
+	return result
+}
+
+func resolveServiceUnit(service string) string {
+	candidates := map[string][]string{
+		"3x-ui":    {"x-ui", "3x-ui"},
+		"x-ui":     {"x-ui", "3x-ui"},
+		"xray":     {"xray"},
+		"sing-box": {"sing-box"},
+		"docker":   {"docker"},
+		"adguard":  {"adguardhome", "adguard"},
+	}
+	units := listSystemdUnits()
+	key := strings.ToLower(strings.TrimSpace(service))
+	names, ok := candidates[key]
+	if !ok {
+		return ""
+	}
+	for _, name := range names {
+		if _, ok := units[name+".service"]; ok {
+			return name
+		}
+	}
+	return names[0]
+}
+
+func buildXUIUpdateCommand() string {
+	return `flock -n /var/lock/x-ui-update.lock -c "expect <<'EOF'
+set timeout 60
+set env(TERM) \"dumb\"
+log_user 1
+match_max 200000
+spawn x-ui
+expect {
+  -re {Please enter your selection.*} { send \"2\r\" }
+  -re {Enter.*selection.*} { send \"2\r\" }
+  -re {Enter.*choice.*} { send \"2\r\" }
+  timeout { puts \"ERROR: timeout waiting for menu\"; exit 2 }
+}
+set timeout 900
+expect {
+  -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
+  -re {Update.*(completed|success|finished)} { puts \"INFO: update completed\"; exit 0 }
+  -re {Please enter your selection.*} { puts \"INFO: update finished, returned to menu\"; exit 0 }
+  eof { puts \"INFO: x-ui exited after update\"; exit 0 }
+  timeout { puts \"ERROR: update timeout\"; exit 3 }
+}
+EOF"
+rc=$?
+if [ $rc -eq 1 ]; then
+  exit 20
+fi
+exit $rc`
 }
 
 func (s *state) collectUsersFromLog() ([]map[string]any, string, bool) {

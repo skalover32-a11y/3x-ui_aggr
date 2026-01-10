@@ -103,7 +103,8 @@ func main() {
 	checksWorker := checks.New(dbConn, alertsSvc, handler.SSHClient, enc, 10*time.Second)
 	handler.Checks = checksWorker
 	checksWorker.Start(context.Background())
-	opsSvc := ops.New(dbConn, ops.NewSSHExecutor(enc, 20*time.Second), enc, cfg.SudoPasswords, cfg.AllowCIDR, cfg.RepoPath)
+	agentExec := ops.NewAgentExecutor(enc, 10*time.Second)
+	opsSvc := ops.New(dbConn, ops.NewSSHExecutor(enc, 20*time.Second), agentExec, enc, cfg.SudoPasswords, cfg.AllowCIDR, cfg.RepoPath)
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
 	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)

@@ -35,9 +35,12 @@ const (
 )
 
 const (
-	JobTypeReboot = "reboot_nodes"
-	JobTypeUpdate = "update_xui_nodes"
-	JobTypeDeploy = "deploy_agent"
+	JobTypeReboot      = "reboot_nodes"
+	JobTypeUpdate      = "update_xui_nodes"
+	JobTypeDeploy      = "deploy_agent"
+	JobTypeUpdatePanel = "update_panel"
+	JobTypeRebootAgent = "reboot_node"
+	JobTypeRestartSvc  = "restart_service"
 )
 
 const maxParallelism = 10
@@ -45,6 +48,7 @@ const maxParallelism = 10
 type Service struct {
 	DB            *gorm.DB
 	Executor      NodeExecutor
+	AgentExecutor NodeExecutor
 	Encryptor     *security.Encryptor
 	SudoPasswords []string
 	AllowCIDR     string
@@ -80,15 +84,17 @@ type JobParams struct {
 	RateLimitRPS     int    `json:"rate_limit_rps"`
 	EnableUFW        bool   `json:"enable_ufw"`
 	HealthCheck      bool   `json:"health_check"`
+	RestartService   string `json:"restart_service"`
 }
 
-func New(dbConn *gorm.DB, exec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
+func New(dbConn *gorm.DB, exec NodeExecutor, agentExec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
 	if repoPath == "" {
 		repoPath = "/opt/3x-ui_aggr"
 	}
 	return &Service{
 		DB:            dbConn,
 		Executor:      exec,
+		AgentExecutor: agentExec,
 		Encryptor:     enc,
 		SudoPasswords: sudoPasswords,
 		AllowCIDR:     allowCIDR,
@@ -123,8 +129,11 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	if typ == "" {
 		return nil, errors.New("type required")
 	}
-	if typ != JobTypeReboot && typ != JobTypeUpdate && typ != JobTypeDeploy {
+	if !isSupportedJobType(typ) {
 		return nil, errors.New("unsupported job type")
+	}
+	if isAgentJobType(typ) && s.AgentExecutor == nil {
+		return nil, errors.New("agent executor not configured")
 	}
 	actor := strings.TrimSpace(req.Actor)
 	if actor == "" {
@@ -139,7 +148,7 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 		parallelism = maxParallelism
 	}
 	if req.AllNodes && !jobParams.DryRun {
-		if typ == JobTypeReboot || typ == JobTypeUpdate {
+		if typ == JobTypeReboot || typ == JobTypeUpdate || typ == JobTypeUpdatePanel || typ == JobTypeRebootAgent {
 			if strings.TrimSpace(jobParams.Confirm) != "REALLY_DO_IT" {
 				return nil, errors.New("confirmation required")
 			}
@@ -159,6 +168,16 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 	}
 	if jobParams.Sandbox {
 		if err := s.ensureSandboxTargets(ctx, nodeIDs); err != nil {
+			return nil, err
+		}
+	}
+	if isAgentJobType(typ) {
+		if err := s.ensureAgentTargets(ctx, nodeIDs); err != nil {
+			return nil, err
+		}
+	}
+	if typ == JobTypeRestartSvc {
+		if err := validateRestartService(jobParams.RestartService); err != nil {
 			return nil, err
 		}
 	}
@@ -387,8 +406,11 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		return err
 	}
 	timeout := 2 * time.Minute
-	if job.Type == JobTypeUpdate {
+	if job.Type == JobTypeUpdate || job.Type == JobTypeUpdatePanel {
 		timeout = 15 * time.Minute
+	}
+	if job.Type == JobTypeRebootAgent {
+		timeout = 5 * time.Minute
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -402,6 +424,13 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	case JobTypeUpdate:
 		params := parseUpdateParams(job.Params)
 		output, exitCode, runErr = s.Executor.Update(cctx, node, params)
+	case JobTypeUpdatePanel:
+		output, exitCode, runErr = s.AgentExecutor.Update(cctx, node, UpdateParams{})
+	case JobTypeRebootAgent:
+		output, exitCode, runErr = s.AgentExecutor.Reboot(cctx, node)
+	case JobTypeRestartSvc:
+		params := parseJobParams(job.Params)
+		output, exitCode, runErr = s.AgentExecutor.RestartService(cctx, node, params.RestartService)
 	case JobTypeDeploy:
 		params, err := s.buildDeployParams(ctx, node, job.Params)
 		if err != nil {
@@ -559,6 +588,12 @@ func describeJobAction(jobType string, params JobParams) string {
 			return "update_xui_nodes precheck"
 		}
 		return "update_xui_nodes (expect x-ui)"
+	case JobTypeUpdatePanel:
+		return "update panel (agent)"
+	case JobTypeRebootAgent:
+		return "reboot (agent)"
+	case JobTypeRestartSvc:
+		return fmt.Sprintf("restart service %s (agent)", strings.TrimSpace(params.RestartService))
 	default:
 		return jobType
 	}
@@ -878,6 +913,48 @@ func (s *Service) ensureSandboxTargets(ctx context.Context, ids []uuid.UUID) err
 		return fmt.Errorf("sandbox mode: %d non-sandbox nodes in targets", nonSandbox)
 	}
 	return nil
+}
+
+func (s *Service) ensureAgentTargets(ctx context.Context, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return errors.New("no nodes selected")
+	}
+	var nodes []db.Node
+	if err := s.DB.WithContext(ctx).Where("id IN ?", ids).Find(&nodes).Error; err != nil {
+		return err
+	}
+	missing := 0
+	for _, node := range nodes {
+		if !node.AgentEnabled || node.AgentURL == nil || strings.TrimSpace(*node.AgentURL) == "" {
+			missing++
+		}
+	}
+	if missing > 0 {
+		return fmt.Errorf("agent not configured for %d nodes", missing)
+	}
+	return nil
+}
+
+func isSupportedJobType(typ string) bool {
+	switch typ {
+	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeUpdatePanel, JobTypeRebootAgent, JobTypeRestartSvc:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAgentJobType(typ string) bool {
+	return typ == JobTypeUpdatePanel || typ == JobTypeRebootAgent || typ == JobTypeRestartSvc
+}
+
+func validateRestartService(service string) error {
+	switch strings.ToLower(strings.TrimSpace(service)) {
+	case "3x-ui", "x-ui", "xray", "sing-box", "docker", "adguard", "agent":
+		return nil
+	default:
+		return fmt.Errorf("unsupported service: %s", service)
+	}
 }
 
 func (s *Service) publishJobStatus(job *db.OpsJob) {

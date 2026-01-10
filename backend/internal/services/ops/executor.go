@@ -10,6 +10,7 @@ type NodeExecutor interface {
 	Reboot(ctx context.Context, node *db.Node) (string, int, error)
 	Update(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error)
 	DeployAgent(ctx context.Context, node *db.Node, params DeployAgentParams) (string, int, error)
+	RestartService(ctx context.Context, node *db.Node, service string) (string, int, error)
 }
 
 type UpdateParams struct {
