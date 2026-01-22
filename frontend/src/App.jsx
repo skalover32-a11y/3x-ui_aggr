@@ -1883,7 +1883,12 @@ function NodesPage() {
 
   async function loadAgentDeployDefaults() {
     try {
-      const data = await request("GET", "/settings/agent-deploy-defaults");
+      let data = null;
+      try {
+        data = await request("GET", "/settings/public");
+      } catch {
+        data = await request("GET", "/settings/agent-deploy-defaults");
+      }
       if (!data) return;
       setDeployForm((prev) => ({
         ...prev,

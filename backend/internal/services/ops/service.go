@@ -405,6 +405,18 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, "", 1, &started, err)
 		return err
 	}
+	if job.Type == JobTypeUpdatePanel {
+		if !node.AgentEnabled || !node.AgentInstalled {
+			logText := "SKIPPED: agent not installed"
+			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
+			return nil
+		}
+	}
+	if job.Type == JobTypeDeploy && node.AgentInstalled {
+		logText := "ALREADY_INSTALLED: agent already installed"
+		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
+		return nil
+	}
 	timeout := 2 * time.Minute
 	if job.Type == JobTypeUpdate || job.Type == JobTypeUpdatePanel {
 		timeout = 15 * time.Minute

@@ -224,13 +224,33 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		NetTxBytes:     metrics.NetTxBytes,
 		NetIface:       metrics.NetIface,
 		UptimeSec:      metrics.UptimeSec,
-		PanelVersion:   metrics.PanelVersion,
 		XrayRunning:    metrics.XrayRunning,
 		PanelRunning:   metrics.PanelRunning,
 	}
+	assignments := map[string]any{
+		"collected_at":     row.CollectedAt,
+		"cpu_pct":          row.CPUPct,
+		"ram_used_bytes":   row.RAMUsedBytes,
+		"ram_total_bytes":  row.RAMTotalBytes,
+		"disk_used_bytes":  row.DiskUsedBytes,
+		"disk_total_bytes": row.DiskTotalBytes,
+		"net_rx_bps":       row.NetRxBps,
+		"net_tx_bps":       row.NetTxBps,
+		"net_rx_bytes":     row.NetRxBytes,
+		"net_tx_bytes":     row.NetTxBytes,
+		"net_iface":        row.NetIface,
+		"uptime_sec":       row.UptimeSec,
+		"xray_running":     row.XrayRunning,
+		"panel_running":    row.PanelRunning,
+	}
+	if metrics.PanelVersion != nil {
+		assignments["panel_version"] = metrics.PanelVersion
+	} else {
+		assignments["panel_version"] = gorm.Expr("node_metrics_latest.panel_version")
+	}
 	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "node_id"}},
-		UpdateAll: true,
+		DoUpdates: clause.Assignments(assignments),
 	}).Create(&row).Error
 }
 

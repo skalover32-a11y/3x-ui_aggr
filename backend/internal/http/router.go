@@ -31,6 +31,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.GET("/nodes/:id/ssh", h.SSHWebsocket)
 	api.POST("/telegram/webhook", h.TelegramWebhook)
 	api.GET("/healthz", h.Healthz)
+	api.GET("/settings/public", h.GetPublicSettings)
 	api.GET("/dashboard/stream", h.DashboardStream)
 	api.GET("/agent/ping", h.AgentPing)
 	api.GET("/ops/jobs/:id/public", h.GetOpsJobPublic)
