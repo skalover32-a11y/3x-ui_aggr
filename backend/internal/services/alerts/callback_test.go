@@ -114,6 +114,25 @@ func TestAlertTransitions(t *testing.T) {
 	}
 }
 
+func TestParseCallbackShort(t *testing.T) {
+	action, alertID, minutes := ParseCallbackData("a:123")
+	if action != "ack" || alertID != "123" || minutes != 0 {
+		t.Fatalf("unexpected ack parse: %s %s %d", action, alertID, minutes)
+	}
+	action, alertID, minutes = ParseCallbackData("m1:abc")
+	if action != "mute" || alertID != "abc" || minutes != 60 {
+		t.Fatalf("unexpected mute parse: %s %s %d", action, alertID, minutes)
+	}
+	action, alertID, minutes = ParseCallbackData("r:zzz")
+	if action != "retry" || alertID != "zzz" || minutes != 0 {
+		t.Fatalf("unexpected retry parse: %s %s %d", action, alertID, minutes)
+	}
+	action, alertID, minutes = ParseCallbackData("o:open")
+	if action != "open" || alertID != "open" || minutes != 0 {
+		t.Fatalf("unexpected open parse: %s %s %d", action, alertID, minutes)
+	}
+}
+
 type countingRT struct {
 	sendCount int
 	editCount int

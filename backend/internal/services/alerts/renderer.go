@@ -158,6 +158,18 @@ func ParseCallbackData(raw string) (string, string, int) {
 	if data == "" {
 		return "", "", 0
 	}
+	if strings.HasPrefix(data, "a:") {
+		return "ack", strings.TrimSpace(strings.TrimPrefix(data, "a:")), 0
+	}
+	if strings.HasPrefix(data, "m1:") {
+		return "mute", strings.TrimSpace(strings.TrimPrefix(data, "m1:")), 60
+	}
+	if strings.HasPrefix(data, "r:") {
+		return "retry", strings.TrimSpace(strings.TrimPrefix(data, "r:")), 0
+	}
+	if strings.HasPrefix(data, "o:") {
+		return "open", strings.TrimSpace(strings.TrimPrefix(data, "o:")), 0
+	}
 	parts := strings.Split(data, ":")
 	if len(parts) == 0 {
 		return "", "", 0
@@ -222,10 +234,10 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 	callbackRow := []InlineButton{}
 	if alertID != "" {
 		callbackRow = []InlineButton{
-			{Text: "✅ Ack", CallbackData: fmt.Sprintf("ack:%s", alertID)},
-			{Text: "🔇 Mute 1h", CallbackData: fmt.Sprintf("mute:%s:60", alertID)},
-			{Text: "🔁 Retry", CallbackData: fmt.Sprintf("retry:%s", alertID)},
-			{Text: "🔎 Open", CallbackData: fmt.Sprintf("open:%s", alertID)},
+			{Text: "✅ Ack", CallbackData: fmt.Sprintf("a:%s", alertID)},
+			{Text: "🔇 Mute 1h", CallbackData: fmt.Sprintf("m1:%s", alertID)},
+			{Text: "🔁 Retry", CallbackData: fmt.Sprintf("r:%s", alertID)},
+			{Text: "🔎 Open", CallbackData: fmt.Sprintf("o:%s", alertID)},
 		}
 	}
 	if strings.TrimSpace(publicBaseURL) == "" || alert.NodeID == uuid.Nil {

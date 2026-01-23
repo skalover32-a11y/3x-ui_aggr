@@ -22,6 +22,7 @@ type telegramUpdate struct {
 type telegramCallbackQuery struct {
 	ID      string                   `json:"id"`
 	Data    string                   `json:"data"`
+	From    *telegramCallbackFrom    `json:"from,omitempty"`
 	Message *telegramCallbackMessage `json:"message,omitempty"`
 }
 
@@ -30,6 +31,10 @@ type telegramCallbackMessage struct {
 }
 
 type telegramChat struct {
+	ID int64 `json:"id"`
+}
+
+type telegramCallbackFrom struct {
 	ID int64 `json:"id"`
 }
 
@@ -68,6 +73,11 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 		return
 	}
 	data := strings.TrimSpace(update.CallbackQuery.Data)
+	fromID := int64(0)
+	if update.CallbackQuery.From != nil {
+		fromID = update.CallbackQuery.From.ID
+	}
+	log.Printf("telegram update_id=%d callback_id=%s from=%d data=%s", update.UpdateID, update.CallbackQuery.ID, fromID, data)
 	msg := "OK"
 	action, alertID, _ := alerts.ParseCallbackData(data)
 	chatID := ""
