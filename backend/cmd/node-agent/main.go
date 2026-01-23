@@ -550,13 +550,17 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !commandExists("expect") {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"ok":        false,
-				"status":    "failed",
-				"message":   "expect not installed",
-				"exit_code": 13,
-			})
-			return
+			if out, code, err := installExpect(r.Context()); err != nil {
+				writeLog(logs, out)
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"ok":        false,
+					"status":    "failed",
+					"message":   "expect not installed",
+					"log":       logs.String(),
+					"exit_code": code,
+				})
+				return
+			}
 		}
 		out, code, err := runShell(r.Context(), buildXUIUpdateCommand())
 		writeLog(logs, out)
@@ -1105,6 +1109,17 @@ if [ $rc -eq 1 ]; then
   exit 20
 fi
 exit $rc`
+}
+
+func installExpect(ctx context.Context) (string, int, error) {
+	if commandExists("expect") {
+		return "expect already installed", 0, nil
+	}
+	if !commandExists("apt-get") {
+		return "apt-get not available; install expect manually", 1, errors.New("apt-get not available")
+	}
+	cmd := "DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y expect"
+	return runShell(ctx, cmd)
 }
 
 func (s *state) collectUsersFromLog() ([]map[string]any, string, bool) {
