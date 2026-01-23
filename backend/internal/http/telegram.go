@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/services/alerts"
@@ -61,7 +64,11 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	}
 	botToken := strings.TrimSpace(req.BotToken)
 
-	current, _ := h.getTelegramSettings(c)
+	current, err := h.getTelegramSettings(c)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		respondError(c, http.StatusInternalServerError, "TELEGRAM_LOAD", "failed to load settings")
+		return
+	}
 
 	if botToken == "" && current.BotTokenEnc == "" {
 		respondError(c, http.StatusBadRequest, "TELEGRAM_TOKEN", "bot token required")
@@ -95,7 +102,41 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
-	if err := h.DB.WithContext(c.Request.Context()).Create(&row).Error; err != nil {
+	tx := h.DB.WithContext(c.Request.Context()).Begin()
+	var existing db.TelegramSettings
+	err = tx.Order("created_at desc").First(&existing).Error
+	switch {
+	case err == nil:
+		updates := map[string]any{
+			"bot_token_enc":    row.BotTokenEnc,
+			"admin_chat_id":    row.AdminChatID,
+			"alert_connection": row.AlertConnection,
+			"alert_cpu":        row.AlertCPU,
+			"alert_memory":     row.AlertMemory,
+			"alert_disk":       row.AlertDisk,
+			"updated_at":       time.Now(),
+		}
+		if err := tx.Model(&db.TelegramSettings{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
+			_ = tx.Rollback()
+			respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
+			return
+		}
+		row = existing
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		if err := tx.Create(&row).Error; err != nil {
+			_ = tx.Rollback()
+			respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
+			return
+		}
+	default:
+		_ = tx.Rollback()
+		respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
+		return
+	}
+	if row.ID != uuid.Nil {
+		_ = tx.Where("id <> ?", row.ID).Delete(&db.TelegramSettings{}).Error
+	}
+	if err := tx.Commit().Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
 		return
 	}

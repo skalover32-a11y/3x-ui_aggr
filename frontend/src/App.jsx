@@ -2793,7 +2793,17 @@ function NodesPage() {
                   setTelegramSaved(false);
                   try {
                     await saveTelegramSettings(telegramForm);
-                    setTelegramForm({ ...telegramForm, bot_token: "" });
+                    const data = await getTelegramSettings();
+                    setTelegramForm((prev) => ({
+                      ...prev,
+                      bot_token: "",
+                      admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
+                      alert_connection: data.alert_connection ?? true,
+                      alert_cpu: data.alert_cpu ?? true,
+                      alert_memory: data.alert_memory ?? true,
+                      alert_disk: data.alert_disk ?? true,
+                    }));
+                    setTelegramTokenSet(Boolean(data.bot_token_set));
                     setTelegramSaved(true);
                   } catch (err) {
                     setError(err.message);

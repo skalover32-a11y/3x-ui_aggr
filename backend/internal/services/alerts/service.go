@@ -443,6 +443,9 @@ func (s *Service) HandleCallback(ctx context.Context, token, data string) (strin
 		}
 		return "Acknowledged", nil
 	case "open":
+		if url := s.openURLForAlert(ctx, alertID); url != "" {
+			return fmt.Sprintf("Open: %s", url), nil
+		}
 		return "Open in UI", nil
 	case "retry":
 		return "Retry queued", nil
@@ -509,6 +512,18 @@ func (s *Service) AckByAlertID(ctx context.Context, alertID string) error {
 		"updated_at":  now,
 		"last_seen":   now,
 	}).Error
+}
+
+func (s *Service) openURLForAlert(ctx context.Context, alertID string) string {
+	if s == nil || s.db == nil || strings.TrimSpace(s.publicBaseURL) == "" {
+		return ""
+	}
+	state := s.loadStateByAlertID(ctx, alertID)
+	if state == nil || state.NodeID == nil || *state.NodeID == uuid.Nil {
+		return strings.TrimRight(s.publicBaseURL, "/")
+	}
+	base := strings.TrimRight(s.publicBaseURL, "/")
+	return fmt.Sprintf("%s/nodes?node=%s", base, state.NodeID.String())
 }
 func (s *Service) isMuted(ctx context.Context, fingerprint string) bool {
 	if strings.TrimSpace(fingerprint) == "" {

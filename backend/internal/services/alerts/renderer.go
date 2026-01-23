@@ -222,10 +222,10 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 	callbackRow := []InlineButton{}
 	if alertID != "" {
 		callbackRow = []InlineButton{
-			{Text: "?? Ack", CallbackData: fmt.Sprintf("ack:%s", alertID)},
-			{Text: "?? Mute 1h", CallbackData: fmt.Sprintf("mute:%s:60", alertID)},
-			{Text: "?? Retry", CallbackData: fmt.Sprintf("retry:%s", alertID)},
-			{Text: "?? Open", CallbackData: fmt.Sprintf("open:%s", alertID)},
+			{Text: "✅ Ack", CallbackData: fmt.Sprintf("ack:%s", alertID)},
+			{Text: "🔇 Mute 1h", CallbackData: fmt.Sprintf("mute:%s:60", alertID)},
+			{Text: "🔁 Retry", CallbackData: fmt.Sprintf("retry:%s", alertID)},
+			{Text: "🔎 Open", CallbackData: fmt.Sprintf("open:%s", alertID)},
 		}
 	}
 	if strings.TrimSpace(publicBaseURL) == "" || alert.NodeID == uuid.Nil {
@@ -238,8 +238,8 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 	nodeURL := fmt.Sprintf("%s/nodes?node=%s", base, alert.NodeID.String())
 	metricsURL := fmt.Sprintf("%s/nodes?node=%s&tab=metrics", base, alert.NodeID.String())
 	linkRow := []InlineButton{
-		{Text: "?? Открыть ноду", URL: nodeURL},
-		{Text: "?? Метрики", URL: metricsURL},
+		{Text: "🔗 Открыть ноду", URL: nodeURL},
+		{Text: "📊 Метрики", URL: metricsURL},
 	}
 	rows := [][]InlineButton{linkRow}
 	if len(callbackRow) > 0 {

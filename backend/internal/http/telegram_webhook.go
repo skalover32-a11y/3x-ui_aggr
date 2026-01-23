@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -18,8 +20,17 @@ type telegramUpdate struct {
 }
 
 type telegramCallbackQuery struct {
-	ID   string `json:"id"`
-	Data string `json:"data"`
+	ID      string                   `json:"id"`
+	Data    string                   `json:"data"`
+	Message *telegramCallbackMessage `json:"message,omitempty"`
+}
+
+type telegramCallbackMessage struct {
+	Chat telegramChat `json:"chat"`
+}
+
+type telegramChat struct {
+	ID int64 `json:"id"`
 }
 
 func (h *Handler) TelegramWebhook(c *gin.Context) {
@@ -59,14 +70,22 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 	data := strings.TrimSpace(update.CallbackQuery.Data)
 	msg := "OK"
 	action, alertID, _ := alerts.ParseCallbackData(data)
+	chatID := ""
+	if update.CallbackQuery.Message != nil {
+		if update.CallbackQuery.Message.Chat.ID != 0 {
+			chatID = fmt.Sprintf("%d", update.CallbackQuery.Message.Chat.ID)
+		}
+	}
 	if action == "retry" && alertID != "" {
 		if fingerprint, err := h.lookupFingerprintByAlertID(c.Request.Context(), alertID); err == nil && fingerprint != "" {
+			log.Printf("telegram callback action=%s alert_id=%s chat_id=%s fingerprint=%s", action, alertID, chatID, fingerprint)
 			if _, err := h.runRetry(c.Request.Context(), fingerprint); err != nil {
 				msg = "Retry failed"
 			} else {
 				msg = "Retry queued"
 			}
 		} else {
+			log.Printf("telegram callback action=%s alert_id=%s chat_id=%s fingerprint=%s", action, alertID, chatID, alertID)
 			if _, err := h.runRetry(c.Request.Context(), alertID); err != nil {
 				msg = "Retry failed"
 			} else {
@@ -74,6 +93,7 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 			}
 		}
 	} else {
+		log.Printf("telegram callback action=%s alert_id=%s chat_id=%s", action, alertID, chatID)
 		msg, _ = h.Alerts.HandleCallback(c.Request.Context(), token, data)
 	}
 	_ = h.Alerts.AnswerCallback(c.Request.Context(), token, update.CallbackQuery.ID, msg)

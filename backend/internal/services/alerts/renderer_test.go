@@ -80,6 +80,9 @@ func TestCallbackDataShort(t *testing.T) {
 			if btn.CallbackData != "" && len(btn.CallbackData) > 64 {
 				t.Fatalf("callback_data too long: %s", btn.CallbackData)
 			}
+			if strings.Contains(btn.Text, "??") {
+				t.Fatalf("unexpected placeholder in button text: %s", btn.Text)
+			}
 		}
 	}
 }
