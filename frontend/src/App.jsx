@@ -17,6 +17,27 @@ function deriveStatus(panelOK, sshOK) {
   return "offline";
 }
 
+function formatPanelIssue(point, t) {
+  if (!point || point.panel_ok !== false || !point.panel_error_code) return null;
+  const code = point.panel_error_code;
+  switch (code) {
+    case "CERT_EXPIRED":
+      return t("TLS cert expired");
+    case "CERT_NOT_YET_VALID":
+      return t("TLS cert not yet valid");
+    case "UNKNOWN_CA":
+      return t("TLS unknown CA");
+    case "HOSTNAME_MISMATCH":
+      return t("TLS hostname mismatch");
+    case "HANDSHAKE":
+      return t("TLS handshake failed");
+    case "GENERIC_HTTP_ERROR":
+      return t("HTTP error");
+    default:
+      return t("Panel error");
+  }
+}
+
 function computeUptime(points) {
   if (!points || points.length === 0) {
     return { percent: 0, success: 0, total: 0 };
@@ -2243,6 +2264,8 @@ function NodesPage() {
           const uptimePoints = uptimeMap[node.id] || [];
           const { percent } = computeUptime(uptimePoints);
           const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+          const lastPoint = uptimePoints[uptimePoints.length - 1];
+          const panelIssue = formatPanelIssue(lastPoint, t);
 
           return (
             <div className="node-card" key={node.id}>
@@ -2298,6 +2321,11 @@ function NodesPage() {
                       {node.agent_version ? ` v${node.agent_version}` : ""}
                     </span>
                   </div>
+                  {panelIssue && (
+                    <div className="muted small" title={lastPoint?.panel_error_detail || ""}>
+                      {t("Panel issue: {reason}", { reason: panelIssue })}
+                    </div>
+                  )}
                   {lastTs && <div className="muted small">{t("Last check: {ts}", { ts: formatTS(lastTs) })}</div>}
                 </div>
                 <div className="node-uptime">

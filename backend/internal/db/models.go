@@ -102,6 +102,7 @@ type CheckResult struct {
 }
 
 type AlertState struct {
+	AlertID        *uuid.UUID     `gorm:"type:uuid;uniqueIndex" json:"alert_id"`
 	Fingerprint    string         `gorm:"type:text;primaryKey" json:"fingerprint"`
 	AlertType      string         `gorm:"type:text;not null" json:"alert_type"`
 	NodeID         *uuid.UUID     `gorm:"type:uuid" json:"node_id"`
@@ -133,13 +134,15 @@ type AuditLog struct {
 }
 
 type NodeCheck struct {
-	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	NodeID    uuid.UUID `gorm:"type:uuid;not null" json:"node_id"`
-	TS        time.Time `gorm:"type:timestamptz;not null;default:now()" json:"ts"`
-	PanelOK   bool      `gorm:"not null" json:"panel_ok"`
-	SSHOK     bool      `gorm:"not null" json:"ssh_ok"`
-	LatencyMS int       `gorm:"type:int" json:"latency_ms"`
-	Error     *string   `gorm:"type:text" json:"error"`
+	ID               uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	NodeID           uuid.UUID `gorm:"type:uuid;not null" json:"node_id"`
+	TS               time.Time `gorm:"type:timestamptz;not null;default:now()" json:"ts"`
+	PanelOK          bool      `gorm:"not null" json:"panel_ok"`
+	SSHOK            bool      `gorm:"not null" json:"ssh_ok"`
+	LatencyMS        int       `gorm:"type:int" json:"latency_ms"`
+	Error            *string   `gorm:"type:text" json:"error"`
+	PanelErrorCode   *string   `gorm:"type:text" json:"panel_error_code"`
+	PanelErrorDetail *string   `gorm:"type:text" json:"panel_error_detail"`
 }
 
 type NodeMetric struct {

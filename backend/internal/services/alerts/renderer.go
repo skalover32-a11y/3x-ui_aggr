@@ -3,6 +3,7 @@ package alerts
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,13 +153,79 @@ func renderReason(alert Alert) string {
 	return fmt.Sprintf("Reason: <code>%s</code>", escapeHTML(short))
 }
 
+func ParseCallbackData(raw string) (string, string, int) {
+	data := strings.TrimSpace(raw)
+	if data == "" {
+		return "", "", 0
+	}
+	parts := strings.Split(data, ":")
+	if len(parts) == 0 {
+		return "", "", 0
+	}
+	action := strings.TrimSpace(parts[0])
+	switch action {
+	case "ack", "open", "retry":
+		if len(parts) < 2 {
+			return action, "", 0
+		}
+		return action, strings.TrimSpace(parts[1]), 0
+	case "mute":
+		if len(parts) < 2 {
+			return action, "", 0
+		}
+		// legacy: mute:<duration>:<fingerprint>
+		if len(parts) >= 3 && (strings.Contains(parts[1], "h") || isNumeric(parts[1])) {
+			return action, strings.TrimSpace(parts[2]), parseMuteMinutes(parts[1])
+		}
+		minutes := 0
+		if len(parts) >= 3 {
+			minutes = parseMuteMinutes(parts[2])
+		}
+		return action, strings.TrimSpace(parts[1]), minutes
+	default:
+		return "", "", 0
+	}
+}
+
+func parseMuteMinutes(raw string) int {
+	val := strings.TrimSpace(raw)
+	if val == "" {
+		return 0
+	}
+	if strings.HasSuffix(val, "h") {
+		val = strings.TrimSuffix(val, "h")
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return 0
+	}
+	if strings.HasSuffix(raw, "h") {
+		return n * 60
+	}
+	return n
+}
+
+func isNumeric(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
-	fingerprint := strings.TrimSpace(alert.Fingerprint)
+	alertID := strings.TrimSpace(alert.AlertID)
 	callbackRow := []InlineButton{}
-	if fingerprint != "" {
+	if alertID != "" {
 		callbackRow = []InlineButton{
-			{Text: "?? Retry", CallbackData: fmt.Sprintf("retry:%s", fingerprint)},
-			{Text: "?? Mute 1h", CallbackData: fmt.Sprintf("mute:1h:%s", fingerprint)},
+			{Text: "?? Ack", CallbackData: fmt.Sprintf("ack:%s", alertID)},
+			{Text: "?? Mute 1h", CallbackData: fmt.Sprintf("mute:%s:60", alertID)},
+			{Text: "?? Retry", CallbackData: fmt.Sprintf("retry:%s", alertID)},
+			{Text: "?? Open", CallbackData: fmt.Sprintf("open:%s", alertID)},
 		}
 	}
 	if strings.TrimSpace(publicBaseURL) == "" || alert.NodeID == uuid.Nil {

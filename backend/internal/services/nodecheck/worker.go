@@ -3,9 +3,12 @@ package nodecheck
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -52,8 +55,10 @@ func (w *Worker) runOnce(ctx context.Context) {
 	settings, _ := w.Alerts.LoadSettings(ctx)
 	for _, node := range nodes {
 		panelOK, latency, panelErr := true, 0, (*string)(nil)
+		var panelErrCode *string
+		var panelErrDetail *string
 		if isPanelNode(&node) {
-			panelOK, latency, panelErr = checkPanel(ctx, node.BaseURL, node.VerifyTLS)
+			panelOK, latency, panelErr, panelErrCode, panelErrDetail = checkPanel(ctx, node.BaseURL, node.VerifyTLS)
 		} else {
 			panelOK = true
 			latency = 0
@@ -62,12 +67,14 @@ func (w *Worker) runOnce(ctx context.Context) {
 		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort, node.SSHEnabled)
 		errMsg := joinErrors(panelErr, sshErr)
 		entry := db.NodeCheck{
-			NodeID:    node.ID,
-			TS:        time.Now(),
-			PanelOK:   panelOK,
-			SSHOK:     sshOK,
-			LatencyMS: latency,
-			Error:     errMsg,
+			NodeID:           node.ID,
+			TS:               time.Now(),
+			PanelOK:          panelOK,
+			SSHOK:            sshOK,
+			LatencyMS:        latency,
+			Error:            errMsg,
+			PanelErrorCode:   panelErrCode,
+			PanelErrorDetail: panelErrDetail,
 		}
 		_ = w.DB.WithContext(ctx).Create(&entry).Error
 		if w.Alerts != nil {
@@ -86,7 +93,7 @@ func isPanelNode(node *db.Node) bool {
 	return strings.EqualFold(node.Kind, "PANEL") && strings.TrimSpace(node.BaseURL) != ""
 }
 
-func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int, *string) {
+func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int, *string, *string, *string) {
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		Transport: &http.Transport{
@@ -99,7 +106,8 @@ func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int,
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
 		if err != nil {
 			msg := err.Error()
-			return false, 0, &msg
+			code := "GENERIC_HTTP_ERROR"
+			return false, 0, &msg, &code, &msg
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -110,16 +118,19 @@ func checkPanel(ctx context.Context, baseURL string, verifyTLS bool) (bool, int,
 		latency := int(time.Since(start).Milliseconds())
 		if resp.StatusCode >= 500 {
 			msg := fmt.Sprintf("panel status %d", resp.StatusCode)
-			return false, latency, &msg
+			code := "GENERIC_HTTP_ERROR"
+			return false, latency, &msg, &code, &msg
 		}
-		return true, latency, nil
+		return true, latency, nil, nil, nil
 	}
 	if lastErr != nil {
 		msg := lastErr.Error()
-		return false, 0, &msg
+		code, detail := classifyTLSError(lastErr)
+		return false, 0, &msg, &code, &detail
 	}
 	msg := "panel check failed"
-	return false, 0, &msg
+	code := "GENERIC_HTTP_ERROR"
+	return false, 0, &msg, &code, &msg
 }
 
 func checkSSH(ctx context.Context, host string, port int, enabled bool) (bool, *string) {
@@ -151,4 +162,45 @@ func joinErrors(panelErr *string, sshErr *string) *string {
 	}
 	msg := fmt.Sprintf("ssh: %s", *sshErr)
 	return &msg
+}
+
+func classifyTLSError(err error) (string, string) {
+	if err == nil {
+		return "", ""
+	}
+	raw := err.Error()
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+		raw = urlErr.Error()
+	}
+	var certInvalid x509.CertificateInvalidError
+	if errors.As(err, &certInvalid) {
+		if certInvalid.Reason == x509.Expired {
+			return "CERT_EXPIRED", raw
+		}
+		if strings.Contains(strings.ToLower(raw), "not yet valid") {
+			return "CERT_NOT_YET_VALID", raw
+		}
+		if certInvalid.Reason == x509.NotAuthorizedToSign || certInvalid.Reason == x509.CANotAuthorizedForThisName {
+			return "UNKNOWN_CA", raw
+		}
+		return "HANDSHAKE", raw
+	}
+	var hostErr x509.HostnameError
+	if errors.As(err, &hostErr) {
+		return "HOSTNAME_MISMATCH", raw
+	}
+	var unknownAuth x509.UnknownAuthorityError
+	if errors.As(err, &unknownAuth) {
+		return "UNKNOWN_CA", raw
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "GENERIC_HTTP_ERROR", raw
+	}
+	if strings.Contains(strings.ToLower(raw), "tls") {
+		return "HANDSHAKE", raw
+	}
+	return "GENERIC_HTTP_ERROR", raw
 }

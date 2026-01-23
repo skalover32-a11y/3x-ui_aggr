@@ -61,3 +61,38 @@ func TestFingerprintNormalization(t *testing.T) {
 		t.Fatalf("expected digits to be normalized in fingerprint: %s", fp)
 	}
 }
+
+func TestCallbackDataShort(t *testing.T) {
+	alert := Alert{
+		NodeID:   uuid.New(),
+		NodeName: "node",
+		Type:     AlertConnection,
+		TS:       time.Now(),
+		Severity: SeverityCritical,
+		AlertID:  uuid.New().String(),
+	}
+	_, keyboard := RenderAlert(alert, "https://example.com")
+	if keyboard == nil || len(keyboard.InlineKeyboard) == 0 {
+		t.Fatalf("expected inline keyboard")
+	}
+	for _, row := range keyboard.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != "" && len(btn.CallbackData) > 64 {
+				t.Fatalf("callback_data too long: %s", btn.CallbackData)
+			}
+		}
+	}
+}
+
+func TestParseCallbackDataLegacyMute(t *testing.T) {
+	action, alertID, minutes := ParseCallbackData("mute:1h:fingerprint")
+	if action != "mute" {
+		t.Fatalf("expected mute, got %s", action)
+	}
+	if alertID != "fingerprint" {
+		t.Fatalf("expected fingerprint, got %s", alertID)
+	}
+	if minutes != 60 {
+		t.Fatalf("expected 60, got %d", minutes)
+	}
+}

@@ -13,21 +13,25 @@ import (
 )
 
 type nodeStatusResponse struct {
-	NodeID    string     `json:"node_id"`
-	PanelOK   bool       `json:"panel_ok"`
-	SSHOK     bool       `json:"ssh_ok"`
-	LatencyMS int        `json:"latency_ms"`
-	Error     *string    `json:"error"`
-	TS        *time.Time `json:"ts"`
-	Status    string     `json:"status"`
+	NodeID           string     `json:"node_id"`
+	PanelOK          bool       `json:"panel_ok"`
+	SSHOK            bool       `json:"ssh_ok"`
+	LatencyMS        int        `json:"latency_ms"`
+	Error            *string    `json:"error"`
+	PanelErrorCode   *string    `json:"panel_error_code"`
+	PanelErrorDetail *string    `json:"panel_error_detail"`
+	TS               *time.Time `json:"ts"`
+	Status           string     `json:"status"`
 }
 
 type nodeUptimePoint struct {
-	TS        time.Time `json:"ts"`
-	PanelOK   bool      `json:"panel_ok"`
-	SSHOK     bool      `json:"ssh_ok"`
-	LatencyMS int       `json:"latency_ms"`
-	Error     *string   `json:"error"`
+	TS               time.Time `json:"ts"`
+	PanelOK          bool      `json:"panel_ok"`
+	SSHOK            bool      `json:"ssh_ok"`
+	LatencyMS        int       `json:"latency_ms"`
+	Error            *string   `json:"error"`
+	PanelErrorCode   *string   `json:"panel_error_code"`
+	PanelErrorDetail *string   `json:"panel_error_detail"`
 }
 
 type nodeMetricPoint struct {
@@ -64,13 +68,15 @@ func (h *Handler) GetNodeStatus(c *gin.Context) {
 	status := deriveStatus(check.PanelOK, check.SSHOK)
 	ts := check.TS
 	respondStatus(c, http.StatusOK, nodeStatusResponse{
-		NodeID:    node.ID.String(),
-		PanelOK:   check.PanelOK,
-		SSHOK:     check.SSHOK,
-		LatencyMS: check.LatencyMS,
-		Error:     check.Error,
-		TS:        &ts,
-		Status:    status,
+		NodeID:           node.ID.String(),
+		PanelOK:          check.PanelOK,
+		SSHOK:            check.SSHOK,
+		LatencyMS:        check.LatencyMS,
+		Error:            check.Error,
+		PanelErrorCode:   check.PanelErrorCode,
+		PanelErrorDetail: check.PanelErrorDetail,
+		TS:               &ts,
+		Status:           status,
 	})
 }
 
@@ -101,11 +107,13 @@ func (h *Handler) GetNodeUptime(c *gin.Context) {
 	resp := make([]nodeUptimePoint, 0, len(rows))
 	for _, row := range rows {
 		resp = append(resp, nodeUptimePoint{
-			TS:        row.TS,
-			PanelOK:   row.PanelOK,
-			SSHOK:     row.SSHOK,
-			LatencyMS: row.LatencyMS,
-			Error:     row.Error,
+			TS:               row.TS,
+			PanelOK:          row.PanelOK,
+			SSHOK:            row.SSHOK,
+			LatencyMS:        row.LatencyMS,
+			Error:            row.Error,
+			PanelErrorCode:   row.PanelErrorCode,
+			PanelErrorDetail: row.PanelErrorDetail,
 		})
 	}
 	respondStatus(c, http.StatusOK, resp)

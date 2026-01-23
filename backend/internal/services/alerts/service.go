@@ -337,6 +337,7 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	alert.Fingerprint = fingerprintFor(alert)
 	now := time.Now()
 	state := s.loadState(ctx, alert.Fingerprint)
+	alert.AlertID = s.ensureAlertID(ctx, state)
 
 	if status == "ok" {
 		if state != nil && state.LastStatus != nil && *state.LastStatus != "ok" {
@@ -422,18 +423,32 @@ func (s *Service) SendTestDetailed(ctx context.Context, settings *Settings, msg 
 }
 
 func (s *Service) HandleCallback(ctx context.Context, token, data string) (string, error) {
-	if strings.HasPrefix(data, "mute:") {
-		parts := strings.Split(data, ":")
-		if len(parts) >= 3 && parts[1] == "1h" {
-			s.setMute(parts[2], time.Hour)
-			return "Muted for 1h", nil
+	action, alertID, minutes := ParseCallbackData(data)
+	switch action {
+	case "mute":
+		if minutes <= 0 {
+			minutes = 60
 		}
-		return "Mute updated", nil
-	}
-	if strings.HasPrefix(data, "retry:") {
+		if err := s.MuteByAlertID(ctx, alertID, time.Duration(minutes)*time.Minute); err != nil {
+			if strings.TrimSpace(alertID) != "" {
+				s.setMute(alertID, time.Duration(minutes)*time.Minute)
+				return fmt.Sprintf("Muted for %dm", minutes), nil
+			}
+			return "Mute failed", err
+		}
+		return fmt.Sprintf("Muted for %dm", minutes), nil
+	case "ack":
+		if err := s.AckByAlertID(ctx, alertID); err != nil {
+			return "Ack failed", err
+		}
+		return "Acknowledged", nil
+	case "open":
+		return "Open in UI", nil
+	case "retry":
 		return "Retry queued", nil
+	default:
+		return "OK", nil
 	}
-	return "OK", nil
 }
 
 func (s *Service) MuteFingerprint(ctx context.Context, fingerprint string, dur time.Duration) error {
@@ -465,6 +480,34 @@ func (s *Service) setMute(fingerprint string, dur time.Duration) {
 	_ = s.db.Model(&db.AlertState{}).Where("fingerprint = ?", fingerprint).Updates(map[string]any{
 		"muted_until": until,
 		"updated_at":  time.Now(),
+	}).Error
+}
+
+func (s *Service) MuteByAlertID(ctx context.Context, alertID string, dur time.Duration) error {
+	if strings.TrimSpace(alertID) == "" {
+		return fmt.Errorf("alert_id required")
+	}
+	state := s.loadStateByAlertID(ctx, alertID)
+	if state == nil {
+		return fmt.Errorf("alert not found")
+	}
+	s.setMute(state.Fingerprint, dur)
+	return nil
+}
+
+func (s *Service) AckByAlertID(ctx context.Context, alertID string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("alerts not configured")
+	}
+	state := s.loadStateByAlertID(ctx, alertID)
+	if state == nil {
+		return fmt.Errorf("alert not found")
+	}
+	now := time.Now()
+	return s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", state.Fingerprint).Updates(map[string]any{
+		"last_status": "ok",
+		"updated_at":  now,
+		"last_seen":   now,
 	}).Error
 }
 func (s *Service) isMuted(ctx context.Context, fingerprint string) bool {
@@ -551,6 +594,36 @@ func (s *Service) loadState(ctx context.Context, fingerprint string) *db.AlertSt
 	return &state
 }
 
+func (s *Service) loadStateByAlertID(ctx context.Context, alertID string) *db.AlertState {
+	if s == nil || s.db == nil || strings.TrimSpace(alertID) == "" {
+		return nil
+	}
+	id, err := uuid.Parse(alertID)
+	if err != nil {
+		return nil
+	}
+	var state db.AlertState
+	err = s.db.WithContext(ctx).Where("alert_id = ?", id).First(&state).Error
+	if err != nil {
+		return nil
+	}
+	return &state
+}
+
+func (s *Service) ensureAlertID(ctx context.Context, state *db.AlertState) string {
+	if state != nil && state.AlertID != nil {
+		return state.AlertID.String()
+	}
+	id := uuid.New()
+	if state != nil && s != nil && s.db != nil {
+		_ = s.db.WithContext(ctx).Model(&db.AlertState{}).
+			Where("fingerprint = ?", state.Fingerprint).
+			Update("alert_id", id).Error
+		state.AlertID = &id
+	}
+	return id.String()
+}
+
 func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertState, status string, now time.Time, notified bool, messageIDs map[string]int) {
 	if s == nil || s.db == nil {
 		return
@@ -569,11 +642,26 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		payload["updated_at"] = now
 		payload["last_message_ids"] = messageIDsToJSON(messageIDs)
 	}
+	if state != nil && state.AlertID == nil && strings.TrimSpace(alert.AlertID) != "" {
+		if id, err := uuid.Parse(alert.AlertID); err == nil {
+			payload["alert_id"] = id
+		}
+	}
 	if state != nil {
 		_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(payload).Error
 		return
 	}
+	var alertID uuid.UUID
+	if strings.TrimSpace(alert.AlertID) != "" {
+		if id, err := uuid.Parse(alert.AlertID); err == nil {
+			alertID = id
+		}
+	}
+	if alertID == uuid.Nil {
+		alertID = uuid.New()
+	}
 	row := db.AlertState{
+		AlertID:        &alertID,
 		Fingerprint:    alert.Fingerprint,
 		AlertType:      string(alert.Type),
 		NodeID:         nullableUUID(alert.NodeID),

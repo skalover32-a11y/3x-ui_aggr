@@ -210,6 +210,16 @@ Notes:
 - Master auth only works when `AGG_MASTER_KEY_BASE64` is set.
 - If `AGG_ALLOW_CIDR` is set, the client IP must be within that CIDR (localhost always allowed).
 
+## TLS status reasons (panel checks)
+Panel TLS failures are classified and exposed in the node status/uptime API:
+`CERT_EXPIRED`, `CERT_NOT_YET_VALID`, `UNKNOWN_CA`, `HOSTNAME_MISMATCH`, `HANDSHAKE`, `GENERIC_HTTP_ERROR`.
+UI shows a short label (for example: "TLS certificate expired") with full detail in tooltip.
+
+## Telegram inline buttons
+Telegram callback_data is limited to <= 64 bytes. We use short IDs:
+`ack:<alert_id>`, `mute:<alert_id>:<minutes>`, `retry:<alert_id>`, `open:<alert_id>`.
+Long data (fingerprints, URLs, TLS errors) stays in the DB.
+
 Public job status (no login, per-job token):
 ```bash
 curl -s "http://localhost:8080/api/ops/jobs/<job_id>/public?token=<public_token>"
