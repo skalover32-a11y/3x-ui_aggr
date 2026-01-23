@@ -26,7 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1"
+const agentVersion = "v1.1"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`

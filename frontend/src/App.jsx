@@ -558,6 +558,7 @@ function NodesPage() {
     rate_limit_rps: 5,
     enable_ufw: true,
     health_check: true,
+    force_redeploy: true,
     parallelism: 3,
     all: false,
     sandbox_only: false,
@@ -1140,6 +1141,7 @@ function NodesPage() {
       rate_limit_rps: Number(deployForm.rate_limit_rps) || 5,
       enable_ufw: !!deployForm.enable_ufw,
       health_check: !!deployForm.health_check,
+      force_redeploy: !!deployForm.force_redeploy,
       confirm: deployForm.confirm.trim(),
       sandbox: !!deployForm.sandbox_only,
     };
@@ -2968,6 +2970,14 @@ function NodesPage() {
                   onChange={(e) => setDeployForm({ ...deployForm, health_check: e.target.checked })}
                 />
                 {t("Health check")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.force_redeploy}
+                  onChange={(e) => setDeployForm({ ...deployForm, force_redeploy: e.target.checked })}
+                />
+                {t("Redeploy if version differs")}
               </label>
               {deployForm.all && (
                 <input

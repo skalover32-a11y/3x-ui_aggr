@@ -45,6 +45,7 @@ const (
 )
 
 const maxParallelism = 10
+const agentDesiredVersion = "v1.1"
 
 type Service struct {
 	DB            *gorm.DB
@@ -74,6 +75,7 @@ type JobParams struct {
 	SimulateDelayMs  int    `json:"simulate_delay_ms"`
 	Confirm          string `json:"confirm"`
 	Sandbox          bool   `json:"sandbox"`
+	ForceRedeploy    bool   `json:"force_redeploy"`
 	PrecheckOnly     bool   `json:"precheck_only"`
 	InstallExpect    bool   `json:"install_expect"`
 	AgentPort        int    `json:"agent_port"`
@@ -413,10 +415,24 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 			return nil
 		}
 	}
-	if job.Type == JobTypeDeploy && node.AgentInstalled {
-		logText := "ALREADY_INSTALLED: agent already installed"
-		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
-		return nil
+	if job.Type == JobTypeDeploy {
+		params := parseJobParams(job.Params)
+		if node.AgentInstalled && !params.ForceRedeploy {
+			logText := "ALREADY_INSTALLED: agent already installed"
+			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
+			return nil
+		}
+		if node.AgentInstalled && params.ForceRedeploy {
+			current := ""
+			if node.AgentVersion != nil {
+				current = strings.TrimSpace(*node.AgentVersion)
+			}
+			if current != "" && current == agentDesiredVersion {
+				logText := fmt.Sprintf("ALREADY_INSTALLED: agent version matches (%s)", current)
+				s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
+				return nil
+			}
+		}
 	}
 	timeout := 2 * time.Minute
 	if job.Type == JobTypeUpdate || job.Type == JobTypeUpdatePanel {
