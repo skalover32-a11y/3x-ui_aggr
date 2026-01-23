@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	mrand "math/rand"
 	"net/http"
 	"os"
@@ -484,6 +485,22 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		runErr = errors.New("unsupported job type")
 		exitCode = 1
 	}
+	panelVersion := ""
+	if job.Type == JobTypeUpdatePanel {
+		panelVersion = parsePanelVersionFromLog(output)
+		if runErr == nil && panelVersion != "" {
+			if err := s.persistPanelVersion(ctx, node.ID, panelVersion); err != nil {
+				output = appendPreLog(output, fmt.Sprintf("panel_version update failed: %v", err))
+			} else {
+				output = appendPreLog(output, fmt.Sprintf("panel_version stored: %s", panelVersion))
+			}
+		}
+		if runErr != nil {
+			log.Printf("update_panel job=%s node=%s status=failed err=%v", job.ID, item.NodeID, runErr)
+		} else {
+			log.Printf("update_panel job=%s node=%s status=success version=%s", job.ID, item.NodeID, panelVersion)
+		}
+	}
 	output = trimLog(output, 4096, 16384)
 	if runErr != nil {
 		if strings.TrimSpace(output) == "" {
@@ -571,6 +588,23 @@ func trimLog(input string, headSize int, tailSize int) string {
 	head := input[:headSize]
 	tail := input[len(input)-tailSize:]
 	return head + "\n...trimmed...\n" + tail
+}
+
+func parsePanelVersionFromLog(logText string) string {
+	if strings.TrimSpace(logText) == "" {
+		return ""
+	}
+	lines := strings.Split(logText, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "panel_version:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "panel_version:"))
+		}
+		if strings.HasPrefix(line, "panel_version=") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "panel_version="))
+		}
+	}
+	return ""
 }
 
 func parseJobParams(raw datatypes.JSON) JobParams {
@@ -764,6 +798,36 @@ func (s *Service) persistAgentContact(ctx context.Context, nodeID uuid.UUID, las
 		updates["agent_version"] = strings.TrimSpace(agentVersion)
 	}
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error
+}
+
+func (s *Service) persistPanelVersion(ctx context.Context, nodeID uuid.UUID, version string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db not configured")
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	updates := map[string]any{
+		"panel_version":       version,
+		"versions_checked_at": now,
+	}
+	if err := s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
+		return err
+	}
+	row := db.NodeMetricsLatest{
+		NodeID:       nodeID,
+		CollectedAt:  now,
+		PanelVersion: &version,
+	}
+	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "node_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"panel_version": version,
+			"collected_at":  now,
+		}),
+	}).Create(&row).Error
 }
 
 func (s *Service) ensureAgentBinary() (string, string, error) {

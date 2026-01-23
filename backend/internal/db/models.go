@@ -178,6 +178,10 @@ type NodeMetricsLatest struct {
 	PanelRunning   *bool     `json:"panel_running"`
 }
 
+func (NodeMetricsLatest) TableName() string {
+	return "node_metrics_latest"
+}
+
 type ActiveUserLatest struct {
 	ID             uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	NodeID         uuid.UUID `gorm:"type:uuid;not null" json:"node_id"`
@@ -190,6 +194,10 @@ type ActiveUserLatest struct {
 	TotalDownBytes *int64    `json:"total_down_bytes"`
 	LastSeen       time.Time `gorm:"type:timestamptz;not null" json:"last_seen"`
 	CollectedAt    time.Time `gorm:"type:timestamptz;not null" json:"collected_at"`
+}
+
+func (ActiveUserLatest) TableName() string {
+	return "active_users_latest"
 }
 
 type TelegramSettings struct {

@@ -481,6 +481,10 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeLog(logs, fmt.Sprintf("detected: %s", install.Kind))
+	beforeVersion := readPanelVersionForInstall(install)
+	if beforeVersion != nil {
+		writeLog(logs, fmt.Sprintf("version_before: %s", *beforeVersion))
+	}
 
 	switch install.Kind {
 	case "docker":
@@ -519,11 +523,20 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		afterVersion := readPanelVersionForInstall(install)
+		if afterVersion != nil {
+			writeLog(logs, fmt.Sprintf("version_after: %s", *afterVersion))
+		}
+		panelVersion := afterVersion
+		if panelVersion == nil {
+			panelVersion = beforeVersion
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"status":    "success",
-			"log":       logs.String(),
-			"exit_code": 0,
+			"ok":            true,
+			"status":        "success",
+			"log":           logs.String(),
+			"exit_code":     0,
+			"panel_version": panelVersion,
 		})
 		return
 	case "systemd", "binary":
@@ -571,11 +584,20 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		afterVersion := readPanelVersionForInstall(install)
+		if afterVersion != nil {
+			writeLog(logs, fmt.Sprintf("version_after: %s", *afterVersion))
+		}
+		panelVersion := afterVersion
+		if panelVersion == nil {
+			panelVersion = beforeVersion
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":        true,
-			"status":    "success",
-			"log":       logs.String(),
-			"exit_code": 0,
+			"ok":            true,
+			"status":        "success",
+			"log":           logs.String(),
+			"exit_code":     0,
+			"panel_version": panelVersion,
 		})
 		return
 	default:
@@ -885,6 +907,18 @@ func checkSystemctl(unit string) *bool {
 func readPanelVersion() *string {
 	out := runCommand("sh", "-lc", "if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true")
 	return nilifyString(out)
+}
+
+func readPanelVersionForInstall(install *panelInstall) *string {
+	if install == nil {
+		return readPanelVersion()
+	}
+	if install.Kind == "docker" && install.Container != "" && commandExists("docker") {
+		cmd := fmt.Sprintf("docker exec %s sh -lc \"x-ui -v 2>/dev/null || x-ui version 2>/dev/null || /usr/local/x-ui/x-ui -v 2>/dev/null || true\"",
+			shellEscape(install.Container))
+		return nilifyString(runCommand("sh", "-lc", cmd))
+	}
+	return readPanelVersion()
 }
 
 func readXrayVersion() *string {

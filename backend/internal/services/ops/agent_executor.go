@@ -81,7 +81,14 @@ func (e *AgentExecutor) Update(ctx context.Context, node *db.Node, _ UpdateParam
 	if !resp.OK {
 		return resp.Log, resp.ExitCodeOr(1), errors.New(resp.MessageOr("update failed"))
 	}
-	return resp.Log, resp.ExitCodeOr(0), nil
+	logText := resp.Log
+	if resp.PanelVersion != nil && strings.TrimSpace(*resp.PanelVersion) != "" {
+		if logText != "" {
+			logText += "\n"
+		}
+		logText += "panel_version: " + strings.TrimSpace(*resp.PanelVersion)
+	}
+	return logText, resp.ExitCodeOr(0), nil
 }
 
 func (e *AgentExecutor) RestartService(ctx context.Context, node *db.Node, service string) (string, int, error) {
@@ -186,12 +193,13 @@ func (e *AgentExecutor) getHealth(ctx context.Context, node *db.Node, timeout ti
 }
 
 type agentOpResponse struct {
-	OK       bool   `json:"ok"`
-	Status   string `json:"status"`
-	Message  string `json:"message"`
-	Log      string `json:"log"`
-	ExitCode *int   `json:"exit_code"`
-	BootID   string `json:"boot_id"`
+	OK           bool    `json:"ok"`
+	Status       string  `json:"status"`
+	Message      string  `json:"message"`
+	Log          string  `json:"log"`
+	ExitCode     *int    `json:"exit_code"`
+	BootID       string  `json:"boot_id"`
+	PanelVersion *string `json:"panel_version"`
 }
 
 func (r agentOpResponse) ExitCodeOr(fallback int) int {
