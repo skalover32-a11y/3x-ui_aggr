@@ -3491,6 +3491,7 @@ function NodesPage() {
         </div>
       )}
     </div>
+  </div>
   );
 }
 
