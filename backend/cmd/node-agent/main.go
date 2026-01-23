@@ -682,6 +682,7 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 	iface := detectIface()
 	rxBytes, txBytes := readNetBytes(iface)
 	rxBps, txBps := s.computeNetBps(rxBytes, txBytes)
+	tcpConn, udpConn := readSockstat()
 	uptime := readUptime()
 	panelRunning := checkSystemctl("x-ui")
 	xrayRunning := checkSystemctl("xray")
@@ -700,6 +701,8 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 		"net_tx_bytes":     txBytes,
 		"net_rx_bps":       rxBps,
 		"net_tx_bps":       txBps,
+		"tcp_connections":  tcpConn,
+		"udp_connections":  udpConn,
 		"uptime_sec":       uptime,
 		"panel_version":    panelVersion,
 		"panel_running":    panelRunning,
@@ -1171,6 +1174,12 @@ var ipRe = regexp.MustCompile(`([0-9]{1,3}\.){3}[0-9]{1,3}|([a-f0-9:]+:+)+[a-f0-
 func parseAccessLine(line string) (string, string) {
 	email := ""
 	ip := ""
+	trim := strings.TrimSpace(line)
+	if strings.HasPrefix(trim, "{") {
+		if parsedEmail, parsedIP, ok := parseAccessJSON(trim); ok {
+			return parsedEmail, parsedIP
+		}
+	}
 	if match := emailRe.FindStringSubmatch(line); len(match) >= 3 {
 		email = strings.TrimSpace(match[2])
 	}
@@ -1178,6 +1187,110 @@ func parseAccessLine(line string) (string, string) {
 		ip = strings.TrimSpace(match[0])
 	}
 	return email, ip
+}
+
+func parseAccessJSON(line string) (string, string, bool) {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(line), &payload); err != nil {
+		return "", "", false
+	}
+	emailKeys := []string{"email", "user", "account", "client_email", "client", "id", "username"}
+	ipKeys := []string{"ip", "client_ip", "source", "src", "remote_ip"}
+	email := extractString(payload, emailKeys)
+	if email == "" {
+		if userVal, ok := payload["user"]; ok {
+			if inner, ok := userVal.(map[string]any); ok {
+				email = extractString(inner, emailKeys)
+			}
+		}
+	}
+	if email == "" {
+		return "", "", false
+	}
+	ip := extractString(payload, ipKeys)
+	return email, ip, true
+}
+
+func extractString(payload map[string]any, keys []string) string {
+	for _, key := range keys {
+		val, ok := payload[key]
+		if !ok || val == nil {
+			continue
+		}
+		switch v := val.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		case fmt.Stringer:
+			str := strings.TrimSpace(v.String())
+			if str != "" {
+				return str
+			}
+		default:
+			str := strings.TrimSpace(fmt.Sprint(v))
+			if str != "" && str != "<nil>" {
+				return str
+			}
+		}
+	}
+	return ""
+}
+
+func readSockstat() (*int64, *int64) {
+	files := []string{"/proc/net/sockstat", "/proc/net/sockstat6"}
+	var tcpTotal int64
+	var udpTotal int64
+	found := false
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		tcp, udp := parseSockstat(string(raw))
+		tcpTotal += tcp
+		udpTotal += udp
+		found = true
+	}
+	if !found {
+		return nil, nil
+	}
+	return &tcpTotal, &udpTotal
+}
+
+func parseSockstat(raw string) (int64, int64) {
+	var tcpTotal int64
+	var udpTotal int64
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "TCP:") {
+			if val, ok := sockstatValue(line, "inuse"); ok {
+				tcpTotal += val
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "UDP:") {
+			if val, ok := sockstatValue(line, "inuse"); ok {
+				udpTotal += val
+			}
+		}
+	}
+	return tcpTotal, udpTotal
+}
+
+func sockstatValue(line, key string) (int64, bool) {
+	parts := strings.Fields(line)
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == key {
+			val, err := strconv.ParseInt(parts[i+1], 10, 64)
+			if err == nil {
+				return val, true
+			}
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 func tailLines(path string, maxLines int) ([]string, error) {

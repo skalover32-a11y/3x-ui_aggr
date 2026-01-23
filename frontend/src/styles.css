@@ -1361,10 +1361,7 @@ button.ghost:hover {
 .bots-view {
   grid-column: 1 / -1;
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  gap: 20px;
-  align-items: start;
+  display: block;
 }
 
 .bots-view .table.bots {
@@ -1875,6 +1872,14 @@ body {
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
 }
 
+.mini-card.clickable {
+  cursor: pointer;
+}
+
+.mini-card.clickable:hover {
+  border-color: rgba(120, 190, 150, 0.8);
+}
+
 .mini-card.ok {
   border-color: rgba(34, 197, 94, 0.3);
 }
@@ -2129,6 +2134,14 @@ body {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 18px;
+}
+
+.bottom-card.clickable {
+  cursor: pointer;
+}
+
+.bottom-card.clickable:hover {
+  border-color: rgba(120, 190, 150, 0.8);
 }
 
 .bottom-value {

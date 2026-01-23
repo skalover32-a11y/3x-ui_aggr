@@ -226,6 +226,9 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		UptimeSec:      metrics.UptimeSec,
 		XrayRunning:    metrics.XrayRunning,
 		PanelRunning:   metrics.PanelRunning,
+		PingMs:         metrics.PingMs,
+		TCPConnections: metrics.TCPConnections,
+		UDPConnections: metrics.UDPConnections,
 	}
 	assignments := map[string]any{
 		"collected_at":     row.CollectedAt,
@@ -242,6 +245,9 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		"uptime_sec":       row.UptimeSec,
 		"xray_running":     row.XrayRunning,
 		"panel_running":    row.PanelRunning,
+		"ping_ms":          row.PingMs,
+		"tcp_connections":  row.TCPConnections,
+		"udp_connections":  row.UDPConnections,
 	}
 	if metrics.PanelVersion != nil {
 		assignments["panel_version"] = metrics.PanelVersion
@@ -318,8 +324,7 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec, m.panel_version,
-			m.xray_running, m.panel_running,
-			NULL::bigint as ping_ms, NULL::bigint as tcp_connections, NULL::bigint as udp_connections,
+			m.xray_running, m.panel_running, m.ping_ms, m.tcp_connections, m.udp_connections,
 			NULL::text as last_error`).
 		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id").
 		Scan(&rows).Error

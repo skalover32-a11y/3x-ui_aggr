@@ -99,10 +99,17 @@ function formatLocation(node) {
   return { text: parts.join(" / ") || "-", flag };
 }
 
-function MiniStatCard({ label, value, subvalue, progress, accent }) {
+function MiniStatCard({ label, value, subvalue, progress, accent, onClick }) {
   const pct = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
   return (
-    <div className={`mini-card ${accent || ""}`} style={{ "--progress": pct }}>
+    <div
+      className={`mini-card ${accent || ""} ${onClick ? "clickable" : ""}`}
+      style={{ "--progress": pct }}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") onClick(); } : undefined}
+    >
       <div className="mini-ring" />
       <div className="mini-body">
         <div className="mini-value">{value}</div>
@@ -2385,21 +2392,21 @@ function NodesPage() {
             <button
               type="button"
               className={`toggle-pill ${nodeTypeFilter === "PANEL" ? "active" : ""}`}
-              onClick={() => setNodeTypeFilter("PANEL")}
+              onClick={() => navigate("/nodes?view=panel")}
             >
               {t("3x-ui Panels")}
             </button>
             <button
               type="button"
               className={`toggle-pill ${nodeTypeFilter === "HOST" ? "active" : ""}`}
-              onClick={() => setNodeTypeFilter("HOST")}
+              onClick={() => navigate("/nodes?view=host")}
             >
               {t("Hosts")}
             </button>
             <button
               type="button"
               className={`toggle-pill ${nodeTypeFilter === "BOT" ? "active" : ""}`}
-              onClick={() => setNodeTypeFilter("BOT")}
+              onClick={() => navigate("/nodes?view=bots")}
             >
               {t("Bots")}
             </button>
@@ -2489,7 +2496,7 @@ function NodesPage() {
                         {t("Open Dashboard")}
                       </button>
                       <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
-                      <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("View Logs")}</button>
+                      <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("SSH")}</button>
                     </div>
                   </div>
                 );
@@ -3802,6 +3809,7 @@ function DashboardPage() {
             subvalue={t("Incidents")}
             progress={activeAlerts === 0 ? 1 : Math.max(0, 1 - activeAlerts / Math.max(1, totalNodes))}
             accent={activeAlerts === 0 ? "ok" : "warn"}
+            onClick={() => navigate("/nodes?view=alerts")}
           />
           <MiniStatCard
             label={t("Total Traffic (24h)")}
@@ -3821,10 +3829,7 @@ function DashboardPage() {
             </div>
           </div>
           <div className="service-actions">
-            <button type="button" className="secondary" onClick={() => setError(t("Logs view not configured yet"))}>{t("View Logs")}</button>
-            <button type="button" className="secondary" onClick={() => setError(t("Restart requires admin action"))}>{t("Restart Service")}</button>
-            <button type="button" className="secondary" onClick={() => setError(t("Configuration view not available"))}>{t("Open Configuration")}</button>
-            <button type="button" onClick={() => setError(t("Backup workflow not configured"))}>{t("Create Backup")}</button>
+            <button type="button" className="secondary" onClick={() => navigate("/nodes")}>{t("Open Dashboard")}</button>
           </div>
         </section>
 
@@ -3905,7 +3910,7 @@ function DashboardPage() {
                       className="ghost"
                       onClick={() => navigate(`/nodes?ssh=${node.node_id}`)}
                     >
-                      {t("View Logs")}
+                      {t("SSH")}
                     </button>
                   </div>
                 </div>
@@ -3940,7 +3945,7 @@ function DashboardPage() {
             <div className="muted small">{agentsTotal - agentsActive} {t("Offline")}</div>
             <div className="bottom-sub">{t("Last agent errors")}</div>
           </div>
-          <div className="bottom-card">
+          <div className="bottom-card clickable" onClick={() => navigate("/nodes?view=alerts")} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/nodes?view=alerts"); }}>
             <h4>{t("Alerts & Problems")}</h4>
             <div className="bottom-value">{activeAlerts}</div>
             <div className="muted small">{t("Active alerts")}</div>

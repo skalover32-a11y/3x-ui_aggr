@@ -176,6 +176,9 @@ type NodeMetricsLatest struct {
 	PanelVersion   *string   `json:"panel_version"`
 	XrayRunning    *bool     `json:"xray_running"`
 	PanelRunning   *bool     `json:"panel_running"`
+	PingMs         *int64    `json:"ping_ms"`
+	TCPConnections *int64    `json:"tcp_connections"`
+	UDPConnections *int64    `json:"udp_connections"`
 }
 
 func (NodeMetricsLatest) TableName() string {
