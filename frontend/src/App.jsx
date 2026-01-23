@@ -4387,7 +4387,6 @@ function FilesPage() {
           </div>
         </div>
       )}
-      </div>
     </div>
   );
 }
