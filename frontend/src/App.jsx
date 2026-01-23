@@ -221,9 +221,9 @@ function SidebarNav({ active }) {
     { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-    { key: "alerts", label: t("Alerts"), path: "/nodes?view=alerts" },
+    { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
     { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
-    { key: "settings", label: t("Settings"), path: "/nodes?view=settings" },
+    { key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" },
   ];
   return (
     <aside className="sidebar">
@@ -585,6 +585,7 @@ function NodesPage() {
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [nodeTab, setNodeTab] = useState("overview");
   const [nodeTypeFilter, setNodeTypeFilter] = useState("PANEL");
+  const [sidebarActive, setSidebarActive] = useState("nodes");
   const [servicesMap, setServicesMap] = useState({});
   const [serviceResults, setServiceResults] = useState({});
   const [servicesBusy, setServicesBusy] = useState(false);
@@ -821,8 +822,12 @@ function NodesPage() {
     if (sshId && sshAutoOpened !== sshId) {
       const node = nodes.find((n) => n.id === sshId);
       if (node) {
-        setSshModal({ open: true, node, confirmClose: false });
-        setSshAutoOpened(sshId);
+        if (!node.ssh_host) {
+          setError(t("SSH not configured"));
+        } else {
+          setSshModal({ open: true, node, confirmClose: false });
+          setSshAutoOpened(sshId);
+        }
       }
     }
   }, [nodes, location.search, sshAutoOpened]);
@@ -830,9 +835,24 @@ function NodesPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const view = params.get("view");
-    if (view === "panel") setNodeTypeFilter("PANEL");
-    if (view === "host") setNodeTypeFilter("HOST");
-    if (view === "bots") setNodeTypeFilter("BOT");
+    if (view === "panel") {
+      setNodeTypeFilter("PANEL");
+      setSidebarActive("panels");
+    } else if (view === "host") {
+      setNodeTypeFilter("HOST");
+      setSidebarActive("hosts");
+    } else if (view === "bots") {
+      setNodeTypeFilter("BOT");
+      setSidebarActive("bots");
+    } else if (view === "alerts") {
+      setSidebarActive("alerts");
+    } else if (view === "audit") {
+      setSidebarActive("audit");
+    } else if (view === "settings") {
+      setSidebarActive("settings");
+    } else {
+      setSidebarActive("nodes");
+    }
     if (view === "alerts" && isAdmin) {
       setTelegramSaved(false);
       setTelegramTestMsg("");
@@ -1750,10 +1770,10 @@ function NodesPage() {
     const cpu = latest.cpu_pct != null ? formatPercent(latest.cpu_pct) : "-";
     const ram = latest.mem_total_bytes ? `${formatBytes(latest.mem_total_bytes - (latest.mem_available_bytes || 0))} / ${formatBytes(latest.mem_total_bytes)}` : "-";
     const disk = latest.disk_total_bytes ? `${formatBytes(latest.disk_used_bytes || 0)} / ${formatBytes(latest.disk_total_bytes)}` : "-";
-    const rx = latest.net_rx_bps != null ? formatBps(latest.net_rx_bps) : "-";
-    const tx = latest.net_tx_bps != null ? formatBps(latest.net_tx_bps) : "-";
-    const tcpConn = latest.tcp_connections != null ? latest.tcp_connections : "-";
-    const udpConn = latest.udp_connections != null ? latest.udp_connections : "-";
+    const rx = latest.net_rx_bps != null ? formatBps(latest.net_rx_bps) : null;
+    const tx = latest.net_tx_bps != null ? formatBps(latest.net_tx_bps) : null;
+    const tcpConn = latest.tcp_connections != null ? latest.tcp_connections : null;
+    const udpConn = latest.udp_connections != null ? latest.udp_connections : null;
     return (
       <>
         <div className="details-grid">
@@ -1774,12 +1794,14 @@ function NodesPage() {
           </div>
           <div className="metric-card">
             <div className="metric-label">{t("Traffic RX / TX")}</div>
-            <div className="metric-value">{rx} / {tx}</div>
+            <div className="metric-value">{rx && tx ? `${rx} / ${tx}` : t("No data")}</div>
             <div className="metric-sub">{t("Net iface")} {latest.net_iface || "-"}</div>
           </div>
           <div className="metric-card">
             <div className="metric-label">{t("Active connections")}</div>
-            <div className="metric-value">{tcpConn} TCP / {udpConn} UDP</div>
+            <div className="metric-value">
+              {tcpConn != null && udpConn != null ? `${tcpConn} TCP / ${udpConn} UDP` : t("No data")}
+            </div>
             <div className="metric-sub">{t("Last check")} {uptimePoints.length ? formatTS(uptimePoints[uptimePoints.length - 1]?.ts) : "-"}</div>
           </div>
           <div className="metric-card">
@@ -2217,7 +2239,7 @@ function NodesPage() {
 
   return (
     <div className="app-shell">
-      <SidebarNav active="nodes" />
+      <SidebarNav active={sidebarActive} />
       <div className="app-main">
       <header className="header">
         <div className="header-left">
@@ -3390,8 +3412,8 @@ function NodesPage() {
       )}
 
       {auditOpen && (
-        <div className="modal overlay-modal">
-          <div className="modal-content wide">
+        <div className="modal overlay-modal" onClick={() => setAuditOpen(false)}>
+          <div className="modal-content wide" onClick={(e) => e.stopPropagation()}>
             <h3>{t("Audit log")}</h3>
             <div className="audit-controls">
               <input
@@ -3673,6 +3695,20 @@ function DashboardPage() {
     return activeUsers.filter((u) => (u.client_email || "").toLowerCase().includes(term));
   }, [activeUsers, searchUsers]);
 
+  const activeUsersSummary = useMemo(() => {
+    if (nodes.length === 0) return t("No data");
+    const availableCount = nodes.filter((n) => n.active_users_available).length;
+    const sourceSet = new Set(nodes.map((n) => n.active_users_source).filter(Boolean));
+    if (availableCount === 0) {
+      return t("Active users source not available");
+    }
+    if (sourceSet.size === 1) {
+      const source = Array.from(sourceSet)[0];
+      return `${t("Source")}: ${source}`;
+    }
+    return t("Multiple sources");
+  }, [nodes, t]);
+
   const aggregateSafe = useMemo(() => {
     const fallbackTotal = nodesFiltered.length;
     const fallbackOnline = nodesFiltered.filter((n) => n.agent_online).length;
@@ -3894,7 +3930,7 @@ function DashboardPage() {
           </div>
           <div className="bottom-card">
             <h4>{t("Connections")}</h4>
-            <div className="bottom-value">{aggregateSafe.totalConnections != null ? aggregateSafe.totalConnections : "-"}</div>
+            <div className="bottom-value">{aggregateSafe.totalConnections != null ? aggregateSafe.totalConnections : t("No data")}</div>
             <div className="muted small">{t("TCP / UDP")}</div>
             <div className="bottom-sub">{t("Realtime sockets")}</div>
           </div>
@@ -3947,7 +3983,7 @@ function DashboardPage() {
             ))}
             {usersFiltered.length === 0 && (
               <div className="data-row">
-                <div>{loading ? t("Loading...") : t("No data")}</div>
+                <div>{loading ? t("Loading...") : activeUsersSummary}</div>
               </div>
             )}
           </div>

@@ -2054,6 +2054,17 @@ body {
   grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) minmax(200px, 1.6fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(140px, 1fr) minmax(110px, 0.7fr) minmax(220px, 1fr);
 }
 
+.data-table .actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.data-table .actions button {
+  width: auto;
+}
+
 .node-title {
   font-weight: 600;
 }
