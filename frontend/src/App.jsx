@@ -1072,6 +1072,25 @@ function NodesPage() {
     });
   }
 
+  function extractAgentVersion(item, node, logs) {
+    const candidates = [];
+    if (logs && item?.id && logs[item.id]) {
+      candidates.push(logs[item.id]);
+    }
+    if (item?.log) {
+      candidates.push(item.log);
+    }
+    for (const text of candidates) {
+      if (!text) continue;
+      const match = text.match(/agent version matches \(([^)]+)\)/i);
+      if (match && match[1]) return match[1].trim();
+      const alt = text.match(/agent_version[:=\s]+([a-z0-9.\-_]+)/i);
+      if (alt && alt[1]) return alt[1].trim();
+    }
+    if (node?.agent_version) return `v${node.agent_version}`;
+    return "";
+  }
+
   async function loadDeployItems(jobId) {
     try {
       const items = await request("GET", `/ops/jobs/${jobId}/items`);
@@ -3077,12 +3096,14 @@ function NodesPage() {
               {deployItems.length === 0 && <div className="muted small">{t("No data")}</div>}
               {deployItems.map((item) => {
                 const node = nodes.find((n) => n.id === item.node_id);
+                const agentVersion = extractAgentVersion(item, node, deployLogs);
                 return (
                   <div className="deploy-item" key={item.id}>
                   <div className="deploy-item-head">
                     <div className="deploy-item-title">{node?.name || item.node_id}</div>
                     <span className={`badge ${item.status || "queued"}`}>{item.status || "queued"}</span>
                   </div>
+                  {agentVersion && <div className="muted small">{t("Agent")} {agentVersion}</div>}
                   {item.stage && <div className="muted small">{t("Stage")}: {item.stage}</div>}
                   {item.error && <div className="error">{item.error}</div>}
                   {deployLogs[item.id] && <pre className="deploy-log">{deployLogs[item.id]}</pre>}
