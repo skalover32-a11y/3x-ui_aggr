@@ -45,7 +45,7 @@ const (
 )
 
 const maxParallelism = 10
-const agentDesiredVersion = "v1.1"
+const agentDesiredVersion = "v1.2"
 
 type Service struct {
 	DB            *gorm.DB
