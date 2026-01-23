@@ -1095,6 +1095,14 @@ expect {
   -re {Enter.*choice.*} { send \"2\r\" }
   timeout { puts \"ERROR: timeout waiting for menu\"; exit 2 }
 }
+set timeout 60
+expect {
+  -re {Do you want to continue.*} { send \"y\r\" }
+  -re {continue\\? \\[Default y\\]:} { send \"y\r\" }
+  -re {Are you sure.*} { send \"y\r\" }
+  -re {Please enter your selection.*} { }
+  timeout { }
+}
 set timeout 900
 expect {
   -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
