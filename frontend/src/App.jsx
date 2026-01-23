@@ -221,9 +221,9 @@ function SidebarNav({ active }) {
     { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-    { key: "alerts", label: t("Alerts"), path: "/nodes?view=alerts", disabled: true },
-    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit", disabled: true },
-    { key: "settings", label: t("Settings"), path: "/nodes?view=settings", disabled: true },
+    { key: "alerts", label: t("Alerts"), path: "/nodes?view=alerts" },
+    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
+    { key: "settings", label: t("Settings"), path: "/nodes?view=settings" },
   ];
   return (
     <aside className="sidebar">
@@ -239,14 +239,10 @@ function SidebarNav({ active }) {
           <button
             key={item.key}
             type="button"
-            className={`sidebar-item ${active === item.key ? "active" : ""} ${item.disabled ? "disabled" : ""}`}
-            onClick={() => {
-              if (item.disabled) return;
-              navigate(item.path);
-            }}
+            className={`sidebar-item ${active === item.key ? "active" : ""}`}
+            onClick={() => navigate(item.path)}
           >
             <span>{item.label}</span>
-            {item.disabled && <span className="sidebar-tag">soon</span>}
           </button>
         ))}
       </div>
@@ -837,6 +833,34 @@ function NodesPage() {
     if (view === "panel") setNodeTypeFilter("PANEL");
     if (view === "host") setNodeTypeFilter("HOST");
     if (view === "bots") setNodeTypeFilter("BOT");
+    if (view === "alerts" && isAdmin) {
+      setTelegramSaved(false);
+      setTelegramTestMsg("");
+      setTelegramTestStatus("");
+      setTelegramTestResults([]);
+      setTelegramOpen(true);
+      getTelegramSettings()
+        .then((data) => {
+          setTelegramForm((prev) => ({
+            ...prev,
+            bot_token: "",
+            admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
+            alert_connection: data.alert_connection ?? true,
+            alert_cpu: data.alert_cpu ?? true,
+            alert_memory: data.alert_memory ?? true,
+            alert_disk: data.alert_disk ?? true,
+          }));
+          setTelegramTokenSet(Boolean(data.bot_token_set));
+        })
+        .catch((err) => setError(err.message));
+    }
+    if (view === "audit" && isAdmin) {
+      openAudit();
+    }
+    if (view === "settings" && isAdmin) {
+      setUsersOpen(true);
+      loadUsers();
+    }
     if (!nodes.length) return;
     const nodeId = params.get("node");
     if (nodeId && nodeAutoOpened !== nodeId) {
@@ -1864,8 +1888,8 @@ function NodesPage() {
 
   function renderBotsTable(bots, showNode) {
     return (
-      <div className="table bots">
-        <div className="table-row head">
+      <div className={`data-table bots-table ${showNode ? "with-node" : ""}`}>
+        <div className="data-row head">
           {showNode && <div>{t("Node")}</div>}
           <div>{t("Name")}</div>
           <div>{t("Kind")}</div>
@@ -1889,20 +1913,20 @@ function NodesPage() {
                 ? "offline"
                 : "unknown";
           return (
-            <div className="table-row" key={bot.id}>
-              {showNode && <div title={nodeRef.name || ""} data-label={t("Node")}>{nodeRef.name || "-"}</div>}
-              <div title={bot.name || ""} data-label={t("Name")}>{bot.name || "-"}</div>
-              <div data-label={t("Kind")}>{bot.kind || "-"}</div>
-              <div title={botTargetLabel(bot)} data-label={t("Target")}>{botTargetLabel(bot)}</div>
-              <div data-label={t("Enabled")}>{bot.is_enabled ? t("On") : t("Off")}</div>
-              <div className="status-cell" data-label={t("Last status")}>
+            <div className="data-row" key={bot.id}>
+              {showNode && <div title={nodeRef.name || ""}>{nodeRef.name || "-"}</div>}
+              <div title={bot.name || ""}>{bot.name || "-"}</div>
+              <div>{bot.kind || "-"}</div>
+              <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
+              <div>{bot.is_enabled ? t("On") : t("Off")}</div>
+              <div className="status-cell">
                 <StatusBadge status={badgeStatus} />
                 <span>{last?.status || "-"}</span>
                 {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
               </div>
-              <div data-label={t("Last seen")}>{last?.ts ? formatTS(last.ts) : "-"}</div>
-              <div data-label={t("Latency")}>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-              <div className="actions" data-label={t("Actions")}>
+              <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+              <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+              <div className="actions">
                 {!isViewer && (
                   <>
                     <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
@@ -1958,64 +1982,7 @@ function NodesPage() {
           <div className="muted small bots-status">{t("Loading...")}</div>
         )}
         {botsError && <div className="error bots-status">{botsError}</div>}
-        {bots.map((bot) => {
-          const last = botResults[bot.id];
-          const node = nodes.find((n) => n.id === bot.node_id);
-          const nodeRef = node || { id: bot.node_id, name: "-" };
-          const statusValue = (last?.status || "").toLowerCase();
-          const badgeStatus = statusValue === "ok"
-            ? "online"
-            : statusValue === "warn"
-              ? "degraded"
-              : statusValue === "fail"
-                ? "offline"
-                : "unknown";
-          return (
-            <div className="node-card" key={bot.id}>
-              <div className="node-card-top">
-                <div className="node-card-title">
-                  <div className="node-name-row">
-                    <div className="node-name">{bot.name || "-"}</div>
-                    <StatusBadge status={badgeStatus} />
-                    <span className="chip subtle">{bot.kind || "-"}</span>
-                  </div>
-                  <div className="tag-row">
-                    <span className="chip subtle">{nodeRef.name || "-"}</span>
-                    <span className="chip subtle">{botTargetLabel(bot)}</span>
-                  </div>
-                  <div className="muted small">{t("Last status")}: {last?.status || "-"}</div>
-                  <div className="muted small">{t("Last seen")}: {last?.ts ? formatTS(last.ts) : "-"}</div>
-                  <div className="muted small">{t("Latency")}: {last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-                  {last?.error && <div className="bot-error">{last.error}</div>}
-                </div>
-                <div className="node-uptime">
-                  <div className="uptime-value">{last?.status ? last.status.toUpperCase() : "-"}</div>
-                  <div className="uptime-label">{t("Last status")}</div>
-                </div>
-              </div>
-              <div className="node-actions">
-                {!isViewer && (
-                  <>
-                    <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
-                    <button type="button" className="secondary" onClick={() => muteBot(bot)}>{t("Mute 1h")}</button>
-                    <button type="button" className="secondary" onClick={() => openBotEdit(nodeRef, bot)}>{t("Edit")}</button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => toggleBot(bot, !bot.is_enabled)}
-                    >
-                      {bot.is_enabled ? t("Disable") : t("Enable")}
-                    </button>
-                    <button type="button" className="danger" onClick={() => deleteBot(bot)}>{t("Delete")}</button>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {bots.length === 0 && !botsBusy && (
-          <div className="muted small bots-status">{t("No bots yet")}</div>
-        )}
+        {renderBotsTable(bots, true)}
       </>
     );
   }
@@ -2483,10 +2450,24 @@ function NodesPage() {
                       <span className="muted small">{percent.toFixed(1)}%</span>
                     </div>
                     <div>{lastTs ? formatTS(lastTs) : "-"}</div>
-                    <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="ghost">{t("Open Dashboard")}</button>
+                <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => {
+                          if (node.base_url) {
+                            window.open(node.base_url, "_blank");
+                          } else {
+                            setNodeTab("overview");
+                            setServicesError("");
+                            setNodeDetails({ open: true, node });
+                          }
+                        }}
+                      >
+                        {t("Open Dashboard")}
+                      </button>
                       <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
-                      <button type="button" className="ghost" disabled>{t("View Logs")}</button>
+                      <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("View Logs")}</button>
                     </div>
                   </div>
                 );
@@ -3704,6 +3685,8 @@ function DashboardPage() {
       avgCPU: aggregate.avg_cpu ?? 0,
       avgPingMs: aggregate.avg_ping_ms,
       totalTraffic24h: aggregate.total_traffic_24h,
+      totalRxBps: aggregate.total_rx_bps ?? 0,
+      totalTxBps: aggregate.total_tx_bps ?? 0,
       totalConnections: aggregate.total_connections,
       activeAlerts: aggregate.active_alerts ?? 0,
     };
@@ -3729,6 +3712,8 @@ function DashboardPage() {
   const avgPing = aggregateSafe.avgPingMs;
   const activeAlerts = aggregateSafe.activeAlerts || 0;
   const traffic24h = aggregateSafe.totalTraffic24h;
+  const rxBps = aggregateSafe.totalRxBps;
+  const txBps = aggregateSafe.totalTxBps;
 
   return (
     <div className="app-shell">
@@ -3784,9 +3769,9 @@ function DashboardPage() {
           />
           <MiniStatCard
             label={t("Total Traffic (24h)")}
-            value={traffic24h != null ? formatBytes(traffic24h) : "-"}
+            value={traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
             subvalue={t("Fleet bandwidth")}
-            progress={0.65}
+            progress={traffic24h != null ? 0.65 : 0.4}
           />
         </section>
 
@@ -3871,9 +3856,21 @@ function DashboardPage() {
                   </div>
                   <div>{node.collected_at ? formatTS(node.collected_at) : "-"}</div>
                   <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="ghost">{t("Open Dashboard")}</button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => navigate(`/nodes?node=${node.node_id}`)}
+                    >
+                      {t("Open Dashboard")}
+                    </button>
                     <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
-                    <button type="button" className="ghost" disabled>{t("View Logs")}</button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => navigate(`/nodes?ssh=${node.node_id}`)}
+                    >
+                      {t("View Logs")}
+                    </button>
                   </div>
                 </div>
               );
@@ -3889,7 +3886,9 @@ function DashboardPage() {
         <section className="grid-bottom">
           <div className="bottom-card">
             <h4>{t("Total Traffic")}</h4>
-            <div className="bottom-value">{traffic24h != null ? formatBytes(traffic24h) : "-"}</div>
+            <div className="bottom-value">
+              {traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
+            </div>
             <div className="muted small">{t("Sent / Received")}</div>
             <div className="bottom-sub">{t("24h + 7d counters")}</div>
           </div>
