@@ -230,6 +230,10 @@ function SidebarNav({ active }) {
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
     { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
     { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
+    { key: "files", label: t("File Manager"), path: "/files" },
+    { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
+    { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
+    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1" },
     { key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" },
   ];
   return (
@@ -546,9 +550,6 @@ function NodesPage() {
   const [editValidation, setEditValidation] = useState(null);
   const [editValidating, setEditValidating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-  const menuButtonRef = useRef(null);
   const deployWsRef = useRef(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -811,16 +812,6 @@ function NodesPage() {
     loadNodes();
   }, []);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onDocClick(e) {
-      if (menuRef.current && menuRef.current.contains(e.target)) return;
-      if (menuButtonRef.current && menuButtonRef.current.contains(e.target)) return;
-      setMenuOpen(false);
-    }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
-  }, [menuOpen]);
 
   useEffect(() => {
     if (nodes.length === 0) return;
@@ -842,6 +833,7 @@ function NodesPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const view = params.get("view");
+    const add = params.get("add");
     if (view === "panel") {
       setNodeTypeFilter("PANEL");
       setSidebarActive("panels");
@@ -855,8 +847,14 @@ function NodesPage() {
       setSidebarActive("alerts");
     } else if (view === "audit") {
       setSidebarActive("audit");
+    } else if (view === "2fa") {
+      setSidebarActive("twofa");
     } else if (view === "settings") {
       setSidebarActive("settings");
+    } else if (view === "passkeys") {
+      setSidebarActive("passkeys");
+    } else if (add === "1") {
+      setSidebarActive("add");
     } else {
       setSidebarActive("nodes");
     }
@@ -884,9 +882,18 @@ function NodesPage() {
     if (view === "audit" && isAdmin) {
       openAudit();
     }
+    if (view === "2fa" && !isViewer) {
+      openTOTP();
+    }
+    if (view === "passkeys" && !isViewer) {
+      openPasskeys();
+    }
     if (view === "settings" && isAdmin) {
       setUsersOpen(true);
       loadUsers();
+    }
+    if (add === "1" && (isAdmin || isOperator)) {
+      openAddForm();
     }
     if (!nodes.length) return;
     const nodeId = params.get("node");
@@ -1552,7 +1559,6 @@ function NodesPage() {
 
   function openAddForm() {
     setAddOpen(true);
-    setMenuOpen(false);
   }
 
   function openServiceAdd(node) {
@@ -2017,7 +2023,6 @@ function NodesPage() {
   }
 
   async function openAudit() {
-    setMenuOpen(false);
     setAuditOpen(true);
     setAuditOffset(0);
     try {
@@ -2029,7 +2034,6 @@ function NodesPage() {
   }
 
   async function openPasskeys() {
-    setMenuOpen(false);
     setPasskeysOpen(true);
     setPasskeysError("");
     setPasskeysOTP("");
@@ -2135,7 +2139,6 @@ function NodesPage() {
   }
 
   async function openTOTP() {
-    setMenuOpen(false);
     setTotpOpen(true);
     setTotpSetup(null);
     setTotpMessage("");
@@ -2250,46 +2253,7 @@ function NodesPage() {
       <div className="app-main">
       <header className="header">
         <div className="header-left">
-          <button ref={menuButtonRef} className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
-            ☰
-          </button>
           <h2>{t("Nodes")}</h2>
-          {menuOpen && (
-            <div className="menu" ref={menuRef}>
-              {(isAdmin || isOperator) && <button type="button" onClick={openAddForm}>{t("Add node")}</button>}
-              <button type="button" onClick={() => { setMenuOpen(false); navigate("/dashboard"); }}>{t("Dashboard")}</button>
-              <button type="button" onClick={() => { setMenuOpen(false); navigate("/files"); }}>{t("Files")}</button>
-              {isAdmin && <button type="button" onClick={async () => { setUsersOpen(true); setMenuOpen(false); await loadUsers(); }}>{t("Users & roles")}</button>}
-              {!isViewer && <button type="button" onClick={openTOTP}>{t("2FA settings")}</button>}
-              {!isViewer && <button type="button" onClick={openPasskeys}>{t("Passkeys")}</button>}
-              {isAdmin && (
-                <button type="button" onClick={async () => {
-                  setMenuOpen(false);
-                  setTelegramSaved(false);
-                  setTelegramTestMsg("");
-                  setTelegramTestStatus("");
-                  setTelegramTestResults([]);
-                  setTelegramOpen(true);
-                  try {
-                    const data = await getTelegramSettings();
-                    setTelegramForm((prev) => ({
-                      ...prev,
-                      bot_token: "",
-                      admin_chat_ids: data.admin_chat_ids || (data.admin_chat_id ? [data.admin_chat_id] : []),
-                      alert_connection: data.alert_connection ?? true,
-                      alert_cpu: data.alert_cpu ?? true,
-                      alert_memory: data.alert_memory ?? true,
-                      alert_disk: data.alert_disk ?? true,
-                    }));
-                    setTelegramTokenSet(Boolean(data.bot_token_set));
-                  } catch (err) {
-                    setError(err.message);
-                  }
-                }}>{t("Telegram alerts")}</button>
-              )}
-              {isAdmin && <button type="button" onClick={openAudit}>{t("Audit log")}</button>}
-            </div>
-          )}
         </div>
         <div className="header-right">
           <div className="language-card">
@@ -3737,7 +3701,9 @@ function DashboardPage() {
 
   const deriveNodeStatus = (node) => {
     if (!node.agent_installed) return "no_agent";
-    if (node.agent_online) return "online";
+    const collectedAt = node.collected_at ? new Date(node.collected_at).getTime() : 0;
+    const recent = collectedAt > 0 && Math.abs(nowTs - collectedAt) < 90000;
+    if (node.agent_online || recent) return "online";
     return "offline";
   };
 
@@ -4299,11 +4265,14 @@ function FilesPage() {
   }
 
   return (
-    <div className="page page-wide">
+    <div className="app-shell">
+      <SidebarNav active="files" />
+      <div className="app-main">
+        <div className="page page-wide">
       <header className="header">
         <div className="header-left">
           <button className="icon-button" onClick={() => navigate("/nodes")}>{"<"}</button>
-          <h2>{t("Files")}</h2>
+          <h2>{t("File Manager")}</h2>
         </div>
         <div className="header-right">
           <button className="secondary" onClick={() => loadList(currentPath)}>{t("Refresh")}</button>
@@ -4402,31 +4371,33 @@ function FilesPage() {
         </section>
       </div>
 
-      {preview.open && (
-        <div className="modal">
-          <div className="modal-content wide">
-            <div className="modal-header">
-              <h3>{preview.entry?.name || t("Preview")}</h3>
-              <button type="button" className="secondary" onClick={() => {
-                if (preview.imageUrl) {
-                  URL.revokeObjectURL(preview.imageUrl);
-                }
-                setPreview({ open: false, entry: null, content: "", imageUrl: "", note: "" });
-              }}>
-                {t("Close")}
-              </button>
+        {preview.open && (
+          <div className="modal">
+            <div className="modal-content wide">
+              <div className="modal-header">
+                <h3>{preview.entry?.name || t("Preview")}</h3>
+                <button type="button" className="secondary" onClick={() => {
+                  if (preview.imageUrl) {
+                    URL.revokeObjectURL(preview.imageUrl);
+                  }
+                  setPreview({ open: false, entry: null, content: "", imageUrl: "", note: "" });
+                }}>
+                  {t("Close")}
+                </button>
+              </div>
+              {preview.note && <div className="muted small">{preview.note}</div>}
+              {preview.imageUrl && <img className="file-preview-image" src={preview.imageUrl} alt="preview" />}
+              {preview.content && (
+                <textarea readOnly rows={20} value={preview.content} />
+              )}
+              {!preview.imageUrl && !preview.content && (
+                <div className="muted small">{t("No preview available")}</div>
+              )}
             </div>
-            {preview.note && <div className="muted small">{preview.note}</div>}
-            {preview.imageUrl && <img className="file-preview-image" src={preview.imageUrl} alt="preview" />}
-            {preview.content && (
-              <textarea readOnly rows={20} value={preview.content} />
-            )}
-            {!preview.imageUrl && !preview.content && (
-              <div className="muted small">{t("No preview available")}</div>
-            )}
           </div>
+        )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -4603,4 +4574,6 @@ export default function App() {
     </Routes>
   );
 }
+
+
 

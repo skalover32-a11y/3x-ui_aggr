@@ -229,6 +229,8 @@ const STRINGS = {
     "Logout": "Logout",
     "Menu": "Menu",
     "Add node": "Add node",
+    "Add node/host/bot": "Add node/host/bot",
+    "File Manager": "File Manager",
     "Users & roles": "Users & roles",
     "Telegram alerts": "Telegram alerts",
     "Audit log": "Audit log",
@@ -637,6 +639,8 @@ const STRINGS = {
     "Logout": "Выйти",
     "Menu": "Меню",
     "Add node": "Добавить ноду",
+    "Add node/host/bot": "Добавить ноду/хост/бота",
+    "File Manager": "Файловый менеджер",
     "Users & roles": "Пользователи",
     "Telegram alerts": "Телеграм оповещения",
     "Audit log": "Журнал аудита",
@@ -962,6 +966,8 @@ const STRINGS = {
     "Logout": "خروج",
     "Menu": "منو",
     "Add node": "افزودن نود",
+    "Add node/host/bot": "Add node/host/bot",
+    "File Manager": "File Manager",
     "Users & roles": "کاربران و نقش‌ها",
     "Telegram alerts": "هشدارهای تلگرام",
     "Audit log": "گزارش رویداد",
@@ -977,7 +983,7 @@ const STRINGS = {
     "Are you sure?": "مطمئن هستید؟",
     "Confirm action": "تایید عملیات",
     "Will run on node {name}:": "روی نود {name} اجرا می‌شود:",
-    "Type {token} to confirm": "برای تایید {token} را وارد کنید",
+    "Type {token} to confirm": "???? ????? {token} ?? ???? ????",
     "Add Node": "افزودن نود",
     "Edit Node": "ویرایش نود",
     "Create": "ایجاد",
@@ -1185,4 +1191,8 @@ export function useI18n() {
 
   return { lang, setLang, t };
 }
+
+
+
+
 
