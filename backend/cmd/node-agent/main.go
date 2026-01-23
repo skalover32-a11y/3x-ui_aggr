@@ -26,7 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.2"
+const agentVersion = "v1.3"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -1095,16 +1095,12 @@ expect {
   -re {Enter.*choice.*} { send \"2\r\" }
   timeout { puts \"ERROR: timeout waiting for menu\"; exit 2 }
 }
-set timeout 60
-expect {
-  -re {Do you want to continue.*} { send \"y\r\" }
-  -re {continue\\? \\[Default y\\]:} { send \"y\r\" }
-  -re {Are you sure.*} { send \"y\r\" }
-  -re {Please enter your selection.*} { }
-  timeout { }
-}
 set timeout 900
 expect {
+  -re {Do you want to continue.*} { send \"y\r\"; exp_continue }
+  -re {continue\\? \\[Default y\\]:} { send \"y\r\"; exp_continue }
+  -re {Are you sure.*} { send \"y\r\"; exp_continue }
+  -re {Press.*(enter|any key).*} { send \"\r\"; exp_continue }
   -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
   -re {Update.*(completed|success|finished)} { puts \"INFO: update completed\"; exit 0 }
   -re {Please enter your selection.*} { puts \"INFO: update finished, returned to menu\"; exit 0 }
