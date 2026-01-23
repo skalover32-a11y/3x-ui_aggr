@@ -120,6 +120,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/settings/agent-deploy-defaults", middleware.RequireRoles(readRoles...), h.GetAgentDeployDefaults)
 	auth.GET("/dashboard/summary", middleware.RequireRoles(readRoles...), h.GetDashboardSummary)
 	auth.GET("/dashboard/active-users", middleware.RequireRoles(readRoles...), h.GetDashboardActiveUsers)
+	auth.GET("/system/status", middleware.RequireRoles(readRoles...), h.GetSystemStatus)
 
 	auth.GET("/users", middleware.RequireRoles(middleware.RoleAdmin), h.ListUsers)
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)

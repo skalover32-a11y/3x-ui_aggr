@@ -20,6 +20,9 @@ type NodeMetrics struct {
 	PanelVersion   *string
 	XrayRunning    *bool
 	PanelRunning   *bool
+	PingMs         *int64
+	TCPConnections *int64
+	UDPConnections *int64
 }
 
 type ActiveUser struct {

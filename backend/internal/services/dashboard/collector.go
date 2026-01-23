@@ -313,12 +313,14 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 	var rows []DashboardNode
 	err := s.DB.WithContext(ctx).
 		Table("nodes n").
-		Select(`n.id as node_id, n.name, n.kind, n.is_enabled, n.is_sandbox,
+		Select(`n.id as node_id, n.name, n.kind, n.region, n.provider, n.is_enabled, n.is_sandbox,
 			n.agent_installed, n.agent_last_seen_at, n.agent_version,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec, m.panel_version,
-			m.xray_running, m.panel_running`).
+			m.xray_running, m.panel_running,
+			NULL::bigint as ping_ms, NULL::bigint as tcp_connections, NULL::bigint as udp_connections,
+			NULL::text as last_error`).
 		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id").
 		Scan(&rows).Error
 	if err != nil {
@@ -354,6 +356,8 @@ type DashboardNode struct {
 	NodeID          uuid.UUID  `json:"node_id"`
 	Name            string     `json:"name"`
 	Kind            string     `json:"kind"`
+	Region          string     `json:"region"`
+	Provider        string     `json:"provider"`
 	IsEnabled       bool       `json:"is_enabled"`
 	IsSandbox       bool       `json:"is_sandbox"`
 	AgentInstalled  bool       `json:"agent_installed"`
@@ -375,6 +379,10 @@ type DashboardNode struct {
 	XrayRunning     *bool      `json:"xray_running"`
 	PanelRunning    *bool      `json:"panel_running"`
 	NetIface        *string    `json:"net_iface"`
+	PingMs          *int64     `json:"ping_ms"`
+	TCPConnections  *int64     `json:"tcp_connections"`
+	UDPConnections  *int64     `json:"udp_connections"`
+	LastError       *string    `json:"last_error"`
 	UsersSource     string     `json:"active_users_source"`
 	UsersDetail     string     `json:"active_users_source_detail"`
 	UsersAvailable  bool       `json:"active_users_available"`
@@ -402,9 +410,12 @@ func (s *Service) Summary(ctx context.Context) (map[string]any, error) {
 	}
 	s.applySources(nodes)
 	agg := computeAggregate(nodes)
+	agg.ActiveAlertsCount = s.countActiveAlerts(ctx)
+	agg.ActiveUsers = s.countActiveUsers(ctx)
 	return map[string]any{
-		"nodes":     nodes,
-		"aggregate": agg,
+		"nodes":        nodes,
+		"aggregate":    agg,
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -413,26 +424,48 @@ func (s *Service) ActiveUsers(ctx context.Context, limit int, search string) ([]
 }
 
 type AggregateSummary struct {
-	NodesTotal  int     `json:"nodes_total"`
-	NodesOnline int     `json:"nodes_online"`
-	AvgCPU      float64 `json:"avg_cpu"`
-	TotalRxBps  int64   `json:"total_rx_bps"`
-	TotalTxBps  int64   `json:"total_tx_bps"`
-	ActiveUsers int     `json:"active_users"`
+	NodesTotal        int      `json:"nodes_total"`
+	NodesOnline       int      `json:"nodes_online"`
+	NodesOffline      int      `json:"nodes_offline"`
+	AgentsActive      int      `json:"agents_active"`
+	AgentsTotal       int      `json:"agents_total"`
+	PanelsAvailable   int      `json:"panels_available"`
+	AvgCPU            float64  `json:"avg_cpu"`
+	AvgPingMs         *float64 `json:"avg_ping_ms"`
+	TotalRxBps        int64    `json:"total_rx_bps"`
+	TotalTxBps        int64    `json:"total_tx_bps"`
+	TotalTraffic24h   *int64   `json:"total_traffic_24h"`
+	TotalConnections  *int64   `json:"total_connections"`
+	ActiveUsers       int      `json:"active_users"`
+	ActiveAlertsCount int      `json:"active_alerts"`
 }
 
 func computeAggregate(nodes []DashboardNode) AggregateSummary {
 	var agg AggregateSummary
 	var cpuCount int
 	var cpuSum float64
+	var pingCount int
+	var pingSum float64
+	var totalConnections int64
 	for _, node := range nodes {
 		agg.NodesTotal++
+		if node.AgentInstalled {
+			agg.AgentsTotal++
+		}
 		if node.AgentOnline {
 			agg.NodesOnline++
+			agg.AgentsActive++
+		}
+		if node.PanelRunning != nil && *node.PanelRunning {
+			agg.PanelsAvailable++
 		}
 		if node.CPUPct != nil {
 			cpuCount++
 			cpuSum += *node.CPUPct
+		}
+		if node.PingMs != nil {
+			pingCount++
+			pingSum += float64(*node.PingMs)
 		}
 		if node.NetRxBps != nil {
 			agg.TotalRxBps += *node.NetRxBps
@@ -440,11 +473,53 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 		if node.NetTxBps != nil {
 			agg.TotalTxBps += *node.NetTxBps
 		}
+		if node.TCPConnections != nil {
+			totalConnections += *node.TCPConnections
+		}
+		if node.UDPConnections != nil {
+			totalConnections += *node.UDPConnections
+		}
 	}
 	if cpuCount > 0 {
 		agg.AvgCPU = cpuSum / float64(cpuCount)
 	}
+	if pingCount > 0 {
+		val := pingSum / float64(pingCount)
+		agg.AvgPingMs = &val
+	}
+	if totalConnections > 0 {
+		agg.TotalConnections = &totalConnections
+	}
+	agg.NodesOffline = agg.NodesTotal - agg.NodesOnline
 	return agg
+}
+
+func (s *Service) countActiveAlerts(ctx context.Context) int {
+	if s == nil || s.DB == nil {
+		return 0
+	}
+	var count int64
+	now := time.Now().UTC()
+	err := s.DB.WithContext(ctx).
+		Table("alert_states").
+		Where("last_status IN ('fail','warn')").
+		Where("muted_until IS NULL OR muted_until < ?", now).
+		Count(&count).Error
+	if err != nil {
+		return 0
+	}
+	return int(count)
+}
+
+func (s *Service) countActiveUsers(ctx context.Context) int {
+	if s == nil || s.DB == nil {
+		return 0
+	}
+	var count int64
+	if err := s.DB.WithContext(ctx).Table("active_users_latest").Count(&count).Error; err != nil {
+		return 0
+	}
+	return int(count)
 }
 
 func toMetricsPayload(metrics NodeMetrics) map[string]any {
@@ -465,6 +540,9 @@ func toMetricsPayload(metrics NodeMetrics) map[string]any {
 		"panel_version":    metrics.PanelVersion,
 		"xray_running":     metrics.XrayRunning,
 		"panel_running":    metrics.PanelRunning,
+		"ping_ms":          metrics.PingMs,
+		"tcp_connections":  metrics.TCPConnections,
+		"udp_connections":  metrics.UDPConnections,
 	}
 }
 

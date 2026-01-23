@@ -57,6 +57,9 @@ func (p *AgentProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (
 		PanelVersion:   resp.PanelVersion,
 		XrayRunning:    resp.XrayRunning,
 		PanelRunning:   resp.PanelRunning,
+		PingMs:         resp.PingMs,
+		TCPConnections: resp.TCPConnections,
+		UDPConnections: resp.UDPConnections,
 	}
 	return metrics, nil
 }
@@ -143,6 +146,9 @@ type agentStatsResponse struct {
 	PanelVersion   *string   `json:"panel_version"`
 	XrayRunning    *bool     `json:"xray_running"`
 	PanelRunning   *bool     `json:"panel_running"`
+	PingMs         *int64    `json:"ping_ms"`
+	TCPConnections *int64    `json:"tcp_connections"`
+	UDPConnections *int64    `json:"udp_connections"`
 }
 
 type agentUsersResponse struct {

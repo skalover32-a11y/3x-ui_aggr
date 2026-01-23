@@ -81,6 +81,51 @@ function formatDuration(sec) {
   return `${mins}m`;
 }
 
+function flagEmoji(code) {
+  const clean = (code || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(clean)) return "";
+  const base = 127397;
+  return String.fromCodePoint(...clean.split("").map((c) => c.charCodeAt(0) + base));
+}
+
+function formatLocation(node) {
+  const region = (node?.region || "").trim();
+  const provider = (node?.provider || "").trim();
+  const parts = [];
+  if (region) parts.push(region);
+  if (provider) parts.push(provider);
+  const code = region.length === 2 ? region : "";
+  const flag = code ? flagEmoji(code) : "";
+  return { text: parts.join(" / ") || "-", flag };
+}
+
+function MiniStatCard({ label, value, subvalue, progress, accent }) {
+  const pct = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
+  return (
+    <div className={`mini-card ${accent || ""}`} style={{ "--progress": pct }}>
+      <div className="mini-ring" />
+      <div className="mini-body">
+        <div className="mini-value">{value}</div>
+        {subvalue && <div className="mini-sub">{subvalue}</div>}
+        <div className="mini-label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function StatusDot({ ok }) {
+  return <span className={`status-dot ${ok ? "ok" : "bad"}`} />;
+}
+
+function UptimeBar({ percent }) {
+  const pct = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+  return (
+    <div className="uptime-bar">
+      <div className="uptime-bar-fill" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
 function buildWsUrl(path) {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}${API_BASE}${path}`;
@@ -165,6 +210,48 @@ function DashboardStatusBadge({ status }) {
   const label = status || "unknown";
   const textKey = label === "online" ? "Online" : label === "stale" ? "Stale" : label === "offline" ? "Offline" : label === "no_agent" ? "No agent" : label;
   return <span className={`badge ${label}`}>{t(textKey)}</span>;
+}
+
+function SidebarNav({ active }) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const items = [
+    { key: "dashboard", label: t("Dashboard"), path: "/dashboard" },
+    { key: "nodes", label: t("Nodes"), path: "/nodes" },
+    { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
+    { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
+    { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
+    { key: "alerts", label: t("Alerts"), path: "/nodes?view=alerts", disabled: true },
+    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit", disabled: true },
+    { key: "settings", label: t("Settings"), path: "/nodes?view=settings", disabled: true },
+  ];
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-brand">
+        <div className="brand-dot" />
+        <div>
+          <div className="brand-title">VLF Aggregator</div>
+          <div className="brand-sub">{t("Fleet control")}</div>
+        </div>
+      </div>
+      <div className="sidebar-nav">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`sidebar-item ${active === item.key ? "active" : ""} ${item.disabled ? "disabled" : ""}`}
+            onClick={() => {
+              if (item.disabled) return;
+              navigate(item.path);
+            }}
+          >
+            <span>{item.label}</span>
+            {item.disabled && <span className="sidebar-tag">soon</span>}
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
 }
 
 function Sparkline({ points }) {
@@ -498,6 +585,7 @@ function NodesPage() {
   const [sshModal, setSshModal] = useState({ open: false, node: null, confirmClose: false });
   const [sshChoice, setSshChoice] = useState({ open: false, node: null });
   const [sshAutoOpened, setSshAutoOpened] = useState("");
+  const [nodeAutoOpened, setNodeAutoOpened] = useState("");
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [nodeTab, setNodeTab] = useState("overview");
   const [nodeTypeFilter, setNodeTypeFilter] = useState("PANEL");
@@ -742,6 +830,25 @@ function NodesPage() {
       }
     }
   }, [nodes, location.search, sshAutoOpened]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const view = params.get("view");
+    if (view === "panel") setNodeTypeFilter("PANEL");
+    if (view === "host") setNodeTypeFilter("HOST");
+    if (view === "bots") setNodeTypeFilter("BOT");
+    if (!nodes.length) return;
+    const nodeId = params.get("node");
+    if (nodeId && nodeAutoOpened !== nodeId) {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (node) {
+        setNodeTab("overview");
+        setServicesError("");
+        setNodeDetails({ open: true, node });
+        setNodeAutoOpened(nodeId);
+      }
+    }
+  }, [location.search, nodes, nodeAutoOpened]);
 
   useEffect(() => {
     if (nodes.length === 0) return;
@@ -1614,32 +1721,61 @@ function NodesPage() {
   }
 
   function renderNodeDetails(node, uptimePoints, metrics) {
-    const { success, total } = computeUptime(uptimePoints);
+    const { success, total, percent } = computeUptime(uptimePoints);
+    const latest = metrics && metrics.length > 0 ? metrics[metrics.length - 1] : {};
+    const cpu = latest.cpu_pct != null ? formatPercent(latest.cpu_pct) : "-";
+    const ram = latest.mem_total_bytes ? `${formatBytes(latest.mem_total_bytes - (latest.mem_available_bytes || 0))} / ${formatBytes(latest.mem_total_bytes)}` : "-";
+    const disk = latest.disk_total_bytes ? `${formatBytes(latest.disk_used_bytes || 0)} / ${formatBytes(latest.disk_total_bytes)}` : "-";
+    const rx = latest.net_rx_bps != null ? formatBps(latest.net_rx_bps) : "-";
+    const tx = latest.net_tx_bps != null ? formatBps(latest.net_tx_bps) : "-";
+    const tcpConn = latest.tcp_connections != null ? latest.tcp_connections : "-";
+    const udpConn = latest.udp_connections != null ? latest.udp_connections : "-";
     return (
       <>
+        <div className="details-grid">
+          <div className="metric-card">
+            <div className="metric-label">{t("CPU usage")}</div>
+            <div className="metric-value">{cpu}</div>
+            <div className="metric-sub">{t("Load")} {latest.load1 || "-"}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("RAM usage")}</div>
+            <div className="metric-value">{ram}</div>
+            <div className="metric-sub">{t("Availability")} {formatPercent(percent)}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("Disk usage")}</div>
+            <div className="metric-value">{disk}</div>
+            <div className="metric-sub">{t("Uptime")} {formatDuration(latest.uptime_sec || 0)}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("Traffic RX / TX")}</div>
+            <div className="metric-value">{rx} / {tx}</div>
+            <div className="metric-sub">{t("Net iface")} {latest.net_iface || "-"}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("Active connections")}</div>
+            <div className="metric-value">{tcpConn} TCP / {udpConn} UDP</div>
+            <div className="metric-sub">{t("Last check")} {uptimePoints.length ? formatTS(uptimePoints[uptimePoints.length - 1]?.ts) : "-"}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("Agent health")}</div>
+            <div className="metric-value">{node.agent_online ? t("Online") : t("Offline")}</div>
+            <div className="metric-sub">{node.agent_version ? `v${node.agent_version}` : "-"}</div>
+          </div>
+          <div className="metric-card">
+            <div className="metric-label">{t("Panel health")}</div>
+            <div className="metric-value">{node.panel_version ? t("Online") : t("Offline")}</div>
+            <div className="metric-sub">{node.panel_version || "-"}</div>
+          </div>
+        </div>
+
         <div className="node-availability">
           <div className="availability-header">
             <div className="muted small">{t("Last {total} checks", { total: total || 0 })}</div>
             <div className="muted small">{t("{success}/{total} successful", { success, total: total || 0 })}</div>
           </div>
           <Sparkline points={uptimePoints} />
-        </div>
-
-        <MetricSparks metrics={metrics} />
-
-        <div className="node-meta-grid">
-          <div className="meta-box">
-            <div className="meta-label">{t("SSH Host")}</div>
-            <div className="meta-value">{node.ssh_host || "-"}</div>
-          </div>
-          <div className="meta-box">
-            <div className="meta-label">{t("SSH Port")}</div>
-            <div className="meta-value">{node.ssh_port || "-"}</div>
-          </div>
-          <div className="meta-box">
-            <div className="meta-label">{node.kind === "HOST" ? t("Panel") : t("Panel Username")}</div>
-            <div className="meta-value">{node.kind === "HOST" ? t("Not used") : (node.panel_username || "-")}</div>
-          </div>
         </div>
 
         <div className="node-actions">
@@ -2113,7 +2249,9 @@ function NodesPage() {
   }
 
   return (
-    <div className="page">
+    <div className="app-shell">
+      <SidebarNav active="nodes" />
+      <div className="app-main">
       <header className="header">
         <div className="header-left">
           <button ref={menuButtonRef} className="icon-button" onClick={() => setMenuOpen((v) => !v)} aria-label={t("Menu")}>
@@ -2221,8 +2359,8 @@ function NodesPage() {
         </div>
       )}
 
-      <div className="nodes-cards">
-        <div className="nodes-cards-head">
+      <div className="nodes-layout">
+        <div className="nodes-toolbar">
           <div>
             <h3>{t("Nodes Manager")}</h3>
             <div className="muted">
@@ -2281,95 +2419,86 @@ function NodesPage() {
 
         {showingBots && <div className="bots-view">{renderBotsView()}</div>}
 
-        {!showingBots && filteredNodes.map((node) => {
-          const uptimePoints = uptimeMap[node.id] || [];
-          const { percent } = computeUptime(uptimePoints);
-          const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
-          const lastPoint = uptimePoints[uptimePoints.length - 1];
-          const panelIssue = formatPanelIssue(lastPoint, t);
-
-          return (
-            <div className="node-card" key={node.id}>
-              <div className="node-card-top">
-                {(isAdmin || isOperator) && (
-                  <label className="node-card-select">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedNodes[node.id]}
-                      onChange={() => toggleNodeSelection(node.id)}
-                    />
-                  </label>
-                )}
-                <div className="node-card-title">
-                  <div className="node-name-row">
-                    <div className="node-name">{node.name || t("Unnamed node")}</div>
-                    <StatusBadge status={statusMap[node.id]?.status} />
-                    <span className="chip subtle">{node.kind || "PANEL"}</span>
-                  </div>
-                  <div className="tag-row">
-                    {(node.tags || []).length > 0 ? (
-                      (node.tags || []).map((tag, idx) => (
-                        <span className="chip subtle" key={`${node.id}-tag-${idx}`}>{tag}</span>
-                      ))
-                    ) : (
-                      <span className="muted small">{t("No tags")}</span>
-                    )}
-                  </div>
-                  <div className="node-link">
-                    {node.kind === "HOST" ? (
-                      <span className="muted small">{t("Base URL: not used")}</span>
-                    ) : node.base_url ? (
-                      <a href={node.base_url} target="_blank" rel="noreferrer">
-                        {node.base_url} ↗
-                      </a>
-                    ) : (
-                      <span className="muted small">{t("No base URL")}</span>
-                    )}
-                  </div>
-                  <div className="node-versions">
-                    {node.kind === "HOST" ? (
-                      <span className="muted small">{t("Panel: not used")}</span>
-                    ) : (
-                      <span className="muted small">{t("Panel: {panel}", { panel: node.panel_version || t("unknown") })}</span>
-                    )}
-                    <span className="muted small">{t("Xray: {xray}", { xray: node.xray_version || t("unknown") })}</span>
-                    <span className="muted small">
-                      {node.agent_installed
-                        ? node.agent_online
-                          ? t("Agent online")
-                          : t("Agent offline")
-                        : t("No agent")}
-                      {node.agent_version ? ` v${node.agent_version}` : ""}
-                    </span>
-                  </div>
-                  {panelIssue && (
-                    <div className="muted small" title={lastPoint?.panel_error_detail || ""}>
-                      {t("Panel issue: {reason}", { reason: panelIssue })}
-                    </div>
-                  )}
-                  {lastTs && <div className="muted small">{t("Last check: {ts}", { ts: formatTS(lastTs) })}</div>}
-                </div>
-                <div className="node-uptime">
-                  <div className="uptime-value">{percent.toFixed(1)}%</div>
-                  <div className="uptime-label">{t("Uptime")}</div>
-                  <button
-                    type="button"
-                    className="icon-button"
+        {!showingBots && (
+          <div className="table-card">
+            <div className="data-table nodes-table selectable">
+              <div className="data-row head">
+                {(isAdmin || isOperator) && <div />}
+                <div>{t("Status")}</div>
+                <div>{t("Node Name")}</div>
+                <div>{t("Location")}</div>
+                <div>{t("Agent Status")}</div>
+                <div>{t("Panel Status")}</div>
+                <div>{t("Uptime")}</div>
+                <div>{t("Last Check")}</div>
+                <div>{t("Actions")}</div>
+              </div>
+              {filteredNodes.map((node) => {
+                const uptimePoints = uptimeMap[node.id] || [];
+                const { percent } = computeUptime(uptimePoints);
+                const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+                const location = formatLocation(node);
+                return (
+                  <div
+                    className="data-row"
+                    key={node.id}
                     onClick={() => {
                       setNodeTab("overview");
                       setServicesError("");
                       setNodeDetails({ open: true, node });
                     }}
-                    aria-label={t("Expand")}
                   >
-                    {t("Expand")}
-                  </button>
+                    {(isAdmin || isOperator) && (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={!!selectedNodes[node.id]}
+                          onChange={() => toggleNodeSelection(node.id)}
+                        />
+                      </div>
+                    )}
+                    <div><StatusDot ok={node.online === true} /></div>
+                    <div>
+                      <div className="node-title">{node.name || t("Unnamed node")}</div>
+                      <div className="muted small">{node.kind || "PANEL"}</div>
+                    </div>
+                    <div className="location-cell">
+                      <span className="flag">{location.flag}</span>
+                      <span>{location.text}</span>
+                    </div>
+                    <div>
+                      <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
+                        {node.agent_online ? t("Online") : t("Offline")}
+                      </span>
+                      <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
+                    </div>
+                    <div>
+                      <span className={`badge ${node.kind === "HOST" ? "muted" : node.panel_version ? "online" : "offline"}`}>
+                        {node.kind === "HOST" ? t("N/A") : node.panel_version ? t("Online") : t("Offline")}
+                      </span>
+                      <span className="muted small">{node.panel_version || "-"}</span>
+                    </div>
+                    <div>
+                      <UptimeBar percent={percent} />
+                      <span className="muted small">{percent.toFixed(1)}%</span>
+                    </div>
+                    <div>{lastTs ? formatTS(lastTs) : "-"}</div>
+                    <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+                      <button type="button" className="ghost">{t("Open Dashboard")}</button>
+                      <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
+                      <button type="button" className="ghost" disabled>{t("View Logs")}</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredNodes.length === 0 && (
+                <div className="data-row">
+                  <div>{t("No data")}</div>
                 </div>
-              </div>
-
+              )}
             </div>
-          );
-        })}
+          </div>
+        )}
       </div>
 
       {nodeDetails.open && nodeDetails.node && (
@@ -3370,6 +3499,19 @@ function DashboardPage() {
   const navigate = useNavigate();
   const [nodes, setNodes] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
+  const [aggregate, setAggregate] = useState({
+    nodes_online: 0,
+    nodes_total: 0,
+    agents_active: 0,
+    agents_total: 0,
+    panels_available: 0,
+    avg_cpu: 0,
+    avg_ping_ms: null,
+    total_traffic_24h: null,
+    active_alerts: 0,
+  });
+  const [generatedAt, setGeneratedAt] = useState("");
+  const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchNodes, setSearchNodes] = useState("");
@@ -3390,10 +3532,21 @@ function DashboardPage() {
     try {
       const data = await request("GET", "/dashboard/summary");
       setNodes(data.nodes || []);
+      setAggregate(data.aggregate || {});
+      setGeneratedAt(data.generated_at || "");
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSystemStatus() {
+    try {
+      const data = await request("GET", "/system/status");
+      setSystemStatus(data || null);
+    } catch {
+      setSystemStatus(null);
     }
   }
 
@@ -3414,6 +3567,7 @@ function DashboardPage() {
   useEffect(() => {
     loadSummary();
     loadUsers();
+    loadSystemStatus();
   }, []);
 
   useEffect(() => {
@@ -3537,40 +3691,22 @@ function DashboardPage() {
     return activeUsers.filter((u) => (u.client_email || "").toLowerCase().includes(term));
   }, [activeUsers, searchUsers]);
 
-  const aggregate = useMemo(() => {
-    let online = 0;
-    let agentsOnline = 0;
-    let agentsTotal = 0;
-    let cpuSum = 0;
-    let cpuCount = 0;
-    let rx = 0;
-    let tx = 0;
-    nodesFiltered.forEach((node) => {
-      if (node.agent_installed) {
-        agentsTotal += 1;
-      }
-      if (node.agent_online) {
-        online += 1;
-        agentsOnline += 1;
-      }
-      if (node.cpu_pct != null) {
-        cpuSum += node.cpu_pct;
-        cpuCount += 1;
-      }
-      if (node.net_rx_bps != null) rx += node.net_rx_bps;
-      if (node.net_tx_bps != null) tx += node.net_tx_bps;
-    });
+  const aggregateSafe = useMemo(() => {
+    const fallbackTotal = nodesFiltered.length;
+    const fallbackOnline = nodesFiltered.filter((n) => n.agent_online).length;
     return {
-      nodesOnline: online,
-      agentsOnline,
-      agentsTotal,
-      nodesTotal: nodesFiltered.length,
-      avgCPU: cpuCount > 0 ? cpuSum / cpuCount : 0,
-      totalRx: rx,
-      totalTx: tx,
-      activeUsers: activeUsers.length,
+      nodesOnline: aggregate.nodes_online ?? fallbackOnline,
+      nodesTotal: aggregate.nodes_total ?? fallbackTotal,
+      agentsActive: aggregate.agents_active ?? 0,
+      agentsTotal: aggregate.agents_total ?? 0,
+      panelsAvailable: aggregate.panels_available ?? 0,
+      avgCPU: aggregate.avg_cpu ?? 0,
+      avgPingMs: aggregate.avg_ping_ms,
+      totalTraffic24h: aggregate.total_traffic_24h,
+      totalConnections: aggregate.total_connections,
+      activeAlerts: aggregate.active_alerts ?? 0,
     };
-  }, [nodesFiltered, activeUsers, nowTs]);
+  }, [aggregate, nodesFiltered, nowTs]);
 
   const deriveNodeStatus = (node) => {
     if (!node.agent_installed) return "no_agent";
@@ -3584,153 +3720,238 @@ function DashboardPage() {
     return source;
   };
 
+  const totalNodes = aggregateSafe.nodesTotal || 0;
+  const nodesOnline = aggregateSafe.nodesOnline || 0;
+  const agentsActive = aggregateSafe.agentsActive || 0;
+  const agentsTotal = aggregateSafe.agentsTotal || 0;
+  const panelsAvailable = aggregateSafe.panelsAvailable || 0;
+  const avgPing = aggregateSafe.avgPingMs;
+  const activeAlerts = aggregateSafe.activeAlerts || 0;
+  const traffic24h = aggregateSafe.totalTraffic24h;
+
   return (
-    <div className="page page-wide dashboard-page">
-      <header className="header">
-        <div className="header-left">
-          <button className="icon-button" onClick={() => navigate("/nodes")}>{"<"}</button>
-          <h2>{t("Dashboard")}</h2>
-          <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
-        </div>
-        <div className="header-right">
-          <button onClick={() => { loadSummary(); loadUsers(); }}>{t("Refresh")}</button>
-        </div>
-      </header>
-
-      {error && <div className="error">{error}</div>}
-
-      <div className="dashboard-cards">
-        <div className="dashboard-card">
-          <div className="muted small">{t("Nodes online")}</div>
-          <div className="dashboard-value">{aggregate.nodesOnline} / {aggregate.nodesTotal}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="muted small">{t("Agents online")}</div>
-          <div className="dashboard-value">{aggregate.agentsOnline} / {aggregate.agentsTotal}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="muted small">{t("Total RX")}</div>
-          <div className="dashboard-value">{formatBps(aggregate.totalRx)}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="muted small">{t("Total TX")}</div>
-          <div className="dashboard-value">{formatBps(aggregate.totalTx)}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="muted small">{t("Avg CPU")}</div>
-          <div className="dashboard-value">{formatPercent(aggregate.avgCPU)}</div>
-        </div>
-        <div className="dashboard-card">
-          <div className="muted small">{t("Active users")}</div>
-          <div className="dashboard-value">{aggregate.activeUsers}</div>
-        </div>
-      </div>
-
-      <div className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h3>{t("Nodes")}</h3>
-          <div className="dashboard-filters">
-            <input value={searchNodes} onChange={(e) => setSearchNodes(e.target.value)} placeholder={t("Search")} />
-            <label className="checkbox">
-              <input type="checkbox" checked={sandboxOnly} onChange={(e) => setSandboxOnly(e.target.checked)} />
-              <span>{t("Sandbox only")}</span>
-            </label>
+    <div className="app-shell">
+      <SidebarNav active="dashboard" />
+      <div className="app-main">
+        <div className="topbar">
+          <div>
+            <div className="topbar-title">{t("Dashboard")}</div>
+            <div className="topbar-sub">{t("Fleet overview")}</div>
+          </div>
+          <div className="topbar-actions">
+            <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
+            <button onClick={() => { loadSummary(); loadUsers(); loadSystemStatus(); }}>{t("Refresh")}</button>
           </div>
         </div>
-        <div className="table dashboard-nodes">
-          <div className="table-row head">
-            <div>{t("Node")}</div>
-            <div>{t("Status")}</div>
-            <div>{t("Agent")}</div>
-            <div>{t("CPU")}</div>
-            <div>{t("RAM")}</div>
-            <div>{t("Disk")}</div>
-            <div>{t("RX")}</div>
-            <div>{t("TX")}</div>
-            <div>{t("Uptime")}</div>
-            <div>{t("Last seen")}</div>
-            <div>{t("Panel version")}</div>
+
+        {error && <div className="error">{error}</div>}
+
+        <section className="mini-grid">
+          <MiniStatCard
+            label={t("Nodes Online")}
+            value={`${nodesOnline} / ${totalNodes}`}
+            subvalue={t("Fleet availability")}
+            progress={totalNodes > 0 ? nodesOnline / totalNodes : 0}
+            accent="ok"
+          />
+          <MiniStatCard
+            label={t("Agents Active")}
+            value={`${agentsActive} / ${agentsTotal}`}
+            subvalue={t("Agent heartbeat")}
+            progress={agentsTotal > 0 ? agentsActive / agentsTotal : 0}
+            accent="ok"
+          />
+          <MiniStatCard
+            label={t("Panels Available")}
+            value={`${panelsAvailable}`}
+            subvalue={t("Panels healthy")}
+            progress={totalNodes > 0 ? panelsAvailable / totalNodes : 0}
+            accent="ok"
+          />
+          <MiniStatCard
+            label={t("Average Ping")}
+            value={avgPing != null ? `${avgPing.toFixed(0)} ms` : "-"}
+            subvalue={t("Network latency")}
+            progress={avgPing != null ? Math.max(0, 1 - avgPing / 200) : 0}
+          />
+          <MiniStatCard
+            label={t("Active Alerts")}
+            value={`${activeAlerts}`}
+            subvalue={t("Incidents")}
+            progress={activeAlerts === 0 ? 1 : Math.max(0, 1 - activeAlerts / Math.max(1, totalNodes))}
+            accent={activeAlerts === 0 ? "ok" : "warn"}
+          />
+          <MiniStatCard
+            label={t("Total Traffic (24h)")}
+            value={traffic24h != null ? formatBytes(traffic24h) : "-"}
+            subvalue={t("Fleet bandwidth")}
+            progress={0.65}
+          />
+        </section>
+
+        <section className="service-card">
+          <div>
+            <div className="service-title">VLF Aggregator</div>
+            <div className="service-meta">
+              <div>{t("Status")}: <span className="status-pill ok">{systemStatus?.status || "running"}</span></div>
+              <div>{t("Backend version")}: {systemStatus?.version || "unknown"}</div>
+              <div>{t("Last sync")}: {systemStatus?.last_sync || generatedAt || "-"}</div>
+            </div>
           </div>
-          {nodesFiltered.map((node) => {
-            const status = deriveNodeStatus(node);
-            const ram = node.ram_total_bytes ? `${formatBytes(node.ram_used_bytes || 0)} / ${formatBytes(node.ram_total_bytes)}` : "-";
-            const disk = node.disk_total_bytes ? `${formatBytes(node.disk_used_bytes || 0)} / ${formatBytes(node.disk_total_bytes)}` : "-";
-            const badgeClass = node.active_users_available ? "source-ok" : "source-bad";
-            const agentLabel = node.agent_installed
-              ? node.agent_online ? t("Agent online") : t("Agent offline")
-              : t("No agent");
-            const agentClass = node.agent_installed
-              ? node.agent_online ? "badge online" : "badge offline"
-              : "badge muted";
-            return (
-              <div className="table-row" key={node.node_id}>
-                <div>
-                  <div className="node-name">{node.name}</div>
-                  <span className={`badge source ${badgeClass}`} title={node.active_users_source_detail || ""}>
-                    {formatSource(node)}
-                  </span>
+          <div className="service-actions">
+            <button type="button" className="secondary" onClick={() => setError(t("Logs view not configured yet"))}>{t("View Logs")}</button>
+            <button type="button" className="secondary" onClick={() => setError(t("Restart requires admin action"))}>{t("Restart Service")}</button>
+            <button type="button" className="secondary" onClick={() => setError(t("Configuration view not available"))}>{t("Open Configuration")}</button>
+            <button type="button" onClick={() => setError(t("Backup workflow not configured"))}>{t("Create Backup")}</button>
+          </div>
+        </section>
+
+        <section className="table-card">
+          <div className="section-head">
+            <div>
+              <h3>{t("Nodes")}</h3>
+              <span className="muted small">{t("Realtime infrastructure status")}</span>
+            </div>
+            <div className="section-actions">
+              <input value={searchNodes} onChange={(e) => setSearchNodes(e.target.value)} placeholder={t("Search nodes")} />
+              <label className="checkbox">
+                <input type="checkbox" checked={sandboxOnly} onChange={(e) => setSandboxOnly(e.target.checked)} />
+                <span>{t("Sandbox only")}</span>
+              </label>
+            </div>
+          </div>
+          <div className="data-table nodes-table">
+            <div className="data-row head">
+              <div>{t("Status")}</div>
+              <div>{t("Node Name")}</div>
+              <div>{t("Location")}</div>
+              <div>{t("Agent Status")}</div>
+              <div>{t("Panel Status")}</div>
+              <div>{t("Uptime")}</div>
+              <div>{t("Last Check")}</div>
+              <div>{t("Actions")}</div>
+            </div>
+            {nodesFiltered.map((node) => {
+              const status = deriveNodeStatus(node);
+              const location = formatLocation(node);
+              const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
+              return (
+                <div
+                  className="data-row"
+                  key={node.node_id}
+                  onClick={() => navigate(`/nodes?node=${node.node_id}`)}
+                >
+                  <div><StatusDot ok={status === "online"} /></div>
+                  <div>
+                    <div className="node-title">{node.name}</div>
+                    <div className="muted small">{node.kind || "PANEL"}</div>
+                  </div>
+                  <div className="location-cell">
+                    <span className="flag">{location.flag}</span>
+                    <span>{location.text}</span>
+                  </div>
+                  <div>
+                    <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
+                      {node.agent_online ? t("Online") : t("Offline")}
+                    </span>
+                    <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
+                  </div>
+                  <div>
+                    <span className={`badge ${node.panel_running ? "online" : "offline"}`}>
+                      {node.panel_running ? t("Online") : t("Offline")}
+                    </span>
+                    <span className="muted small">{node.panel_version || "-"}</span>
+                  </div>
+                  <div>
+                    <div className="uptime-line">
+                      <UptimeBar percent={uptimePct} />
+                      <span className="muted small">{node.uptime_sec ? formatDuration(node.uptime_sec) : "-"}</span>
+                    </div>
+                  </div>
+                  <div>{node.collected_at ? formatTS(node.collected_at) : "-"}</div>
+                  <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="ghost">{t("Open Dashboard")}</button>
+                    <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
+                    <button type="button" className="ghost" disabled>{t("View Logs")}</button>
+                  </div>
                 </div>
-                <div><DashboardStatusBadge status={status} /></div>
-                <div>
-                  <span className={agentClass} title={node.agent_version ? `v${node.agent_version}` : ""}>
-                    {agentLabel}
-                  </span>
-                </div>
-                <div>{formatPercent(node.cpu_pct)}</div>
-                <div>{ram}</div>
-                <div>{disk}</div>
-                <div>{formatBps(node.net_rx_bps)}</div>
-                <div>{formatBps(node.net_tx_bps)}</div>
-                <div>{formatDuration(node.uptime_sec)}</div>
-                <div>{formatTS(node.collected_at)}</div>
-                <div>{node.panel_version || "-"}</div>
+              );
+            })}
+            {nodesFiltered.length === 0 && (
+              <div className="data-row">
+                <div>{loading ? t("Loading...") : t("No data")}</div>
               </div>
-            );
-          })}
-          {nodesFiltered.length === 0 && (
-            <div className="table-row">
-              <div>{loading ? t("Loading...") : t("No data")}</div>
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        </section>
 
-      <div className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h3>{t("Active users")}</h3>
-          <div className="dashboard-filters">
-            <input value={searchUsers} onChange={(e) => setSearchUsers(e.target.value)} placeholder={t("Search")} />
+        <section className="grid-bottom">
+          <div className="bottom-card">
+            <h4>{t("Total Traffic")}</h4>
+            <div className="bottom-value">{traffic24h != null ? formatBytes(traffic24h) : "-"}</div>
+            <div className="muted small">{t("Sent / Received")}</div>
+            <div className="bottom-sub">{t("24h + 7d counters")}</div>
           </div>
-        </div>
-        <div className="table dashboard-users">
-          <div className="table-row head">
-            <div>{t("Client")}</div>
-            <div>{t("Node")}</div>
-            <div>{t("Inbound")}</div>
-            <div>{t("IP")}</div>
-            <div>{t("RX")}</div>
-            <div>{t("TX")}</div>
-            <div>{t("Total")}</div>
-            <div>{t("Last seen")}</div>
+          <div className="bottom-card">
+            <h4>{t("Connections")}</h4>
+            <div className="bottom-value">{aggregateSafe.totalConnections != null ? aggregateSafe.totalConnections : "-"}</div>
+            <div className="muted small">{t("TCP / UDP")}</div>
+            <div className="bottom-sub">{t("Realtime sockets")}</div>
           </div>
-          {usersFiltered.map((user) => (
-            <div className="table-row" key={user.id || `${user.node_id}-${user.client_email}-${user.ip || ""}`}>
-              <div>{user.client_email}</div>
-              <div>{user.node_name || "-"}</div>
-              <div>{user.inbound_tag || "-"}</div>
-              <div>{user.ip || "-"}</div>
-              <div>{formatBps(user.rx_bps)}</div>
-              <div>{formatBps(user.tx_bps)}</div>
-              <div>{user.total_up_bytes || user.total_down_bytes ? `${formatBytes(user.total_up_bytes || 0)} / ${formatBytes(user.total_down_bytes || 0)}` : "-"}</div>
-              <div>{formatTS(user.last_seen)}</div>
+          <div className="bottom-card">
+            <h4>{t("Agent Health")}</h4>
+            <div className="bottom-value">{agentsActive} {t("Online")}</div>
+            <div className="muted small">{agentsTotal - agentsActive} {t("Offline")}</div>
+            <div className="bottom-sub">{t("Last agent errors")}</div>
+          </div>
+          <div className="bottom-card">
+            <h4>{t("Alerts & Problems")}</h4>
+            <div className="bottom-value">{activeAlerts}</div>
+            <div className="muted small">{t("Active alerts")}</div>
+            <div className="bottom-sub">{t("Nodes with issues")}</div>
+          </div>
+        </section>
+
+        <section className="table-card">
+          <div className="section-head">
+            <div>
+              <h3>{t("Realtime active users")}</h3>
+              <span className="muted small">{t("Across all nodes")}</span>
             </div>
-          ))}
-          {usersFiltered.length === 0 && (
-            <div className="table-row">
-              <div>{loading ? t("Loading...") : t("No data")}</div>
+            <div className="section-actions">
+              <input value={searchUsers} onChange={(e) => setSearchUsers(e.target.value)} placeholder={t("Search users")} />
             </div>
-          )}
-        </div>
+          </div>
+          <div className="data-table users-table">
+            <div className="data-row head">
+              <div>{t("Client")}</div>
+              <div>{t("Node")}</div>
+              <div>{t("Inbound")}</div>
+              <div>{t("IP")}</div>
+              <div>{t("RX")}</div>
+              <div>{t("TX")}</div>
+              <div>{t("Total")}</div>
+              <div>{t("Last seen")}</div>
+            </div>
+            {usersFiltered.map((user) => (
+              <div className="data-row" key={user.id || `${user.node_id}-${user.client_email}-${user.ip || ""}`}>
+                <div>{user.client_email}</div>
+                <div>{user.node_name || "-"}</div>
+                <div>{user.inbound_tag || "-"}</div>
+                <div>{user.ip || "-"}</div>
+                <div>{formatBps(user.rx_bps)}</div>
+                <div>{formatBps(user.tx_bps)}</div>
+                <div>{user.total_up_bytes || user.total_down_bytes ? `${formatBytes(user.total_up_bytes || 0)} / ${formatBytes(user.total_down_bytes || 0)}` : "-"}</div>
+                <div>{formatTS(user.last_seen)}</div>
+              </div>
+            ))}
+            {usersFiltered.length === 0 && (
+              <div className="data-row">
+                <div>{loading ? t("Loading...") : t("No data")}</div>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -4165,6 +4386,7 @@ function FilesPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
