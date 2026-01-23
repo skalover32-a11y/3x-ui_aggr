@@ -99,26 +99,45 @@ func (s *Service) LoadSettings(ctx context.Context) (*Settings, error) {
 	}, nil
 }
 
-func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node *db.Node, panelOK, sshOK bool, errMsg *string) {
+func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node *db.Node, panelOK bool, panelErr *string, panelCode *string, sshOK bool, sshErr *string) {
 	if settings == nil || !settings.AlertConnection || node == nil {
 		return
 	}
-	active := !(panelOK && sshOK)
-	alert := Alert{
-		Type:     AlertConnection,
-		NodeID:   node.ID,
-		NodeName: nodeLabel(node),
-		TS:       time.Now(),
-		Severity: SeverityCritical,
-		PanelOK:  panelOK,
-		SSHOK:    sshOK,
-		PanelURL: node.BaseURL,
-		IP:       node.SSHHost,
+	now := time.Now()
+	panelTarget := panelTargetType(panelCode)
+	panelAlert := Alert{
+		Type:       AlertConnection,
+		NodeID:     node.ID,
+		NodeName:   nodeLabel(node),
+		TS:         now,
+		Severity:   SeverityCritical,
+		PanelOK:    panelOK,
+		SSHOK:      sshOK,
+		PanelURL:   node.BaseURL,
+		IP:         node.SSHHost,
+		TargetType: panelTarget,
 	}
-	if errMsg != nil {
-		alert.Error = strings.TrimSpace(*errMsg)
+	if panelErr != nil {
+		panelAlert.Error = strings.TrimSpace(*panelErr)
 	}
-	s.maybeSendAlert(ctx, settings, active, alert)
+	s.maybeSendAlert(ctx, settings, !panelOK, panelAlert)
+
+	sshAlert := Alert{
+		Type:       AlertConnection,
+		NodeID:     node.ID,
+		NodeName:   nodeLabel(node),
+		TS:         now,
+		Severity:   SeverityCritical,
+		PanelOK:    panelOK,
+		SSHOK:      sshOK,
+		PanelURL:   node.BaseURL,
+		IP:         node.SSHHost,
+		TargetType: "ssh",
+	}
+	if sshErr != nil {
+		sshAlert.Error = strings.TrimSpace(*sshErr)
+	}
+	s.maybeSendAlert(ctx, settings, !sshOK, sshAlert)
 }
 
 func (s *Service) NotifyCPU(ctx context.Context, settings *Settings, node *db.Node, load1 float64) {
@@ -324,11 +343,7 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	status := strings.ToLower(strings.TrimSpace(alert.Status))
 	if status == "" {
 		if active {
-			if alert.Severity == SeverityWarning {
-				status = "warn"
-			} else {
-				status = "fail"
-			}
+			status = "fail"
 		} else {
 			status = "ok"
 		}
@@ -340,14 +355,21 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	alert.AlertID = s.ensureAlertID(ctx, state)
 
 	if status == "ok" {
-		if state != nil && state.LastStatus != nil && *state.LastStatus != "ok" {
+		if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 			alert.Occurrences = state.Occurrences
 			s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSON(state.LastMessageIDs))
 			s.sendRecovery(ctx, settings, alert, state)
+			return
 		}
+		s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSONOrEmpty(state))
 		return
 	}
 
+	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
+		alert.Occurrences = state.Occurrences
+		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
+		return
+	}
 	if state != nil {
 		alert.Occurrences = state.Occurrences + 1
 	} else {
@@ -363,33 +385,25 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	if state != nil {
 		messageIDs = messageIDsFromJSON(state.LastMessageIDs)
 	}
-	shouldNotify := true
-	if state != nil && state.LastStatus != nil && *state.LastStatus == status && len(messageIDs) > 0 {
-		if now.Sub(state.UpdatedAt) < dedupTTL {
-			shouldNotify = false
-		}
-	}
-	if shouldNotify {
-		text, keyboard := RenderAlert(alert, s.publicBaseURL)
-		if len(messageIDs) == 0 {
-			for _, chatID := range settings.AdminChatIDs {
-				msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
-				if err != nil {
-					log.Printf("telegram alert failed chat_id=%s error=%v", chatID, err)
-					continue
-				}
-				messageIDs[chatID] = msgID
+	text, keyboard := RenderAlert(alert, s.publicBaseURL)
+	if len(messageIDs) == 0 {
+		for _, chatID := range settings.AdminChatIDs {
+			msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
+			if err != nil {
+				log.Printf("telegram alert failed chat_id=%s error=%v", chatID, err)
+				continue
 			}
-		} else {
-			for chatID, msgID := range messageIDs {
-				if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
-					log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
-				}
+			messageIDs[chatID] = msgID
+		}
+	} else {
+		for chatID, msgID := range messageIDs {
+			if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
+				log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
 			}
 		}
 	}
 
-	s.updateState(ctx, alert, state, status, now, shouldNotify, messageIDs)
+	s.updateState(ctx, alert, state, status, now, true, messageIDs)
 }
 
 func (s *Service) SendTest(ctx context.Context, settings *Settings, msg string) error {
@@ -524,6 +538,20 @@ func (s *Service) openURLForAlert(ctx context.Context, alertID string) string {
 	}
 	base := strings.TrimRight(s.publicBaseURL, "/")
 	return fmt.Sprintf("%s/nodes?node=%s", base, state.NodeID.String())
+}
+
+func panelTargetType(code *string) string {
+	if code == nil {
+		return "panel"
+	}
+	switch strings.TrimSpace(*code) {
+	case "CERT_EXPIRED", "CERT_NOT_YET_VALID", "UNKNOWN_CA", "HOSTNAME_MISMATCH", "HANDSHAKE":
+		return "tls"
+	case "GENERIC_HTTP_ERROR":
+		return "http"
+	default:
+		return "panel"
+	}
 }
 func (s *Service) isMuted(ctx context.Context, fingerprint string) bool {
 	if strings.TrimSpace(fingerprint) == "" {

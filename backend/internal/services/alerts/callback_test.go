@@ -2,7 +2,10 @@ package alerts
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +65,76 @@ func TestHandleCallbackMuteAndAck(t *testing.T) {
 	if updated.LastStatus == nil || *updated.LastStatus != "ok" {
 		t.Fatalf("expected last_status ok")
 	}
+}
+
+func TestAlertTransitions(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:        "token",
+		AdminChatIDs:    []string{"1"},
+		AlertConnection: true,
+	}
+	nodeID := uuid.New()
+	alert := Alert{
+		Type:       AlertConnection,
+		NodeID:     nodeID,
+		NodeName:   "node",
+		TargetType: "ssh",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		SSHOK:      false,
+		PanelOK:    true,
+	}
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected 1 send, got %d", rt.sendCount)
+	}
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected no repeat sends, got %d", rt.sendCount)
+	}
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	if rt.editCount != 1 {
+		t.Fatalf("expected 1 edit for recovery, got %d", rt.editCount)
+	}
+}
+
+type countingRT struct {
+	sendCount int
+	editCount int
+}
+
+func (rt *countingRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.Contains(req.URL.Path, "sendMessage") {
+		rt.sendCount++
+	}
+	if strings.Contains(req.URL.Path, "editMessageText") {
+		rt.editCount++
+	}
+	body := `{"ok":true,"result":{"message_id":1}}`
+	if strings.Contains(req.URL.Path, "answerCallbackQuery") {
+		body = `{"ok":true}`
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, nil
 }
 
 func strPtr(s string) *string {

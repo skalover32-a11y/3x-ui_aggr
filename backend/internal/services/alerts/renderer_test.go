@@ -51,14 +51,18 @@ func TestRenderAlertCPU(t *testing.T) {
 func TestFingerprintNormalization(t *testing.T) {
 	alert := Alert{
 		Type:     AlertConnection,
+		NodeID:   uuid.New(),
 		NodeName: "NODE",
 		PanelOK:  false,
 		SSHOK:    true,
 		Error:    "panel: Get \"https://example.com\": status 502",
 	}
 	fp := fingerprintFor(alert)
-	if strings.Contains(fp, "502") {
-		t.Fatalf("expected digits to be normalized in fingerprint: %s", fp)
+	other := alert
+	other.Error = "panel: Get \"https://example.com\": status 504"
+	fp2 := fingerprintFor(other)
+	if fp != fp2 {
+		t.Fatalf("expected stable fingerprint, got %s vs %s", fp, fp2)
 	}
 }
 

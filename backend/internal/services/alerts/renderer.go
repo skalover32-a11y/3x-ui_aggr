@@ -322,29 +322,31 @@ func shortReason(err string) string {
 }
 
 func fingerprintFor(alert Alert) string {
-	root := strings.ToLower(shortReason(alert.Error))
+	nodeKey := "unknown"
+	if alert.NodeID != uuid.Nil {
+		nodeKey = alert.NodeID.String()
+	}
 	switch alert.Type {
+	case AlertConnection:
+		component := strings.ToLower(strings.TrimSpace(alert.TargetType))
+		if component == "" {
+			component = "connection"
+		}
+		return fmt.Sprintf("connection|%s|%s", nodeKey, component)
 	case AlertCPU:
-		root = fmt.Sprintf("load1>=%.2f", alert.Metrics.Threshold)
+		return fmt.Sprintf("cpu|%s|load1>=%.2f", nodeKey, alert.Metrics.Threshold)
 	case AlertMemory:
-		root = fmt.Sprintf("mem>=%.1f", alert.Metrics.Threshold)
+		return fmt.Sprintf("memory|%s|mem>=%.1f", nodeKey, alert.Metrics.Threshold)
 	case AlertDisk:
-		root = fmt.Sprintf("disk<=%.1f", alert.Metrics.Threshold)
+		return fmt.Sprintf("disk|%s|disk<=%.1f", nodeKey, alert.Metrics.Threshold)
 	case AlertGeneric:
 		if alert.CheckID != uuid.Nil {
-			root = fmt.Sprintf("check:%s", alert.CheckID.String())
-		} else {
-			root = fmt.Sprintf("check:%s|target:%s", strings.ToLower(alert.CheckType), strings.ToLower(alert.Target))
+			return fmt.Sprintf("generic|%s|check:%s", nodeKey, alert.CheckID.String())
 		}
+		target := strings.ToLower(strings.TrimSpace(alert.Target))
+		checkType := strings.ToLower(strings.TrimSpace(alert.CheckType))
+		return fmt.Sprintf("generic|%s|check:%s|target:%s", nodeKey, checkType, target)
+	default:
+		return fmt.Sprintf("%s|%s", strings.ToLower(string(alert.Type)), nodeKey)
 	}
-	root = digitRe.ReplaceAllString(root, "0")
-	root = strings.TrimSpace(root)
-	statusBits := ""
-	if alert.Type == AlertConnection {
-		statusBits = fmt.Sprintf("panel=%t,ssh=%t", alert.PanelOK, alert.SSHOK)
-	}
-	if alert.Type == AlertGeneric {
-		statusBits = fmt.Sprintf("status=%s", strings.ToLower(alert.Status))
-	}
-	return fmt.Sprintf("%s|%s|%s|%s", alert.Type, strings.ToLower(alert.NodeName), statusBits, root)
 }
