@@ -27,6 +27,7 @@ type DeployAgentParams struct {
 	Token          string
 	EnableUFW      bool
 	HealthCheck    bool
+	InstallDocker  bool
 	SudoPasswords  []string
 	NodeHost       string
 	PreLog         string

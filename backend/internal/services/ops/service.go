@@ -87,6 +87,7 @@ type JobParams struct {
 	RateLimitRPS     int    `json:"rate_limit_rps"`
 	EnableUFW        bool   `json:"enable_ufw"`
 	HealthCheck      bool   `json:"health_check"`
+	InstallDocker    bool   `json:"install_docker"`
 	RestartService   string `json:"restart_service"`
 }
 
@@ -759,6 +760,7 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 		Token:          token,
 		EnableUFW:      enableUFW,
 		HealthCheck:    healthCheck,
+		InstallDocker:  params.InstallDocker,
 		SudoPasswords:  s.SudoPasswords,
 		NodeHost:       nodeHost,
 		PreLog:         preLog,

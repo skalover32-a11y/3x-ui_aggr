@@ -673,6 +673,7 @@ function NodesPage() {
     rate_limit_rps: 5,
     enable_ufw: true,
     health_check: true,
+    install_docker: false,
     force_redeploy: true,
     parallelism: 3,
     all: false,
@@ -1385,6 +1386,7 @@ function NodesPage() {
       rate_limit_rps: Number(deployForm.rate_limit_rps) || 5,
       enable_ufw: !!deployForm.enable_ufw,
       health_check: !!deployForm.health_check,
+      install_docker: !!deployForm.install_docker,
       force_redeploy: !!deployForm.force_redeploy,
       confirm: deployForm.confirm.trim(),
       sandbox: !!deployForm.sandbox_only,
@@ -3154,6 +3156,14 @@ function NodesPage() {
                   onChange={(e) => setDeployForm({ ...deployForm, health_check: e.target.checked })}
                 />
                 {t("Health check")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={deployForm.install_docker}
+                  onChange={(e) => setDeployForm({ ...deployForm, install_docker: e.target.checked })}
+                />
+                {t("Install Docker")}
               </label>
               <label className="checkbox">
                 <input
