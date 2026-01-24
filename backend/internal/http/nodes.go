@@ -13,6 +13,7 @@ import (
 	"gorm.io/datatypes"
 
 	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/http/middleware"
 	"agr_3x_ui/internal/services/sshclient"
 )
 
@@ -85,6 +86,7 @@ type nodeResponse struct {
 	IsSandbox         bool            `json:"is_sandbox"`
 	AgentEnabled      bool            `json:"agent_enabled"`
 	AgentURL          *string         `json:"agent_url"`
+	AgentToken        *string         `json:"agent_token,omitempty"`
 	AgentInsecureTLS  bool            `json:"agent_allow_insecure_tls"`
 	AgentInstalled    bool            `json:"agent_installed"`
 	AgentVersion      *string         `json:"agent_version"`
@@ -172,7 +174,17 @@ func (h *Handler) GetNode(c *gin.Context) {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
 	}
-	respondStatus(c, http.StatusOK, toNodeResponse(node))
+	resp := toNodeResponse(node)
+	role := c.GetString("role")
+	if role == middleware.RoleAdmin && h.Encryptor != nil && node.AgentTokenEnc != nil && strings.TrimSpace(*node.AgentTokenEnc) != "" {
+		if token, err := h.Encryptor.DecryptString(*node.AgentTokenEnc); err == nil {
+			token = strings.TrimSpace(token)
+			if token != "" {
+				resp.AgentToken = &token
+			}
+		}
+	}
+	respondStatus(c, http.StatusOK, resp)
 }
 
 func (h *Handler) CreateNode(c *gin.Context) {

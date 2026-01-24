@@ -440,6 +440,12 @@ async function copyText(value) {
   }
 }
 
+function maskSecret(value) {
+  if (!value) return "";
+  if (value.length <= 8) return "••••••";
+  return `${value.slice(0, 4)}••••••${value.slice(-4)}`;
+}
+
 function LoginPage() {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
@@ -571,6 +577,7 @@ function NodesPage() {
   const [auditNodeID, setAuditNodeID] = useState("");
   const [auditOffset, setAuditOffset] = useState(0);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [showAgentToken, setShowAgentToken] = useState(false);
   const [telegramForm, setTelegramForm] = useState({
     bot_token: "",
     admin_chat_ids: [],
@@ -917,13 +924,19 @@ function NodesPage() {
     if (nodeId && nodeAutoOpened !== nodeId) {
       const node = nodes.find((n) => n.id === nodeId);
       if (node) {
-        setNodeTab("overview");
-        setServicesError("");
-        setNodeDetails({ open: true, node });
+        openNodeDetails(node);
         setNodeAutoOpened(nodeId);
       }
     }
   }, [location.search, nodes, nodeAutoOpened]);
+
+  useEffect(() => {
+    if (!nodeDetails.open) {
+      setShowAgentToken(false);
+      return;
+    }
+    setShowAgentToken(false);
+  }, [nodeDetails.open, nodeDetails.node?.id]);
 
   useEffect(() => {
     if (nodes.length === 0) return;
@@ -951,6 +964,18 @@ function NodesPage() {
     const interval = setInterval(fetchChecks, 30000);
     return () => clearInterval(interval);
   }, [nodes]);
+
+  async function openNodeDetails(node) {
+    setNodeTab("overview");
+    setServicesError("");
+    setNodeDetails({ open: true, node });
+    try {
+      const fresh = await request("GET", `/nodes/${node.id}`);
+      setNodeDetails({ open: true, node: fresh });
+    } catch {
+      // keep best-effort data
+    }
+  }
 
   useEffect(() => {
     const next = {};
@@ -2415,11 +2440,7 @@ function NodesPage() {
                   <div
                     className="data-row"
                     key={node.id}
-                    onClick={() => {
-                      setNodeTab("overview");
-                      setServicesError("");
-                      setNodeDetails({ open: true, node });
-                    }}
+                    onClick={() => openNodeDetails(node)}
                   >
                     {(isAdmin || isOperator) && (
                       <div onClick={(e) => e.stopPropagation()}>
@@ -2464,9 +2485,7 @@ function NodesPage() {
                           if (node.base_url) {
                             window.open(node.base_url, "_blank");
                           } else {
-                            setNodeTab("overview");
-                            setServicesError("");
-                            setNodeDetails({ open: true, node });
+                            openNodeDetails(node);
                           }
                         }}
                       >
@@ -2502,6 +2521,26 @@ function NodesPage() {
                     {t("Copy")}
                   </button>
                 </div>
+                {isAdmin && nodeDetails.node.agent_token && (
+                  <div className="node-id">
+                    <span className="muted small">{t("Agent token")}: {showAgentToken ? nodeDetails.node.agent_token : maskSecret(nodeDetails.node.agent_token)}</span>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => {
+                        if (!showAgentToken) {
+                          if (!confirm(t("Reveal agent token?"))) return;
+                        }
+                        setShowAgentToken((prev) => !prev);
+                      }}
+                    >
+                      {showAgentToken ? t("Hide") : t("Show")}
+                    </button>
+                    <button type="button" className="ghost small" onClick={() => copyText(nodeDetails.node.agent_token)}>
+                      {t("Copy")}
+                    </button>
+                  </div>
+                )}
               </div>
               <button type="button" onClick={() => setNodeDetails({ open: false, node: null })}>{t("Close")}</button>
             </div>
