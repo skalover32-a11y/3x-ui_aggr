@@ -83,8 +83,8 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 		return logs.String(), 2, err
 	}
 
-	if params.InstallDocker {
-		if _, _, err := runRemote(ctx, client, "command -v docker"); err != nil {
+	if _, _, err := runRemote(ctx, client, "command -v docker"); err != nil {
+		if params.InstallDocker {
 			writeLog(logs, "docker missing: installing")
 			if _, _, err := runRemote(ctx, client, sudoCmd("apt-get update && apt-get install -y docker.io", sudoPass, usePass)); err != nil {
 				writeLog(logs, "docker install failed")
@@ -96,8 +96,10 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 			}
 			writeLog(logs, "docker installed")
 		} else {
-			writeLog(logs, "docker already installed")
+			writeLog(logs, "docker missing (not installed)")
 		}
+	} else {
+		writeLog(logs, "docker ok")
 	}
 
 	if params.BinaryPath == "" {
