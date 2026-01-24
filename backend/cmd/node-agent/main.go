@@ -1629,7 +1629,7 @@ func ensureSqliteWeb(ctx context.Context, port int, filePath string, readOnly bo
 	if err != nil {
 		return err
 	}
-	_, _ = runShell(ctx, "docker rm -f vlf-sqlite-web >/dev/null 2>&1")
+	_, _, _ = runShell(ctx, "docker rm -f vlf-sqlite-web >/dev/null 2>&1")
 	volume := fmt.Sprintf("-v %s:/data/db.sqlite", shellEscape(absPath))
 	args := "sqlite_web --host 0.0.0.0 --port 8080 /data/db.sqlite"
 	if readOnly {
