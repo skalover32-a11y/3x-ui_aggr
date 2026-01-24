@@ -13,6 +13,8 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -37,6 +39,9 @@ type Config struct {
 	PollWindowSeconds int      `yaml:"poll_window_seconds"`
 	StatsMode         string   `yaml:"stats_mode"`
 	RateLimitRPS      int      `yaml:"rate_limit_rps"`
+	AdminerPort       int      `yaml:"adminer_port"`
+	SqlitePort        int      `yaml:"sqlite_port"`
+	SqliteRoots       []string `yaml:"sqlite_roots"`
 }
 
 type state struct {
@@ -87,6 +92,11 @@ func main() {
 	mux.HandleFunc("/ops/update", st.withMiddleware(st.updatePanelHandler))
 	mux.HandleFunc("/ops/update-panel", st.withMiddleware(st.updatePanelHandler))
 	mux.HandleFunc("/ops/restart-service", st.withMiddleware(st.restartServiceHandler))
+	mux.HandleFunc("/apps/db/sqlite/list", st.withMiddleware(st.listSqliteHandler))
+	mux.HandleFunc("/apps/db/sqlite/start", st.withMiddleware(st.startSqliteHandler))
+	mux.HandleFunc("/apps/db/adminer/start", st.withMiddleware(st.startAdminerHandler))
+	mux.HandleFunc("/apps/db/sqlite/ui/", st.withMiddleware(st.proxySqliteUI))
+	mux.HandleFunc("/apps/db/adminer/ui/", st.withMiddleware(st.proxyAdminerUI))
 
 	addr := cfg.Listen
 	if addr == "" {
@@ -118,6 +128,9 @@ func loadConfig(override string) (Config, error) {
 		PollWindowSeconds: 60,
 		StatsMode:         "log",
 		RateLimitRPS:      5,
+		AdminerPort:       18081,
+		SqlitePort:        18082,
+		SqliteRoots:       []string{"/opt", "/var/lib"},
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -134,6 +147,15 @@ func loadConfig(override string) (Config, error) {
 	}
 	if cfg.StatsMode == "" {
 		cfg.StatsMode = "log"
+	}
+	if cfg.AdminerPort <= 0 {
+		cfg.AdminerPort = 18081
+	}
+	if cfg.SqlitePort <= 0 {
+		cfg.SqlitePort = 18082
+	}
+	if len(cfg.SqliteRoots) == 0 {
+		cfg.SqliteRoots = []string{"/opt", "/var/lib"}
 	}
 	return cfg, nil
 }
@@ -219,6 +241,10 @@ func (s *state) timeoutForPath(path string) time.Duration {
 		return 30 * time.Second
 	case strings.HasPrefix(path, "/ops/reboot"):
 		return 15 * time.Second
+	case strings.HasPrefix(path, "/apps/db/sqlite/ui"):
+		return 60 * time.Second
+	case strings.HasPrefix(path, "/apps/db/adminer/ui"):
+		return 60 * time.Second
 	default:
 		return 8 * time.Second
 	}
@@ -672,6 +698,116 @@ func (s *state) restartServiceHandler(w http.ResponseWriter, r *http.Request) {
 		"log":       logs.String(),
 		"exit_code": 0,
 	})
+}
+
+type sqliteFile struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	Mtime string `json:"mtime"`
+}
+
+type sqliteStartRequest struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type adminerStartRequest struct {
+	Engine string `json:"engine"`
+}
+
+func (s *state) listSqliteHandler(w http.ResponseWriter, r *http.Request) {
+	files, err := listSQLiteFiles(s.cfg.SqliteRoots, 500)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "files": files})
+}
+
+func (s *state) startSqliteHandler(w http.ResponseWriter, r *http.Request) {
+	var req sqliteStartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": "invalid payload"})
+		return
+	}
+	target, err := resolveSQLiteTarget(req, s.cfg.SqliteRoots)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	if err := ensureDockerAvailable(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	if err := ensureSqliteWeb(r.Context(), s.cfg.SqlitePort, target.Path); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	log.Printf("sqlite web started file=%s", target.Path)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"proxy_path": "/apps/db/sqlite/ui/",
+		"note":       "readonly",
+	})
+}
+
+func (s *state) startAdminerHandler(w http.ResponseWriter, r *http.Request) {
+	var req adminerStartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": "invalid payload"})
+		return
+	}
+	engine := strings.TrimSpace(strings.ToLower(req.Engine))
+	if engine != "" && engine != "postgres" && engine != "mysql" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": "unsupported engine"})
+		return
+	}
+	if err := ensureDockerAvailable(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	if err := ensureAdminer(r.Context(), s.cfg.AdminerPort); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	log.Printf("adminer started engine=%s", engine)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"proxy_path": "/apps/db/adminer/ui/",
+	})
+}
+
+func (s *state) proxySqliteUI(w http.ResponseWriter, r *http.Request) {
+	s.proxyLocal(w, r, s.cfg.SqlitePort, "/apps/db/sqlite/ui")
+}
+
+func (s *state) proxyAdminerUI(w http.ResponseWriter, r *http.Request) {
+	s.proxyLocal(w, r, s.cfg.AdminerPort, "/apps/db/adminer/ui")
+}
+
+func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, prefix string) {
+	target, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "bad proxy target"})
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		path := strings.TrimPrefix(r.URL.Path, prefix)
+		if path == "" {
+			path = "/"
+		}
+		req.URL.Path = path
+		req.URL.RawPath = path
+		req.URL.RawQuery = r.URL.RawQuery
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "proxy failed"})
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 func (s *state) collectStats(ctx context.Context) map[string]any {
@@ -1327,6 +1463,184 @@ func tailLines(path string, maxLines int) ([]string, error) {
 		lines = lines[len(lines)-maxLines:]
 	}
 	return lines, nil
+}
+
+func listSQLiteFiles(roots []string, limit int) ([]sqliteFile, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	cleanRoots := expandRoots(roots)
+	files := make([]sqliteFile, 0, 64)
+	seen := make(map[string]struct{})
+	for _, root := range cleanRoots {
+		root = filepath.Clean(root)
+		rootReal, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		_ = filepath.WalkDir(rootReal, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if len(files) >= limit {
+				return filepath.SkipDir
+			}
+			if d.IsDir() {
+				if d.Type()&os.ModeSymlink != 0 {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if d.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if !strings.EqualFold(filepath.Ext(d.Name()), ".db") {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil || !info.Mode().IsRegular() {
+				return nil
+			}
+			realPath, err := filepath.EvalSymlinks(path)
+			if err != nil || !pathWithin(realPath, rootReal) {
+				return nil
+			}
+			if _, ok := seen[realPath]; ok {
+				return nil
+			}
+			seen[realPath] = struct{}{}
+			files = append(files, sqliteFile{
+				Name:  d.Name(),
+				Path:  realPath,
+				Size:  info.Size(),
+				Mtime: info.ModTime().UTC().Format(time.RFC3339),
+			})
+			return nil
+		})
+	}
+	return files, nil
+}
+
+func resolveSQLiteTarget(req sqliteStartRequest, roots []string) (*sqliteFile, error) {
+	name := strings.TrimSpace(req.Name)
+	path := strings.TrimSpace(req.Path)
+	list, err := listSQLiteFiles(roots, 1000)
+	if err != nil {
+		return nil, err
+	}
+	if path != "" {
+		for _, file := range list {
+			if file.Path == path {
+				return &file, nil
+			}
+		}
+		return nil, errors.New("sqlite file not allowed")
+	}
+	if name == "" {
+		return nil, errors.New("sqlite file name required")
+	}
+	var match *sqliteFile
+	for _, file := range list {
+		if file.Name == name {
+			if match != nil {
+				return nil, errors.New("sqlite file name is not unique")
+			}
+			tmp := file
+			match = &tmp
+		}
+	}
+	if match == nil {
+		return nil, errors.New("sqlite file not found")
+	}
+	return match, nil
+}
+
+func expandRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if strings.ContainsAny(root, "*?[") {
+			matches, _ := filepath.Glob(root)
+			for _, match := range matches {
+				out = append(out, match)
+			}
+			continue
+		}
+		out = append(out, root)
+	}
+	return out
+}
+
+func pathWithin(pathValue, root string) bool {
+	root = filepath.Clean(root)
+	pathValue = filepath.Clean(pathValue)
+	if pathValue == root {
+		return true
+	}
+	if !strings.HasSuffix(root, string(os.PathSeparator)) {
+		root += string(os.PathSeparator)
+	}
+	return strings.HasPrefix(pathValue, root)
+}
+
+func ensureDockerAvailable(ctx context.Context) error {
+	if !commandExists("docker") {
+		return errors.New("docker not available on node")
+	}
+	_, _, err := runShell(ctx, "docker info >/dev/null 2>&1")
+	if err != nil {
+		return errors.New("docker daemon not available")
+	}
+	return nil
+}
+
+func ensureAdminer(ctx context.Context, port int) error {
+	if port <= 0 {
+		port = 18081
+	}
+	if isContainerRunning(ctx, "vlf-adminer") {
+		return nil
+	}
+	if containerExists(ctx, "vlf-adminer") {
+		_, _, err := runShell(ctx, "docker start vlf-adminer")
+		return err
+	}
+	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-adminer -p 127.0.0.1:%d:8080 adminer:4", port)
+	_, _, err := runShell(ctx, cmd)
+	return err
+}
+
+func ensureSqliteWeb(ctx context.Context, port int, filePath string) error {
+	if port <= 0 {
+		port = 18082
+	}
+	if strings.TrimSpace(filePath) == "" {
+		return errors.New("sqlite file path missing")
+	}
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return err
+	}
+	_, _ = runShell(ctx, "docker rm -f vlf-sqlite-web >/dev/null 2>&1")
+	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-sqlite-web -p 127.0.0.1:%d:8080 -v %s:/data/db.sqlite:ro coleifer/sqlite-web sqlite_web --read-only --host 0.0.0.0 --port 8080 /data/db.sqlite",
+		port, shellEscape(absPath))
+	_, _, err = runShell(ctx, cmd)
+	return err
+}
+
+func isContainerRunning(ctx context.Context, name string) bool {
+	cmd := fmt.Sprintf("docker ps --filter name=^/%s$ --format '{{.Names}}'", shellEscape(name))
+	out, _, err := runShell(ctx, cmd)
+	return err == nil && strings.TrimSpace(out) == name
+}
+
+func containerExists(ctx context.Context, name string) bool {
+	cmd := fmt.Sprintf("docker ps -a --filter name=^/%s$ --format '{{.Names}}'", shellEscape(name))
+	out, _, err := runShell(ctx, cmd)
+	return err == nil && strings.TrimSpace(out) == name
 }
 
 type rateLimiter struct {

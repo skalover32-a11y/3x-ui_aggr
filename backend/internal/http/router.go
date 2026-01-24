@@ -58,6 +58,11 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/nodes/:id/files/mkdir", middleware.RequireRoles(writeRoles...), h.Mkdir)
 	auth.POST("/nodes/:id/files/rename", middleware.RequireRoles(writeRoles...), h.RenamePath)
 	auth.POST("/nodes/:id/files/delete", middleware.RequireRoles(writeRoles...), h.DeletePath)
+	auth.GET("/nodes/:id/db/sqlite/list", middleware.RequireRoles(middleware.RoleAdmin), h.ListNodeSqlite)
+	auth.POST("/nodes/:id/db/sqlite/start", middleware.RequireRoles(middleware.RoleAdmin), h.StartNodeSqlite)
+	auth.POST("/nodes/:id/db/adminer/start", middleware.RequireRoles(middleware.RoleAdmin), h.StartNodeAdminer)
+	auth.Any("/nodes/:id/db/sqlite/ui/*path", middleware.RequireRoles(middleware.RoleAdmin), h.ProxyNodeSqlite)
+	auth.Any("/nodes/:id/db/adminer/ui/*path", middleware.RequireRoles(middleware.RoleAdmin), h.ProxyNodeAdminer)
 
 	auth.GET("/nodes/:id/services", middleware.RequireRoles(readRoles...), h.ListServices)
 	auth.POST("/nodes/:id/services", middleware.RequireRoles(writeRoles...), h.CreateService)

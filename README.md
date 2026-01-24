@@ -112,6 +112,24 @@ curl -s http://localhost:8080/api/nodes/<node_id> \
   -d '{"allowed_roots":["/opt","/var/log","/home/*/backups"]}'
 ```
 
+## DB work (node-agent)
+The **DB work** section opens database viewers through the node-agent proxy (no public DB ports).
+- SQLite uses sqlite-web (read-only)
+- Postgres/MySQL uses Adminer
+
+Agent requirements:
+- Docker installed on the node
+- Allowlist configured for the aggregator IP
+- Optional config in `/etc/vlf-agent/config.yaml`:
+  - `adminer_port` (default 18081)
+  - `sqlite_port` (default 18082)
+  - `sqlite_roots` (default `/opt`, `/var/lib`)
+
+API endpoints (admin only):
+- `GET /api/nodes/<node_id>/db/sqlite/list`
+- `POST /api/nodes/<node_id>/db/sqlite/start`
+- `POST /api/nodes/<node_id>/db/adminer/start`
+
 ## Ops jobs (bulk operations)
 Create a reboot job for all nodes:
 ```bash

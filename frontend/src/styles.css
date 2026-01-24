@@ -970,6 +970,65 @@ button.ghost:hover {
   min-width: 220px;
 }
 
+.db-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.db-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.db-toolbar select {
+  background: #0f1724;
+  border: 1px solid #2a3344;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 220px;
+}
+
+.db-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.db-section {
+  padding: 16px;
+}
+
+.db-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.db-table .data-row {
+  grid-template-columns: 2fr 1fr 1.2fr 1fr;
+}
+
+.db-iframe {
+  padding: 0;
+  overflow: hidden;
+  margin-top: 16px;
+  height: 70vh;
+}
+
+.db-iframe iframe {
+  width: 100%;
+  height: 70vh;
+  border: 0;
+  display: block;
+}
+
 .files-breadcrumbs {
   display: flex;
   align-items: center;

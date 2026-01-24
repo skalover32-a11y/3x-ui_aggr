@@ -231,6 +231,7 @@ function SidebarNav({ active }) {
     { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
     { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
     { key: "files", label: t("File Manager"), path: "/files" },
+    { key: "dbwork", label: t("DB work"), path: "/db" },
     { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
     { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1" },
@@ -666,6 +667,8 @@ function NodesPage() {
     base_url: "",
     panel_username: "",
     panel_password: "",
+    agent_url: "",
+    agent_token: "",
     ssh_host: "",
     ssh_port: 22,
     ssh_user: "",
@@ -1000,7 +1003,21 @@ function NodesPage() {
         tags,
       };
       const created = await request("POST", "/nodes", payload);
-      setForm({ ...form, kind: "PANEL", name: "", tags: "" });
+      setForm({
+        kind: "PANEL",
+        name: "",
+        tags: "",
+        base_url: "",
+        panel_username: "",
+        panel_password: "",
+        agent_url: "",
+        agent_token: "",
+        ssh_host: "",
+        ssh_port: 22,
+        ssh_user: "",
+        ssh_key: "",
+        verify_tls: true,
+      });
       setKeyPassphrase("");
       setKeyFingerprint("");
       setAddOpen(false);
@@ -1105,8 +1122,12 @@ function NodesPage() {
       payload.verify_tls = formEl.verify_tls.checked;
     }
     const panelPass = formEl.node_panel_password?.value;
+    const agentUrl = formEl.node_agent_url?.value?.trim();
+    const agentToken = formEl.node_agent_token?.value?.trim();
     const sshKey = formEl.node_ssh_key.value;
     if (panelPass) payload.panel_password = panelPass;
+    if (agentUrl) payload.agent_url = agentUrl;
+    if (agentToken) payload.agent_token = agentToken;
     if (sshKey) payload.ssh_key = sshKey;
     try {
       await request("PATCH", `/nodes/${editModal.node.id}`, payload);
@@ -1921,12 +1942,12 @@ function NodesPage() {
     );
   }
 
-  function renderBotsTable(bots, showNode) {
-    return (
-      <div className={`data-table bots-table ${showNode ? "with-node" : ""}`}>
-        <div className="data-row head">
-          {showNode && <div>{t("Node")}</div>}
-          <div>{t("Name")}</div>
+    function renderBotsTable(bots, showNode) {
+      return (
+        <div className={`data-table nodes-table bots-table ${showNode ? "with-node" : ""}`}>
+          <div className="data-row head">
+            {showNode && <div>{t("Node")}</div>}
+            <div>{t("Name")}</div>
           <div>{t("Kind")}</div>
           <div>{t("Target")}</div>
           <div>{t("Enabled")}</div>
@@ -1990,37 +2011,41 @@ function NodesPage() {
     );
   }
 
-  function renderBotsTab(node) {
-    const bots = botsMap[node.id] || [];
-    return (
-      <>
-        <div className="services-header">
-          <div className="muted small">
-            {botsBusy ? t("Loading...") : t("{count} bots", { count: bots.length })}
+    function renderBotsTab(node) {
+      const bots = botsMap[node.id] || [];
+      return (
+        <>
+          <div className="services-header">
+            <div className="muted small">
+              {botsBusy ? t("Loading...") : t("{count} bots", { count: bots.length })}
+            </div>
+            <div className="actions">
+              {!isViewer && <button type="button" onClick={() => openBotAdd(node)}>{t("Add")}</button>}
+              <button type="button" className="secondary" onClick={() => loadBots(node.id)}>{t("Refresh")}</button>
+            </div>
           </div>
-          <div className="actions">
-            {!isViewer && <button type="button" onClick={() => openBotAdd(node)}>{t("Add")}</button>}
-            <button type="button" className="secondary" onClick={() => loadBots(node.id)}>{t("Refresh")}</button>
+          {botsError && <div className="error">{botsError}</div>}
+          <div className="table-card">
+            {renderBotsTable(bots, false)}
           </div>
-        </div>
-        {botsError && <div className="error">{botsError}</div>}
-        {renderBotsTable(bots, false)}
-      </>
-    );
-  }
+        </>
+      );
+    }
 
-  function renderBotsView() {
-    const bots = Object.values(botsMap).flat();
-    return (
-      <>
-        {botsBusy && (
-          <div className="muted small bots-status">{t("Loading...")}</div>
-        )}
-        {botsError && <div className="error bots-status">{botsError}</div>}
-        {renderBotsTable(bots, true)}
-      </>
-    );
-  }
+    function renderBotsView() {
+      const bots = Object.values(botsMap).flat();
+      return (
+        <>
+          {botsBusy && (
+            <div className="muted small bots-status">{t("Loading...")}</div>
+          )}
+          {botsError && <div className="error bots-status">{botsError}</div>}
+          <div className="table-card">
+            {renderBotsTable(bots, true)}
+          </div>
+        </>
+      );
+    }
 
   async function openAudit() {
     setAuditOpen(true);
@@ -2251,13 +2276,11 @@ function NodesPage() {
     <div className="app-shell">
       <SidebarNav active={sidebarActive} />
       <div className="app-main">
-      <header className="header">
-        <div className="header-left">
-          <h2>{t("Nodes")}</h2>
-        </div>
-        <div className="header-right">
-          <div className="language-card">
-            <div className="muted small">{t("Language")}</div>
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
             <select value={lang} onChange={(e) => setLang(e.target.value)}>
               <option value="en">{t("English")}</option>
               <option value="ru">{t("Russian")}</option>
@@ -2322,7 +2345,6 @@ function NodesPage() {
       <div className="nodes-layout">
         <div className="nodes-toolbar">
           <div>
-            <h3>{t("Nodes Manager")}</h3>
             <div className="muted">
               {showingBots
                 ? t("Bots: {count}", { count: botCount })
@@ -2352,29 +2374,6 @@ function NodesPage() {
               </button>
             </div>
           )}
-          <div className="node-type-toggle">
-            <button
-              type="button"
-              className={`toggle-pill ${nodeTypeFilter === "PANEL" ? "active" : ""}`}
-              onClick={() => navigate("/nodes?view=panel")}
-            >
-              {t("3x-ui Panels")}
-            </button>
-            <button
-              type="button"
-              className={`toggle-pill ${nodeTypeFilter === "HOST" ? "active" : ""}`}
-              onClick={() => navigate("/nodes?view=host")}
-            >
-              {t("Hosts")}
-            </button>
-            <button
-              type="button"
-              className={`toggle-pill ${nodeTypeFilter === "BOT" ? "active" : ""}`}
-              onClick={() => navigate("/nodes?view=bots")}
-            >
-              {t("Bots")}
-            </button>
-          </div>
         </div>
 
         {showingBots && <div className="bots-view">{renderBotsView()}</div>}
@@ -2665,6 +2664,8 @@ function NodesPage() {
                   <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password (leave blank to keep)")} type="password" />
                 </>
               )}
+              <input name="node_agent_url" autoComplete="off" placeholder={t("Agent URL")} defaultValue={editModal.node.agent_url || ""} />
+              <input name="node_agent_token" autoComplete="new-password" placeholder={t("Agent Token (leave blank to keep)")} type="password" />
               <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} defaultValue={editModal.node.ssh_host} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" defaultValue={editModal.node.ssh_port} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} defaultValue={editModal.node.ssh_user} />
@@ -2739,14 +2740,16 @@ function NodesPage() {
               )}
               <input name="node_name" autoComplete="off" placeholder={t("Name")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
-              {form.kind === "PANEL" && (
-                <>
-                  <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
-                  <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
-                  <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password")} type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
-                </>
-              )}
-              <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
+                {form.kind === "PANEL" && (
+                  <>
+                    <input name="node_base_url" autoComplete="off" placeholder={t("Base URL")} value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} />
+                    <input name="node_panel_user" autoComplete="off" placeholder={t("Panel Username")} value={form.panel_username} onChange={(e) => setForm({ ...form, panel_username: e.target.value })} />
+                    <input name="node_panel_password" autoComplete="new-password" placeholder={t("Panel Password")} type="password" value={form.panel_password} onChange={(e) => setForm({ ...form, panel_password: e.target.value })} />
+                  </>
+                )}
+                <input name="node_agent_url" autoComplete="off" placeholder={t("Agent URL")} value={form.agent_url} onChange={(e) => setForm({ ...form, agent_url: e.target.value })} />
+                <input name="node_agent_token" autoComplete="new-password" placeholder={t("Agent Token")} type="password" value={form.agent_token} onChange={(e) => setForm({ ...form, agent_token: e.target.value })} />
+                <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />
               <input name="node_key_passphrase" autoComplete="new-password" placeholder={t("Key Passphrase (optional)")} type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} />
@@ -3713,13 +3716,21 @@ function DashboardPage() {
     return source;
   };
 
+  const activeIssues = useMemo(() => {
+    return nodesFiltered.filter((node) => {
+      const status = deriveNodeStatus(node);
+      if (status !== "online") return true;
+      if (node.kind !== "HOST" && !node.panel_version) return true;
+      return false;
+    }).length;
+  }, [nodesFiltered, nowTs]);
+
   const totalNodes = aggregateSafe.nodesTotal || 0;
   const nodesOnline = aggregateSafe.nodesOnline || 0;
   const agentsActive = aggregateSafe.agentsActive || 0;
   const agentsTotal = aggregateSafe.agentsTotal || 0;
   const panelsAvailable = aggregateSafe.panelsAvailable || 0;
   const avgPing = aggregateSafe.avgPingMs;
-  const activeAlerts = aggregateSafe.activeAlerts || 0;
   const traffic24h = aggregateSafe.totalTraffic24h;
   const rxBps = aggregateSafe.totalRxBps;
   const txBps = aggregateSafe.totalTxBps;
@@ -3770,11 +3781,11 @@ function DashboardPage() {
             progress={avgPing != null ? Math.max(0, 1 - avgPing / 200) : 0}
           />
           <MiniStatCard
-            label={t("Active Alerts")}
-            value={`${activeAlerts}`}
+            label={t("Active issues")}
+            value={`${activeIssues}`}
             subvalue={t("Incidents")}
-            progress={activeAlerts === 0 ? 1 : Math.max(0, 1 - activeAlerts / Math.max(1, totalNodes))}
-            accent={activeAlerts === 0 ? "ok" : "warn"}
+            progress={activeIssues === 0 ? 1 : Math.max(0, 1 - activeIssues / Math.max(1, totalNodes))}
+            accent={activeIssues === 0 ? "ok" : "warn"}
             onClick={() => navigate("/nodes?view=alerts")}
           />
           <MiniStatCard
@@ -3911,12 +3922,12 @@ function DashboardPage() {
             <div className="muted small">{agentsTotal - agentsActive} {t("Offline")}</div>
             <div className="bottom-sub">{t("Last agent errors")}</div>
           </div>
-          <div className="bottom-card clickable" onClick={() => navigate("/nodes?view=alerts")} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/nodes?view=alerts"); }}>
-            <h4>{t("Alerts & Problems")}</h4>
-            <div className="bottom-value">{activeAlerts}</div>
-            <div className="muted small">{t("Active alerts")}</div>
-            <div className="bottom-sub">{t("Nodes with issues")}</div>
-          </div>
+            <div className="bottom-card clickable" onClick={() => navigate("/nodes?view=alerts")} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/nodes?view=alerts"); }}>
+              <h4>{t("Alerts & Problems")}</h4>
+              <div className="bottom-value">{activeIssues}</div>
+              <div className="muted small">{t("Active issues now")}</div>
+              <div className="bottom-sub">{t("Nodes with issues")}</div>
+            </div>
         </section>
 
         <section className="table-card">
@@ -4402,6 +4413,169 @@ function FilesPage() {
   );
 }
 
+function DbWorkPage() {
+  const { t } = useI18n();
+  const [nodes, setNodes] = useState([]);
+  const [nodeId, setNodeId] = useState("");
+  const [tab, setTab] = useState("sqlite");
+  const [sqliteFiles, setSqliteFiles] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sqliteUI, setSqliteUI] = useState("");
+  const [adminerUI, setAdminerUI] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function loadNodes() {
+      try {
+        const data = await request("GET", "/nodes");
+        if (!active) return;
+        setNodes(data);
+        if (data.length > 0) {
+          setNodeId(data[0].id);
+        }
+      } catch (err) {
+        setError(err.message);
+      }
+    }
+    loadNodes();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSqliteFiles([]);
+    setSqliteUI("");
+    setAdminerUI("");
+    setError("");
+    if (!nodeId) return;
+    if (tab === "sqlite") {
+      loadSqliteList();
+    }
+  }, [nodeId, tab]);
+
+  async function loadSqliteList() {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await request("GET", `/nodes/${nodeId}/db/sqlite/list`);
+      setSqliteFiles(data?.files || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openSqlite(file) {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await request("POST", `/nodes/${nodeId}/db/sqlite/start`, { path: file.path });
+      setSqliteUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}` : "");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openAdminer(engine) {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await request("POST", `/nodes/${nodeId}/db/adminer/start`, { engine });
+      setAdminerUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}` : "");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="app-shell">
+      <SidebarNav active="dbwork" />
+      <div className="app-main">
+        <div className="page page-wide">
+          <header className="header">
+            <div className="header-left">
+              <h2>{t("DB work")}</h2>
+            </div>
+          </header>
+          <div className="db-toolbar">
+            <label>
+              {t("Node")}
+              <select value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
+                {nodes.map((node) => (
+                  <option key={node.id} value={node.id}>{node.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="db-tabs">
+              <button type="button" className={`tab ${tab === "sqlite" ? "active" : ""}`} onClick={() => setTab("sqlite")}>SQLite</button>
+              <button type="button" className={`tab ${tab === "postgres" ? "active" : ""}`} onClick={() => setTab("postgres")}>Postgres</button>
+              <button type="button" className={`tab ${tab === "mysql" ? "active" : ""}`} onClick={() => setTab("mysql")}>MySQL</button>
+            </div>
+          </div>
+          {error && <div className="error">{error}</div>}
+          {tab === "sqlite" && (
+            <div className="card db-section">
+              <div className="db-section-header">
+                <div className="muted small">{t("SQLite databases")}</div>
+                <button className="secondary" onClick={loadSqliteList} disabled={busy}>{t("Refresh")}</button>
+              </div>
+              <div className="data-table db-table">
+                <div className="data-row head">
+                  <div>{t("Name")}</div>
+                  <div>{t("Size")}</div>
+                  <div>{t("Modified")}</div>
+                  <div>{t("Actions")}</div>
+                </div>
+                {sqliteFiles.map((file) => (
+                  <div className="data-row" key={file.path}>
+                    <div>{file.name}</div>
+                    <div>{formatBytes(file.size)}</div>
+                    <div>{formatTS(file.mtime)}</div>
+                    <div>
+                      <button type="button" onClick={() => openSqlite(file)} disabled={busy}>{t("Open")}</button>
+                    </div>
+                  </div>
+                ))}
+                {sqliteFiles.length === 0 && (
+                  <div className="data-row">
+                    <div>{busy ? t("Loading...") : t("No databases found")}</div>
+                  </div>
+                )}
+              </div>
+              {sqliteUI && (
+                <div className="card db-iframe">
+                  <iframe title="SQLite Web" src={sqliteUI} />
+                </div>
+              )}
+            </div>
+          )}
+          {tab !== "sqlite" && (
+            <div className="card db-section">
+              <div className="db-section-header">
+                <div className="muted small">{t("Adminer")} ({tab})</div>
+                <button onClick={() => openAdminer(tab)} disabled={busy}>{t("Open")}</button>
+              </div>
+              {adminerUI && (
+                <div className="card db-iframe">
+                  <iframe title="Adminer" src={adminerUI} />
+                </div>
+              )}
+              {!adminerUI && <div className="muted small">{t("Adminer will open via node-agent proxy.")}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InboundsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -4559,6 +4733,14 @@ export default function App() {
           element={
             <RequireAuth>
               <FilesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/db"
+          element={
+            <RequireAuth>
+              <DbWorkPage />
             </RequireAuth>
           }
         />

@@ -7,3 +7,8 @@ xray_error_log_path: "/var/log/xray/error.log"
 poll_window_seconds: 60
 stats_mode: "log"
 rate_limit_rps: 5
+adminer_port: 18081
+sqlite_port: 18082
+sqlite_roots:
+  - "/opt"
+  - "/var/lib"
