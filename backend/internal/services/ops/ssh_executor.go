@@ -86,9 +86,35 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 	if _, _, err := runRemote(ctx, client, "command -v docker"); err != nil {
 		if params.InstallDocker {
 			writeLog(logs, "docker missing: installing")
-			if _, _, err := runRemote(ctx, client, sudoCmd("apt-get update && apt-get install -y docker.io", sudoPass, usePass)); err != nil {
-				writeLog(logs, "docker install failed")
-				return logs.String(), 15, err
+			var lastErr error
+			for attempt := 1; attempt <= 3; attempt++ {
+				out, _, err := runRemote(ctx, client, sudoCmd("DEBIAN_FRONTEND=noninteractive apt-get update", sudoPass, usePass))
+				if err != nil && isAptLockError(out) {
+					writeLog(logs, fmt.Sprintf("apt lock detected (update), retry %d/3", attempt))
+					time.Sleep(5 * time.Second)
+					lastErr = err
+					continue
+				}
+				if err != nil {
+					writeLog(logs, "apt update failed: "+strings.TrimSpace(out))
+					return logs.String(), 15, err
+				}
+				out, _, err = runRemote(ctx, client, sudoCmd("DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io", sudoPass, usePass))
+				if err != nil && isAptLockError(out) {
+					writeLog(logs, fmt.Sprintf("apt lock detected (install), retry %d/3", attempt))
+					time.Sleep(5 * time.Second)
+					lastErr = err
+					continue
+				}
+				if err != nil {
+					writeLog(logs, "docker install failed: "+strings.TrimSpace(out))
+					return logs.String(), 15, err
+				}
+				lastErr = nil
+				break
+			}
+			if lastErr != nil {
+				return logs.String(), 15, lastErr
 			}
 			if _, _, err := runRemote(ctx, client, sudoCmd("systemctl enable --now docker", sudoPass, usePass)); err != nil {
 				writeLog(logs, "docker enable failed")
@@ -331,6 +357,14 @@ func writeLog(buf *strings.Builder, line string) {
 		buf.WriteString("\n")
 	}
 	buf.WriteString(line)
+}
+
+func isAptLockError(output string) bool {
+	out := strings.ToLower(output)
+	return strings.Contains(out, "could not get lock") ||
+		strings.Contains(out, "unable to acquire the dpkg frontend lock") ||
+		strings.Contains(out, "could not open lock file") ||
+		strings.Contains(out, "another process") && strings.Contains(out, "lock")
 }
 
 func (e *SSHExecutor) runUpdatePrecheck(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error) {
