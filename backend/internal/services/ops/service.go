@@ -418,7 +418,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	}
 	if job.Type == JobTypeDeploy {
 		params := parseJobParams(job.Params)
-		if node.AgentInstalled && !params.ForceRedeploy {
+		if node.AgentInstalled && !params.ForceRedeploy && !params.InstallDocker {
 			logText := "ALREADY_INSTALLED: agent already installed"
 			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
 			return nil
@@ -428,7 +428,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 			if node.AgentVersion != nil {
 				current = strings.TrimSpace(*node.AgentVersion)
 			}
-			if current != "" && current == agentDesiredVersion {
+			if current != "" && current == agentDesiredVersion && !params.InstallDocker {
 				logText := fmt.Sprintf("ALREADY_INSTALLED: agent version matches (%s)", current)
 				s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
 				return nil
