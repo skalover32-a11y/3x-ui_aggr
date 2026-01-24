@@ -20,8 +20,9 @@ import (
 )
 
 type sqliteStartRequest struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	ReadOnly *bool  `json:"read_only"`
 }
 
 type adminerStartRequest struct {
@@ -51,6 +52,10 @@ func (h *Handler) StartNodeSqlite(c *gin.Context) {
 	var req sqliteStartRequest
 	if !parseJSONBody(c, &req) {
 		return
+	}
+	if req.ReadOnly == nil {
+		value := true
+		req.ReadOnly = &value
 	}
 	var resp map[string]any
 	if err := h.agentJSON(c.Request.Context(), node, http.MethodPost, "/apps/db/sqlite/start", req, &resp); err != nil {

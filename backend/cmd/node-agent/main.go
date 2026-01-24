@@ -708,8 +708,9 @@ type sqliteFile struct {
 }
 
 type sqliteStartRequest struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	ReadOnly *bool  `json:"read_only"`
 }
 
 type adminerStartRequest struct {
@@ -740,15 +741,19 @@ func (s *state) startSqliteHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
 		return
 	}
-	if err := ensureSqliteWeb(r.Context(), s.cfg.SqlitePort, target.Path); err != nil {
+	readOnly := true
+	if req.ReadOnly != nil {
+		readOnly = *req.ReadOnly
+	}
+	if err := ensureSqliteWeb(r.Context(), s.cfg.SqlitePort, target.Path, readOnly); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
 		return
 	}
-	log.Printf("sqlite web started file=%s", target.Path)
+	log.Printf("sqlite web started file=%s read_only=%t", target.Path, readOnly)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"proxy_path": "/apps/db/sqlite/ui/",
-		"note":       "readonly",
+		"note":       map[bool]string{true: "readonly", false: "readwrite"}[readOnly],
 	})
 }
 
@@ -1613,7 +1618,7 @@ func ensureAdminer(ctx context.Context, port int) error {
 	return err
 }
 
-func ensureSqliteWeb(ctx context.Context, port int, filePath string) error {
+func ensureSqliteWeb(ctx context.Context, port int, filePath string, readOnly bool) error {
 	if port <= 0 {
 		port = 18082
 	}
@@ -1625,8 +1630,14 @@ func ensureSqliteWeb(ctx context.Context, port int, filePath string) error {
 		return err
 	}
 	_, _ = runShell(ctx, "docker rm -f vlf-sqlite-web >/dev/null 2>&1")
-	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-sqlite-web -p 127.0.0.1:%d:8080 -v %s:/data/db.sqlite:ro coleifer/sqlite-web sqlite_web --read-only --host 0.0.0.0 --port 8080 /data/db.sqlite",
-		port, shellEscape(absPath))
+	volume := fmt.Sprintf("-v %s:/data/db.sqlite", shellEscape(absPath))
+	args := "sqlite_web --host 0.0.0.0 --port 8080 /data/db.sqlite"
+	if readOnly {
+		volume = volume + ":ro"
+		args = "sqlite_web --read-only --host 0.0.0.0 --port 8080 /data/db.sqlite"
+	}
+	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-sqlite-web -p 127.0.0.1:%d:8080 %s coleifer/sqlite-web %s",
+		port, volume, args)
 	_, _, err = runShell(ctx, cmd)
 	return err
 }

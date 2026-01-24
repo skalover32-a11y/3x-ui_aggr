@@ -116,6 +116,7 @@ curl -s http://localhost:8080/api/nodes/<node_id> \
 The **DB work** section opens database viewers through the node-agent proxy (no public DB ports).
 - SQLite uses sqlite-web (read-only)
 - Postgres/MySQL uses Adminer
+SQLite can be toggled to read-write from the UI (off by default).
 
 Agent requirements:
 - Docker installed on the node

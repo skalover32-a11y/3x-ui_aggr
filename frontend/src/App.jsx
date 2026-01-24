@@ -4423,6 +4423,7 @@ function DbWorkPage() {
   const [error, setError] = useState("");
   const [sqliteUI, setSqliteUI] = useState("");
   const [adminerUI, setAdminerUI] = useState("");
+  const [sqliteReadOnly, setSqliteReadOnly] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -4472,7 +4473,10 @@ function DbWorkPage() {
     setBusy(true);
     setError("");
     try {
-      const data = await request("POST", `/nodes/${nodeId}/db/sqlite/start`, { path: file.path });
+      const data = await request("POST", `/nodes/${nodeId}/db/sqlite/start`, {
+        path: file.path,
+        read_only: sqliteReadOnly,
+      });
       setSqliteUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}` : "");
     } catch (err) {
       setError(err.message);
@@ -4520,12 +4524,27 @@ function DbWorkPage() {
             </div>
           </div>
           {error && <div className="error">{error}</div>}
-          {tab === "sqlite" && (
-            <div className="card db-section">
-              <div className="db-section-header">
-                <div className="muted small">{t("SQLite databases")}</div>
-                <button className="secondary" onClick={loadSqliteList} disabled={busy}>{t("Refresh")}</button>
-              </div>
+            {tab === "sqlite" && (
+              <div className="card db-section">
+                <div className="db-section-header">
+                  <div className="muted small">{t("SQLite databases")}</div>
+                  <div className="db-section-actions">
+                    <label className="db-toggle">
+                      <input
+                        type="checkbox"
+                        checked={sqliteReadOnly}
+                        onChange={(e) => setSqliteReadOnly(e.target.checked)}
+                      />
+                      <span>{t("Read-only")}</span>
+                    </label>
+                    <button className="secondary" onClick={loadSqliteList} disabled={busy}>{t("Refresh")}</button>
+                  </div>
+                </div>
+                {!sqliteReadOnly && (
+                  <div className="db-warning">
+                    {t("Write access is enabled. Changes are applied immediately.")}
+                  </div>
+                )}
               <div className="data-table db-table">
                 <div className="data-row head">
                   <div>{t("Name")}</div>
