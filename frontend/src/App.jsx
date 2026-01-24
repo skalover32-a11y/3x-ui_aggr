@@ -426,6 +426,20 @@ function RequireAuth({ children }) {
   return children;
 }
 
+async function copyText(value) {
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const temp = document.createElement("textarea");
+    temp.value = value;
+    document.body.appendChild(temp);
+    temp.select();
+    document.execCommand("copy");
+    document.body.removeChild(temp);
+  }
+}
+
 function LoginPage() {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
@@ -2482,6 +2496,12 @@ function NodesPage() {
                 <div className="node-name">{nodeDetails.node.name || t("Unnamed node")}</div>
                 <div className="muted small">{nodeDetails.node.kind || "PANEL"}</div>
                 <div className="muted small">{nodeDetails.node.kind === "HOST" ? t("Base URL: not used") : (nodeDetails.node.base_url || t("No base URL"))}</div>
+                <div className="node-id">
+                  <span className="muted small">{t("Node ID")}: {nodeDetails.node.id}</span>
+                  <button type="button" className="ghost small" onClick={() => copyText(nodeDetails.node.id)}>
+                    {t("Copy")}
+                  </button>
+                </div>
               </div>
               <button type="button" onClick={() => setNodeDetails({ open: false, node: null })}>{t("Close")}</button>
             </div>
