@@ -753,6 +753,10 @@ func (s *state) startSqliteHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
 		return
 	}
+	if err := waitForHTTPReady(r.Context(), fmt.Sprintf("http://127.0.0.1:%d/", s.cfg.SqlitePort), 5*time.Second); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "sqlite web not ready"})
+		return
+	}
 	log.Printf("sqlite web started file=%s read_only=%t", target.Path, readOnly)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
@@ -778,6 +782,10 @@ func (s *state) startAdminerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ensureAdminer(r.Context(), s.cfg.AdminerPort); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "message": err.Error()})
+		return
+	}
+	if err := waitForHTTPReady(r.Context(), fmt.Sprintf("http://127.0.0.1:%d/", s.cfg.AdminerPort), 5*time.Second); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "adminer not ready"})
 		return
 	}
 	log.Printf("adminer started engine=%s", engine)
@@ -814,9 +822,36 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		req.URL.RawQuery = r.URL.RawQuery
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Printf("proxy failed: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "proxy failed"})
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	client := &http.Client{Timeout: 2 * time.Second}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *state) collectStats(ctx context.Context) map[string]any {
