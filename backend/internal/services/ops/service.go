@@ -681,14 +681,15 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 	if agentPort <= 0 {
 		agentPort = 9191
 	}
-	allowCIDR := strings.TrimSpace(params.AllowCIDR)
-	if allowCIDR == "" {
-		allowCIDR = strings.TrimSpace(s.AllowCIDR)
+	rawAllowCIDR := strings.TrimSpace(params.AllowCIDR)
+	if rawAllowCIDR == "" {
+		rawAllowCIDR = strings.TrimSpace(s.AllowCIDR)
 	}
-	allowCIDR = normalizeAllowCIDR(allowCIDR)
-	if allowCIDR == "" {
+	allowCIDRs := normalizeAllowCIDRs(rawAllowCIDR)
+	if len(allowCIDRs) == 0 {
 		return DeployAgentParams{}, errors.New("allow_cidr is required")
 	}
+	allowCIDR := allowCIDRs[0]
 	if len(s.SudoPasswords) == 0 {
 		return DeployAgentParams{}, errors.New("sudo passwords not configured")
 	}
@@ -743,13 +744,21 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 	if err != nil {
 		return DeployAgentParams{}, err
 	}
-	configContent := buildAgentConfig(agentPort, token, allowCIDR, statsMode, xrayPath, rateLimit)
-	preLog = appendPreLog(preLog, fmt.Sprintf("service template: %s", servicePath))
-
 	nodeHost := strings.TrimSpace(node.SSHHost)
 	if nodeHost == "" {
 		nodeHost = strings.TrimSpace(node.Host)
 	}
+	allowCIDRHost := strings.Split(allowCIDR, "/")[0]
+	if nodeHost != "" && allowCIDRHost != "" && strings.EqualFold(nodeHost, allowCIDRHost) {
+		const dockerBridgeCIDR = "172.17.0.0/16"
+		if !cidrInList(allowCIDRs, dockerBridgeCIDR) {
+			allowCIDRs = append(allowCIDRs, dockerBridgeCIDR)
+		}
+	}
+
+	configContent := buildAgentConfig(agentPort, token, allowCIDRs, statsMode, xrayPath, rateLimit)
+	preLog = appendPreLog(preLog, fmt.Sprintf("service template: %s", servicePath))
+	preLog = appendPreLog(preLog, fmt.Sprintf("allow_cidrs: %s", strings.Join(allowCIDRs, ", ")))
 
 	return DeployAgentParams{
 		BinaryPath:     binaryPath,
@@ -896,17 +905,21 @@ func (s *Service) loadAgentServiceTemplate() ([]byte, string, error) {
 	return data, usedPath, nil
 }
 
-func buildAgentConfig(port int, token string, allowCIDR string, statsMode string, accessLog string, rateLimit int) []byte {
+func buildAgentConfig(port int, token string, allowCIDRs []string, statsMode string, accessLog string, rateLimit int) []byte {
 	lines := []string{
 		fmt.Sprintf("listen: \"0.0.0.0:%d\"", port),
 		fmt.Sprintf("token: %q", escapeYAMLString(token)),
 		"allow_cidrs:",
-		fmt.Sprintf("  - %q", escapeYAMLString(allowCIDR)),
+	}
+	for _, cidr := range allowCIDRs {
+		lines = append(lines, fmt.Sprintf("  - %q", escapeYAMLString(cidr)))
+	}
+	lines = append(lines,
 		fmt.Sprintf("xray_access_log_path: %q", escapeYAMLString(accessLog)),
 		fmt.Sprintf("poll_window_seconds: %d", 60),
 		fmt.Sprintf("stats_mode: %q", escapeYAMLString(statsMode)),
 		fmt.Sprintf("rate_limit_rps: %d", rateLimit),
-	}
+	)
 	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
@@ -945,6 +958,36 @@ func normalizeAllowCIDR(raw string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeAllowCIDRs(raw string) []string {
+	parts := strings.Split(raw, ",")
+	seen := map[string]bool{}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trim := strings.TrimSpace(part)
+		if trim == "" {
+			continue
+		}
+		if !strings.Contains(trim, "/") {
+			trim = trim + "/32"
+		}
+		if seen[trim] {
+			continue
+		}
+		seen[trim] = true
+		out = append(out, trim)
+	}
+	return out
+}
+
+func cidrInList(list []string, cidr string) bool {
+	for _, item := range list {
+		if item == cidr {
+			return true
+		}
+	}
+	return false
 }
 
 func hashFile(path string) (string, error) {
