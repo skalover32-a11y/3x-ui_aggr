@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.10"
+const agentVersion = "v1.11"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -813,6 +813,7 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 	if externalPrefix == "" {
 		externalPrefix = prefix
 	}
+	localPrefix := prefix
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -835,13 +836,16 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 			return nil
 		}
 		location := resp.Header.Get("Location")
-		if strings.HasPrefix(location, "/") {
+		if strings.HasPrefix(location, localPrefix) {
+			rest := strings.TrimPrefix(location, localPrefix)
+			resp.Header.Set("Location", strings.TrimSuffix(externalPrefix, "/")+rest)
+		} else if strings.HasPrefix(location, "/") {
 			resp.Header.Set("Location", strings.TrimSuffix(externalPrefix, "/")+location)
 		}
 		if css == "" {
-			return injectHTMLBase(resp, externalPrefix)
+			return injectHTMLBase(resp, localPrefix, externalPrefix)
 		}
-		return injectHTMLCSS(resp, css, externalPrefix)
+		return injectHTMLCSS(resp, css, localPrefix, externalPrefix)
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -856,7 +860,7 @@ pre, code { background: #eef2f8; color: #1b1f2a; }
 .navbar, .footer, .sidebar { background: #ffffff; }
 `
 
-func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
+func injectHTMLCSS(resp *http.Response, css string, localPrefix string, externalPrefix string) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
@@ -870,9 +874,9 @@ func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
 		return err
 	}
 	text := string(body)
-	text = injectHTMLBaseText(text, prefix)
+	text = injectHTMLBaseText(text, localPrefix, externalPrefix)
 	style := "<style>" + css + "</style>"
-	text = rewriteHTMLPaths(text, prefix)
+	text = rewriteHTMLPaths(text, localPrefix, externalPrefix)
 	if strings.Contains(text, "</head>") {
 		text = strings.Replace(text, "</head>", style+"</head>", 1)
 	} else if strings.Contains(text, "<body") {
@@ -887,7 +891,7 @@ func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
 	return nil
 }
 
-func injectHTMLBase(resp *http.Response, prefix string) error {
+func injectHTMLBase(resp *http.Response, localPrefix string, externalPrefix string) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
@@ -900,7 +904,7 @@ func injectHTMLBase(resp *http.Response, prefix string) error {
 	if err != nil {
 		return err
 	}
-	text := injectHTMLBaseText(string(body), prefix)
+	text := injectHTMLBaseText(string(body), localPrefix, externalPrefix)
 	if text == "" {
 		return nil
 	}
@@ -910,11 +914,18 @@ func injectHTMLBase(resp *http.Response, prefix string) error {
 	return nil
 }
 
-func injectHTMLBaseText(text string, prefix string) string {
-	if prefix == "" || text == "" {
+func injectHTMLBaseText(text string, localPrefix string, externalPrefix string) string {
+	if text == "" {
 		return text
 	}
-	base := strings.TrimSuffix(prefix, "/") + "/"
+	basePrefix := externalPrefix
+	if basePrefix == "" {
+		basePrefix = localPrefix
+	}
+	if basePrefix == "" {
+		return text
+	}
+	base := strings.TrimSuffix(basePrefix, "/") + "/"
 	baseTag := "<base href=\"" + base + "\">"
 	if strings.Contains(text, "<base ") {
 		return text
@@ -931,11 +942,25 @@ func injectHTMLBaseText(text string, prefix string) string {
 	return text
 }
 
-func rewriteHTMLPaths(text string, prefix string) string {
-	if prefix == "" {
+func rewriteHTMLPaths(text string, localPrefix string, externalPrefix string) string {
+	if text == "" {
 		return text
 	}
-	base := strings.TrimSuffix(prefix, "/") + "/"
+	basePrefix := externalPrefix
+	if basePrefix == "" {
+		basePrefix = localPrefix
+	}
+	if basePrefix == "" {
+		return text
+	}
+	base := strings.TrimSuffix(basePrefix, "/") + "/"
+	localBase := strings.TrimSuffix(localPrefix, "/") + "/"
+	text = strings.ReplaceAll(text, "href=\""+localBase, "href=\""+base)
+	text = strings.ReplaceAll(text, "href='"+localBase, "href='"+base)
+	text = strings.ReplaceAll(text, "src=\""+localBase, "src=\""+base)
+	text = strings.ReplaceAll(text, "src='"+localBase, "src='"+base)
+	text = strings.ReplaceAll(text, "action=\""+localBase, "action=\""+base)
+	text = strings.ReplaceAll(text, "action='"+localBase, "action='"+base)
 	text = strings.ReplaceAll(text, "href=\"/", "href=\""+base)
 	text = strings.ReplaceAll(text, "href='/", "href='"+base)
 	text = strings.ReplaceAll(text, "src=\"/", "src=\""+base)
