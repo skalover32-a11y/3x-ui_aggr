@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.8"
+const agentVersion = "v1.9"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -835,7 +835,7 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 			resp.Header.Set("Location", strings.TrimSuffix(prefix, "/")+location)
 		}
 		if css == "" {
-			return nil
+			return injectHTMLBase(resp, prefix)
 		}
 		return injectHTMLCSS(resp, css, prefix)
 	}
@@ -866,6 +866,7 @@ func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
 		return err
 	}
 	text := string(body)
+	text = injectHTMLBaseText(text, prefix)
 	style := "<style>" + css + "</style>"
 	text = rewriteHTMLPaths(text, prefix)
 	if strings.Contains(text, "</head>") {
@@ -880,6 +881,50 @@ func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
 	resp.ContentLength = int64(len(buf))
 	resp.Header.Set("Content-Length", strconv.Itoa(len(buf)))
 	return nil
+}
+
+func injectHTMLBase(resp *http.Response, prefix string) error {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/html") {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	_ = resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	text := injectHTMLBaseText(string(body), prefix)
+	if text == "" {
+		return nil
+	}
+	resp.Body = io.NopCloser(strings.NewReader(text))
+	resp.ContentLength = int64(len(text))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(text)))
+	return nil
+}
+
+func injectHTMLBaseText(text string, prefix string) string {
+	if prefix == "" || text == "" {
+		return text
+	}
+	base := strings.TrimSuffix(prefix, "/") + "/"
+	baseTag := "<base href=\"" + base + "\">"
+	if strings.Contains(text, "<base ") {
+		return text
+	}
+	if strings.Contains(text, "</head>") {
+		return strings.Replace(text, "</head>", baseTag+"</head>", 1)
+	}
+	if strings.Contains(text, "<head") {
+		return strings.Replace(text, "<head", "<head>"+baseTag, 1)
+	}
+	if strings.Contains(text, "<body") {
+		return strings.Replace(text, "<body", "<head>"+baseTag+"</head><body", 1)
+	}
+	return text
 }
 
 func rewriteHTMLPaths(text string, prefix string) string {
