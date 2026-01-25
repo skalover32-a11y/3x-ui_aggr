@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.7"
+const agentVersion = "v1.8"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -813,6 +813,7 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
+		req.Header.Del("Accept-Encoding")
 		path := strings.TrimPrefix(r.URL.Path, prefix)
 		if path == "" {
 			path = "/"
@@ -825,10 +826,18 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		log.Printf("proxy failed: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "proxy failed"})
 	}
-	if css != "" {
-		proxy.ModifyResponse = func(resp *http.Response) error {
-			return injectHTMLCSS(resp, css)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp == nil {
+			return nil
 		}
+		location := resp.Header.Get("Location")
+		if strings.HasPrefix(location, "/") {
+			resp.Header.Set("Location", strings.TrimSuffix(prefix, "/")+location)
+		}
+		if css == "" {
+			return nil
+		}
+		return injectHTMLCSS(resp, css, prefix)
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -843,7 +852,7 @@ pre, code { background: #eef2f8; color: #1b1f2a; }
 .navbar, .footer, .sidebar { background: #ffffff; }
 `
 
-func injectHTMLCSS(resp *http.Response, css string) error {
+func injectHTMLCSS(resp *http.Response, css string, prefix string) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
@@ -858,6 +867,7 @@ func injectHTMLCSS(resp *http.Response, css string) error {
 	}
 	text := string(body)
 	style := "<style>" + css + "</style>"
+	text = rewriteHTMLPaths(text, prefix)
 	if strings.Contains(text, "</head>") {
 		text = strings.Replace(text, "</head>", style+"</head>", 1)
 	} else if strings.Contains(text, "<body") {
@@ -870,6 +880,20 @@ func injectHTMLCSS(resp *http.Response, css string) error {
 	resp.ContentLength = int64(len(buf))
 	resp.Header.Set("Content-Length", strconv.Itoa(len(buf)))
 	return nil
+}
+
+func rewriteHTMLPaths(text string, prefix string) string {
+	if prefix == "" {
+		return text
+	}
+	base := strings.TrimSuffix(prefix, "/") + "/"
+	text = strings.ReplaceAll(text, "href=\"/", "href=\""+base)
+	text = strings.ReplaceAll(text, "href='/", "href='"+base)
+	text = strings.ReplaceAll(text, "src=\"/", "src=\""+base)
+	text = strings.ReplaceAll(text, "src='/", "src='"+base)
+	text = strings.ReplaceAll(text, "action=\"/", "action=\""+base)
+	text = strings.ReplaceAll(text, "action='/", "action='"+base)
+	return text
 }
 
 func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration) error {
