@@ -46,6 +46,44 @@ func JWTAuth(secret []byte) gin.HandlerFunc {
 	}
 }
 
+func JWTAuthWithQuery(secret []byte, param string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		auth := c.GetHeader("Authorization")
+		tokenStr := ""
+		if strings.HasPrefix(auth, "Bearer ") {
+			tokenStr = strings.TrimPrefix(auth, "Bearer ")
+		}
+		if tokenStr == "" && param != "" {
+			tokenStr = strings.TrimSpace(c.Query(param))
+		}
+		if tokenStr == "" {
+			respondUnauthorized(c)
+			return
+		}
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
+			if t.Method != jwt.SigningMethodHS256 {
+				return nil, jwt.ErrTokenSignatureInvalid
+			}
+			return secret, nil
+		})
+		if err != nil || !token.Valid {
+			respondUnauthorized(c)
+			return
+		}
+		actor := claims.User
+		if actor == "" {
+			actor = claims.Subject
+		}
+		if actor == "" {
+			actor = "admin"
+		}
+		c.Set("actor", actor)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}
+
 func respondUnauthorized(c *gin.Context) {
 	c.JSON(http.StatusUnauthorized, gin.H{
 		"error": gin.H{

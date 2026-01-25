@@ -4546,7 +4546,9 @@ function DbWorkPage() {
         path: file.path,
         read_only: sqliteReadOnly,
       });
-      setSqliteUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}` : "");
+      const token = getToken();
+      const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+      setSqliteUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}${suffix}` : "");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -4559,7 +4561,9 @@ function DbWorkPage() {
     setError("");
     try {
       const data = await request("POST", `/nodes/${nodeId}/db/adminer/start`, { engine });
-      setAdminerUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}` : "");
+      const token = getToken();
+      const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+      setAdminerUI(data?.proxy_path ? `${API_BASE}${data.proxy_path}${suffix}` : "");
     } catch (err) {
       setError(err.message);
     } finally {
