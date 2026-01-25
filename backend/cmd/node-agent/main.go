@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.6"
+const agentVersion = "v1.7"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -796,14 +796,14 @@ func (s *state) startAdminerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *state) proxySqliteUI(w http.ResponseWriter, r *http.Request) {
-	s.proxyLocal(w, r, s.cfg.SqlitePort, "/apps/db/sqlite/ui")
+	s.proxyLocal(w, r, s.cfg.SqlitePort, "/apps/db/sqlite/ui", sqliteUICSS)
 }
 
 func (s *state) proxyAdminerUI(w http.ResponseWriter, r *http.Request) {
-	s.proxyLocal(w, r, s.cfg.AdminerPort, "/apps/db/adminer/ui")
+	s.proxyLocal(w, r, s.cfg.AdminerPort, "/apps/db/adminer/ui", "")
 }
 
-func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, prefix string) {
+func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, prefix string, css string) {
 	target, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "bad proxy target"})
@@ -825,7 +825,51 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		log.Printf("proxy failed: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "proxy failed"})
 	}
+	if css != "" {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			return injectHTMLCSS(resp, css)
+		}
+	}
 	proxy.ServeHTTP(w, r)
+}
+
+const sqliteUICSS = `
+body { background: #f7f9fc; color: #1b1f2a; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+a { color: #1164d3; }
+table { background: #ffffff; color: #1b1f2a; border-color: #e4e9f2; }
+th, td { border-color: #e4e9f2; }
+input, select, textarea { background: #ffffff; color: #1b1f2a; border: 1px solid #cfd7e6; }
+pre, code { background: #eef2f8; color: #1b1f2a; }
+.navbar, .footer, .sidebar { background: #ffffff; }
+`
+
+func injectHTMLCSS(resp *http.Response, css string) error {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/html") {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	_ = resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	text := string(body)
+	style := "<style>" + css + "</style>"
+	if strings.Contains(text, "</head>") {
+		text = strings.Replace(text, "</head>", style+"</head>", 1)
+	} else if strings.Contains(text, "<body") {
+		text = strings.Replace(text, "<body", "<head>"+style+"</head><body", 1)
+	} else {
+		return nil
+	}
+	buf := []byte(text)
+	resp.Body = io.NopCloser(strings.NewReader(text))
+	resp.ContentLength = int64(len(buf))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(buf)))
+	return nil
 }
 
 func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration) error {
