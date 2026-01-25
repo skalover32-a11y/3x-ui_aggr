@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agr_3x_ui/internal/agent"
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
 )
@@ -95,7 +96,7 @@ func (p *AgentProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (
 }
 
 func (p *AgentProvider) doGet(ctx context.Context, node *db.Node, path string, dest any) error {
-	url := strings.TrimRight(*node.AgentURL, "/") + path
+	url := agent.ResolveURL(strings.TrimRight(*node.AgentURL, "/") + path)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err

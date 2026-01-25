@@ -24,6 +24,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"agr_3x_ui/internal/agent"
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
 )
@@ -748,11 +749,10 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 	if nodeHost == "" {
 		nodeHost = strings.TrimSpace(node.Host)
 	}
-	allowCIDRHost := strings.Split(allowCIDR, "/")[0]
-	if nodeHost != "" && allowCIDRHost != "" && strings.EqualFold(nodeHost, allowCIDRHost) {
-		const dockerBridgeCIDR = "172.17.0.0/16"
-		if !cidrInList(allowCIDRs, dockerBridgeCIDR) {
-			allowCIDRs = append(allowCIDRs, dockerBridgeCIDR)
+	resolvedHost := agent.ResolveHost(nodeHost)
+	if resolvedHost != "" && !strings.EqualFold(resolvedHost, nodeHost) {
+		if dockerCIDR := agent.DockerSubnet(); dockerCIDR != "" && !cidrInList(allowCIDRs, dockerCIDR) {
+			allowCIDRs = append(allowCIDRs, dockerCIDR)
 		}
 	}
 
@@ -1023,7 +1023,7 @@ func (s *Service) waitForAgentFirstContact(ctx context.Context, jobID uuid.UUID,
 	if params.AgentPort <= 0 {
 		return "waiting_first_contact skipped: missing agent port", nil
 	}
-	host := strings.TrimSpace(params.NodeHost)
+	host := agent.ResolveHost(params.NodeHost)
 	if host == "" {
 		return "", errors.New("agent health check missing node host")
 	}

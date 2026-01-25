@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"agr_3x_ui/internal/agent"
 	"agr_3x_ui/internal/db"
 )
 
@@ -179,7 +180,8 @@ func (h *Handler) agentTransport(node *db.Node) (*url.URL, string, http.RoundTri
 	if node == nil || !node.AgentEnabled || node.AgentURL == nil || strings.TrimSpace(*node.AgentURL) == "" {
 		return nil, "", nil, errors.New("agent not configured")
 	}
-	parsed, err := url.Parse(strings.TrimSpace(*node.AgentURL))
+	resolved := agent.ResolveURL(strings.TrimSpace(*node.AgentURL))
+	parsed, err := url.Parse(resolved)
 	if err != nil {
 		return nil, "", nil, err
 	}
