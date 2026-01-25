@@ -245,6 +245,10 @@ func (s *state) timeoutForPath(path string) time.Duration {
 		return 60 * time.Second
 	case strings.HasPrefix(path, "/apps/db/adminer/ui"):
 		return 60 * time.Second
+	case strings.HasPrefix(path, "/apps/db/sqlite/start"):
+		return 3 * time.Minute
+	case strings.HasPrefix(path, "/apps/db/adminer/start"):
+		return 2 * time.Minute
 	default:
 		return 8 * time.Second
 	}
@@ -1595,9 +1599,12 @@ func ensureDockerAvailable(ctx context.Context) error {
 	if !commandExists("docker") {
 		return errors.New("docker not available on node")
 	}
-	_, _, err := runShell(ctx, "docker info >/dev/null 2>&1")
+	out, _, err := runShell(ctx, "docker info")
 	if err != nil {
-		return errors.New("docker daemon not available")
+		if strings.TrimSpace(out) == "" {
+			return errors.New("docker daemon not available")
+		}
+		return fmt.Errorf("docker daemon not available: %s", strings.TrimSpace(out))
 	}
 	return nil
 }
@@ -1610,12 +1617,24 @@ func ensureAdminer(ctx context.Context, port int) error {
 		return nil
 	}
 	if containerExists(ctx, "vlf-adminer") {
-		_, _, err := runShell(ctx, "docker start vlf-adminer")
-		return err
+		out, _, err := runShell(ctx, "docker start vlf-adminer")
+		if err != nil {
+			if strings.TrimSpace(out) != "" {
+				return fmt.Errorf("docker start failed: %s", strings.TrimSpace(out))
+			}
+			return err
+		}
+		return nil
 	}
 	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-adminer -p 127.0.0.1:%d:8080 adminer:4", port)
-	_, _, err := runShell(ctx, cmd)
-	return err
+	out, _, err := runShell(ctx, cmd)
+	if err != nil {
+		if strings.TrimSpace(out) != "" {
+			return fmt.Errorf("docker run failed: %s", strings.TrimSpace(out))
+		}
+		return err
+	}
+	return nil
 }
 
 func ensureSqliteWeb(ctx context.Context, port int, filePath string, readOnly bool) error {
@@ -1638,8 +1657,14 @@ func ensureSqliteWeb(ctx context.Context, port int, filePath string, readOnly bo
 	}
 	cmd := fmt.Sprintf("docker run -d --restart unless-stopped --name vlf-sqlite-web -p 127.0.0.1:%d:8080 %s coleifer/sqlite-web %s",
 		port, volume, args)
-	_, _, err = runShell(ctx, cmd)
-	return err
+	out, _, err := runShell(ctx, cmd)
+	if err != nil {
+		if strings.TrimSpace(out) != "" {
+			return fmt.Errorf("docker run failed: %s", strings.TrimSpace(out))
+		}
+		return err
+	}
+	return nil
 }
 
 func isContainerRunning(ctx context.Context, name string) bool {
