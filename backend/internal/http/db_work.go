@@ -118,6 +118,11 @@ func (h *Handler) proxyAgentUI(c *gin.Context, agentBase string) {
 		req.URL.RawPath = targetPath
 		req.URL.RawQuery = c.Request.URL.RawQuery
 		req.Host = agentURL.Host
+		externalPrefix := strings.TrimSuffix(c.Request.URL.Path, c.Param("path"))
+		if externalPrefix == "" {
+			externalPrefix = c.Request.URL.Path
+		}
+		req.Header.Set("X-Forwarded-Prefix", externalPrefix)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}

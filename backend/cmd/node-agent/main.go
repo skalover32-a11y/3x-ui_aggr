@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.9"
+const agentVersion = "v1.10"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -809,6 +809,10 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "message": "bad proxy target"})
 		return
 	}
+	externalPrefix := strings.TrimSpace(r.Header.Get("X-Forwarded-Prefix"))
+	if externalPrefix == "" {
+		externalPrefix = prefix
+	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -832,12 +836,12 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		}
 		location := resp.Header.Get("Location")
 		if strings.HasPrefix(location, "/") {
-			resp.Header.Set("Location", strings.TrimSuffix(prefix, "/")+location)
+			resp.Header.Set("Location", strings.TrimSuffix(externalPrefix, "/")+location)
 		}
 		if css == "" {
-			return injectHTMLBase(resp, prefix)
+			return injectHTMLBase(resp, externalPrefix)
 		}
-		return injectHTMLCSS(resp, css, prefix)
+		return injectHTMLCSS(resp, css, externalPrefix)
 	}
 	proxy.ServeHTTP(w, r)
 }
