@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.11"
+const agentVersion = "v1.12"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -813,6 +813,7 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 	if externalPrefix == "" {
 		externalPrefix = prefix
 	}
+	forwardedToken := strings.TrimSpace(r.Header.Get("X-Forwarded-Token"))
 	localPrefix := prefix
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
@@ -838,14 +839,14 @@ func (s *state) proxyLocal(w http.ResponseWriter, r *http.Request, port int, pre
 		location := resp.Header.Get("Location")
 		if strings.HasPrefix(location, localPrefix) {
 			rest := strings.TrimPrefix(location, localPrefix)
-			resp.Header.Set("Location", strings.TrimSuffix(externalPrefix, "/")+rest)
+			resp.Header.Set("Location", appendToken(strings.TrimSuffix(externalPrefix, "/")+rest, forwardedToken))
 		} else if strings.HasPrefix(location, "/") {
-			resp.Header.Set("Location", strings.TrimSuffix(externalPrefix, "/")+location)
+			resp.Header.Set("Location", appendToken(strings.TrimSuffix(externalPrefix, "/")+location, forwardedToken))
 		}
 		if css == "" {
-			return injectHTMLBase(resp, localPrefix, externalPrefix)
+			return injectHTMLBase(resp, localPrefix, externalPrefix, forwardedToken)
 		}
-		return injectHTMLCSS(resp, css, localPrefix, externalPrefix)
+		return injectHTMLCSS(resp, css, localPrefix, externalPrefix, forwardedToken)
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -860,7 +861,7 @@ pre, code { background: #eef2f8; color: #1b1f2a; }
 .navbar, .footer, .sidebar { background: #ffffff; }
 `
 
-func injectHTMLCSS(resp *http.Response, css string, localPrefix string, externalPrefix string) error {
+func injectHTMLCSS(resp *http.Response, css string, localPrefix string, externalPrefix string, token string) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
@@ -874,9 +875,9 @@ func injectHTMLCSS(resp *http.Response, css string, localPrefix string, external
 		return err
 	}
 	text := string(body)
-	text = injectHTMLBaseText(text, localPrefix, externalPrefix)
+	text = injectHTMLBaseText(text, localPrefix, externalPrefix, token)
 	style := "<style>" + css + "</style>"
-	text = rewriteHTMLPaths(text, localPrefix, externalPrefix)
+	text = rewriteHTMLPaths(text, localPrefix, externalPrefix, token)
 	if strings.Contains(text, "</head>") {
 		text = strings.Replace(text, "</head>", style+"</head>", 1)
 	} else if strings.Contains(text, "<body") {
@@ -891,7 +892,7 @@ func injectHTMLCSS(resp *http.Response, css string, localPrefix string, external
 	return nil
 }
 
-func injectHTMLBase(resp *http.Response, localPrefix string, externalPrefix string) error {
+func injectHTMLBase(resp *http.Response, localPrefix string, externalPrefix string, token string) error {
 	if resp == nil || resp.Body == nil {
 		return nil
 	}
@@ -904,7 +905,7 @@ func injectHTMLBase(resp *http.Response, localPrefix string, externalPrefix stri
 	if err != nil {
 		return err
 	}
-	text := injectHTMLBaseText(string(body), localPrefix, externalPrefix)
+	text := injectHTMLBaseText(string(body), localPrefix, externalPrefix, token)
 	if text == "" {
 		return nil
 	}
@@ -914,7 +915,7 @@ func injectHTMLBase(resp *http.Response, localPrefix string, externalPrefix stri
 	return nil
 }
 
-func injectHTMLBaseText(text string, localPrefix string, externalPrefix string) string {
+func injectHTMLBaseText(text string, localPrefix string, externalPrefix string, token string) string {
 	if text == "" {
 		return text
 	}
@@ -926,6 +927,7 @@ func injectHTMLBaseText(text string, localPrefix string, externalPrefix string) 
 		return text
 	}
 	base := strings.TrimSuffix(basePrefix, "/") + "/"
+	base = appendToken(base, token)
 	baseTag := "<base href=\"" + base + "\">"
 	if strings.Contains(text, "<base ") {
 		return text
@@ -942,7 +944,7 @@ func injectHTMLBaseText(text string, localPrefix string, externalPrefix string) 
 	return text
 }
 
-func rewriteHTMLPaths(text string, localPrefix string, externalPrefix string) string {
+func rewriteHTMLPaths(text string, localPrefix string, externalPrefix string, token string) string {
 	if text == "" {
 		return text
 	}
@@ -967,7 +969,44 @@ func rewriteHTMLPaths(text string, localPrefix string, externalPrefix string) st
 	text = strings.ReplaceAll(text, "src='/", "src='"+base)
 	text = strings.ReplaceAll(text, "action=\"/", "action=\""+base)
 	text = strings.ReplaceAll(text, "action='/", "action='"+base)
+
+	base = appendToken(base, token)
+	text = appendTokenToAttrs(text, basePrefix, base, token)
 	return text
+}
+
+func appendTokenToAttrs(text string, basePrefix string, base string, token string) string {
+	if token == "" || basePrefix == "" {
+		return text
+	}
+	attrRe := regexp.MustCompile(`(href|src|action)=(\"|')([^\"']+)(\"|')`)
+	return attrRe.ReplaceAllStringFunc(text, func(match string) string {
+		parts := attrRe.FindStringSubmatch(match)
+		if len(parts) != 5 {
+			return match
+		}
+		val := parts[3]
+		if strings.Contains(val, "token=") {
+			return match
+		}
+		if strings.HasPrefix(val, basePrefix) {
+			val = appendToken(val, token)
+		} else if strings.HasPrefix(val, "/") && strings.HasPrefix(base, "/") {
+			val = appendToken(val, token)
+		}
+		return parts[1] + "=" + parts[2] + val + parts[4]
+	})
+}
+
+func appendToken(rawURL string, token string) string {
+	if token == "" || strings.Contains(rawURL, "token=") {
+		return rawURL
+	}
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	return rawURL + sep + "token=" + url.QueryEscape(token)
 }
 
 func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration) error {

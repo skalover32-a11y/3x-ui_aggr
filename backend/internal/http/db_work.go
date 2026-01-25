@@ -123,6 +123,9 @@ func (h *Handler) proxyAgentUI(c *gin.Context, agentBase string) {
 			externalPrefix = c.Request.URL.Path
 		}
 		req.Header.Set("X-Forwarded-Prefix", externalPrefix)
+		if tokenParam := strings.TrimSpace(c.Query("token")); tokenParam != "" {
+			req.Header.Set("X-Forwarded-Token", tokenParam)
+		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
