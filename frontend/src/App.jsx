@@ -228,34 +228,41 @@ function SidebarNav({ active }) {
     { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-    { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
-    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
     { key: "files", label: t("File Manager"), path: "/files" },
     { key: "dbwork", label: t("DB work"), path: "/db" },
+    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1" },
+    { key: "security_section", label: t("Access & Security"), section: true },
+    { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
     { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
-    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1" },
     { key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" },
+    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
   ];
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">
-        <div className="brand-dot" />
-        <div>
-          <div className="brand-title">VLF Aggregator</div>
-          <div className="brand-sub">{t("Fleet control")}</div>
+      <button type="button" className="sidebar-brand-button" onClick={() => navigate("/dashboard")}>
+        <div className="sidebar-brand">
+          <div className="brand-dot" />
+          <div>
+            <div className="brand-title">VLF Aggregator</div>
+            <div className="brand-sub">{t("Fleet control")}</div>
+          </div>
         </div>
-      </div>
+      </button>
       <div className="sidebar-nav">
         {items.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={`sidebar-item ${active === item.key ? "active" : ""}`}
-            onClick={() => navigate(item.path)}
-          >
-            <span>{item.label}</span>
-          </button>
+          item.section ? (
+            <div key={item.key} className="sidebar-section">{item.label}</div>
+          ) : (
+            <button
+              key={item.key}
+              type="button"
+              className={`sidebar-item ${active === item.key ? "active" : ""}`}
+              onClick={() => navigate(item.path)}
+            >
+              <span>{item.label}</span>
+            </button>
+          )
         ))}
       </div>
     </aside>
@@ -3566,6 +3573,11 @@ function DashboardPage() {
   const [sandboxOnly, setSandboxOnly] = useState(false);
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [now, setNow] = useState(Date.now());
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const [problemsList, setProblemsList] = useState([]);
+  const [problemsError, setProblemsError] = useState("");
+  const [problemsLoading, setProblemsLoading] = useState(false);
+  const [problemsNode, setProblemsNode] = useState("");
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -3608,6 +3620,19 @@ function DashboardPage() {
       setActiveUsers(data || []);
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function loadProblems() {
+    setProblemsLoading(true);
+    setProblemsError("");
+    try {
+      const data = await request("GET", "/alerts?active=true&limit=200");
+      setProblemsList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setProblemsError(err.message);
+    } finally {
+      setProblemsLoading(false);
     }
   }
 
@@ -3732,6 +3757,24 @@ function DashboardPage() {
     });
   }, [nodes, searchNodes, sandboxOnly]);
 
+  const nodeNameById = useMemo(() => {
+    const map = {};
+    nodes.forEach((node) => {
+      const id = node.node_id || node.id;
+      if (!id) return;
+      map[id] = node.name || id;
+    });
+    return map;
+  }, [nodes]);
+
+  const problemsFiltered = useMemo(() => {
+    if (!problemsNode) return problemsList;
+    return problemsList.filter((row) => {
+      const rowNode = row.node_id || row.nodeId || row.node || row.target_id;
+      return rowNode === problemsNode;
+    });
+  }, [problemsList, problemsNode]);
+
   const usersFiltered = useMemo(() => {
     const term = searchUsers.trim().toLowerCase();
     if (!term) return activeUsers;
@@ -3855,7 +3898,10 @@ function DashboardPage() {
             subvalue={t("Incidents")}
             progress={activeIssues === 0 ? 1 : Math.max(0, 1 - activeIssues / Math.max(1, totalNodes))}
             accent={activeIssues === 0 ? "ok" : "warn"}
-            onClick={() => navigate("/nodes?view=alerts")}
+            onClick={() => {
+              setProblemsOpen(true);
+              loadProblems();
+            }}
           />
           <MiniStatCard
             label={t("Total Traffic (24h)")}
@@ -3991,8 +4037,8 @@ function DashboardPage() {
             <div className="muted small">{agentsTotal - agentsActive} {t("Offline")}</div>
             <div className="bottom-sub">{t("Last agent errors")}</div>
           </div>
-            <div className="bottom-card clickable" onClick={() => navigate("/nodes?view=alerts")} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") navigate("/nodes?view=alerts"); }}>
-              <h4>{t("Alerts & Problems")}</h4>
+            <div className="bottom-card clickable" onClick={() => { setProblemsOpen(true); loadProblems(); }} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setProblemsOpen(true); loadProblems(); } }}>
+              <h4>{t("Active problems")}</h4>
               <div className="bottom-value">{activeIssues}</div>
               <div className="muted small">{t("Active issues now")}</div>
               <div className="bottom-sub">{t("Nodes with issues")}</div>
@@ -4039,6 +4085,65 @@ function DashboardPage() {
             )}
           </div>
         </section>
+
+        {problemsOpen && (
+          <div className="modal overlay-modal" onClick={() => setProblemsOpen(false)}>
+            <div className="modal-content wide" onClick={(e) => e.stopPropagation()}>
+              <h3>{t("Active problems")}</h3>
+              <div className="audit-controls">
+                <select value={problemsNode} onChange={(e) => setProblemsNode(e.target.value)}>
+                  <option value="">{t("All nodes")}</option>
+                  {nodes.map((node) => {
+                    const id = node.node_id || node.id;
+                    return (
+                      <option key={id} value={id}>
+                        {node.name || id}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button type="button" onClick={loadProblems}>{t("Refresh")}</button>
+              </div>
+              {problemsError && <div className="error">{problemsError}</div>}
+              <div className="table compact audit-table">
+                <div className="table-row head">
+                  <div>{t("Node")}</div>
+                  <div>{t("Type")}</div>
+                  <div>{t("Status")}</div>
+                  <div>{t("Last seen")}</div>
+                  <div>{t("Message")}</div>
+                  <div>{t("Actions")}</div>
+                </div>
+                {problemsFiltered.map((row) => {
+                  const rowNode = row.node_id || row.nodeId || row.node || row.target_id;
+                  const nodeName = nodeNameById[rowNode] || rowNode || "-";
+                  const status = row.last_status || row.status || "fail";
+                  const message = row.message || row.error || row.details || row.fingerprint || "-";
+                  return (
+                    <div className="table-row" key={row.id || row.fingerprint}>
+                      <div data-label={t("Node")}>{nodeName}</div>
+                      <div data-label={t("Type")}>{row.alert_type || row.type || row.check_type || "-"}</div>
+                      <div data-label={t("Status")}>{status}</div>
+                      <div data-label={t("Last seen")}>{formatTS(row.last_seen || row.updated_at || row.created_at)}</div>
+                      <div data-label={t("Message")}>{message}</div>
+                      <div className="actions">
+                        <button type="button" onClick={() => rowNode && navigate(`/nodes?node=${rowNode}`)}>{t("Open")}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {problemsFiltered.length === 0 && (
+                  <div className="table-row">
+                    <div>{problemsLoading ? t("Loading...") : t("No data")}</div>
+                  </div>
+                )}
+              </div>
+              <div className="actions">
+                <button type="button" onClick={() => setProblemsOpen(false)}>{t("Close")}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
