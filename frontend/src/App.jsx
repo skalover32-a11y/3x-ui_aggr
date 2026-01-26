@@ -243,9 +243,9 @@ function SidebarNav({ active }) {
   const infraKeys = ["nodes", "panels", "hosts", "bots", "add"];
   const toolsKeys = ["files", "dbwork"];
   const securityKeys = ["alerts", "twofa", "passkeys", "settings", "audit"];
-  const [infraOpen, setInfraOpen] = useState(true);
-  const [toolsOpen, setToolsOpen] = useState(true);
-  const [securityOpen, setSecurityOpen] = useState(true);
+  const [infraOpen, setInfraOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   useEffect(() => {
     if (infraKeys.includes(active)) setInfraOpen(true);
