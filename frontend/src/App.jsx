@@ -258,7 +258,7 @@ function SidebarNav({ active }) {
     { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1", addBadge: true },
+    { key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true },
   ];
   const toolsItems = [
     { key: "files", label: t("File Manager"), path: "/files" },
