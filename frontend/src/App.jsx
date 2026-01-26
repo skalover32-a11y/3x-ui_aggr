@@ -219,20 +219,52 @@ function DashboardStatusBadge({ status }) {
   return <span className={`badge ${label}`}>{t(textKey)}</span>;
 }
 
+function formatProblemMessage(problem, t) {
+  if (!problem) return "-";
+  const direct = problem.message || problem.error || problem.details;
+  if (direct) return direct;
+  const fingerprint = problem.fingerprint || "";
+  if (!fingerprint) return "-";
+  const parts = fingerprint.split("|");
+  if (parts[0] === "connection") {
+    if (parts.includes("tls")) return t("TLS check failed");
+    if (parts.includes("panel") && parts.includes("http")) return t("Panel HTTP is unavailable");
+    if (parts.includes("panel") && parts.includes("ssh")) return t("Panel SSH is unavailable");
+    if (parts.includes("ssh")) return t("SSH is unavailable");
+    if (parts.includes("panel")) return t("Panel is unavailable");
+    return t("Connection check failed");
+  }
+  return fingerprint;
+}
+
 function SidebarNav({ active }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const [securityOpen, setSecurityOpen] = useState(false);
-  const items = [
-    { key: "dashboard", label: t("Dashboard"), path: "/dashboard" },
+  const infraKeys = ["nodes", "panels", "hosts", "bots", "add"];
+  const toolsKeys = ["files", "dbwork"];
+  const securityKeys = ["alerts", "twofa", "passkeys", "settings", "audit"];
+  const [infraOpen, setInfraOpen] = useState(() => infraKeys.includes(active));
+  const [toolsOpen, setToolsOpen] = useState(() => toolsKeys.includes(active));
+  const [securityOpen, setSecurityOpen] = useState(() => securityKeys.includes(active));
+
+  useEffect(() => {
+    if (infraKeys.includes(active)) setInfraOpen(true);
+    if (toolsKeys.includes(active)) setToolsOpen(true);
+    if (securityKeys.includes(active)) setSecurityOpen(true);
+  }, [active]);
+
+  const infraItems = [
     { key: "nodes", label: t("Nodes"), path: "/nodes" },
     { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
+    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1", addBadge: true },
+  ];
+  const toolsItems = [
     { key: "files", label: t("File Manager"), path: "/files" },
     { key: "dbwork", label: t("DB work"), path: "/db" },
-    { key: "add", label: t("Add node/host/bot"), path: "/nodes?add=1" },
-    { key: "security_section", label: t("Access & Security"), section: true },
+  ];
+  const securityItems = [
     { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
     { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
@@ -251,24 +283,45 @@ function SidebarNav({ active }) {
         </div>
       </button>
       <div className="sidebar-nav">
-        {items.map((item) => {
-          if (item.section) {
-            return (
-              <button
-                key={item.key}
-                type="button"
-                className="sidebar-section-toggle"
-                onClick={() => setSecurityOpen((prev) => !prev)}
-              >
-                <span>{item.label}</span>
-                <span className={`chev ${securityOpen ? "open" : ""}`}>▾</span>
-              </button>
-            );
-          }
-          if (["alerts", "twofa", "passkeys", "settings", "audit"].includes(item.key) && !securityOpen) {
-            return null;
-          }
-          return (
+        <button
+          type="button"
+          className={`sidebar-item ${active === "dashboard" ? "active" : ""}`}
+          onClick={() => navigate("/dashboard")}
+        >
+          <span>{t("Dashboard")}</span>
+        </button>
+
+        <button
+          type="button"
+          className="sidebar-section-toggle"
+          onClick={() => setInfraOpen((prev) => !prev)}
+        >
+          <span>{t("Infrastructure")}</span>
+          <span className={`chev ${infraOpen ? "open" : ""}`}>?</span>
+        </button>
+        {infraOpen &&
+          infraItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`sidebar-item ${active === item.key ? "active" : ""}`}
+              onClick={() => navigate(item.path)}
+            >
+              <span>{item.label}</span>
+              {item.addBadge && <span className="sidebar-add-icon">+</span>}
+            </button>
+          ))}
+
+        <button
+          type="button"
+          className="sidebar-section-toggle"
+          onClick={() => setToolsOpen((prev) => !prev)}
+        >
+          <span>{t("Tools")}</span>
+          <span className={`chev ${toolsOpen ? "open" : ""}`}>?</span>
+        </button>
+        {toolsOpen &&
+          toolsItems.map((item) => (
             <button
               key={item.key}
               type="button"
@@ -277,8 +330,27 @@ function SidebarNav({ active }) {
             >
               <span>{item.label}</span>
             </button>
-          );
-        })}
+          ))}
+
+        <button
+          type="button"
+          className="sidebar-section-toggle"
+          onClick={() => setSecurityOpen((prev) => !prev)}
+        >
+          <span>{t("Access & Security")}</span>
+          <span className={`chev ${securityOpen ? "open" : ""}`}>?</span>
+        </button>
+        {securityOpen &&
+          securityItems.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`sidebar-item ${active === item.key ? "active" : ""}`}
+              onClick={() => navigate(item.path)}
+            >
+              <span>{item.label}</span>
+            </button>
+          ))}
       </div>
     </aside>
   );
@@ -4134,7 +4206,7 @@ function DashboardPage() {
                   const rowNode = row.node_id || row.nodeId || row.node || row.target_id;
                   const nodeName = nodeNameById[rowNode] || rowNode || "-";
                   const status = row.last_status || row.status || "fail";
-                  const message = row.message || row.error || row.details || row.fingerprint || "-";
+                  const message = formatProblemMessage(row, t);
                   return (
                     <div className="table-row" key={row.id || row.fingerprint}>
                       <div data-label={t("Node")}>{nodeName}</div>
@@ -4184,7 +4256,7 @@ function DashboardPage() {
                 </div>
               </div>
               <div className="muted small">{t("Message")}</div>
-              <div className="detail-message">{problemDetails.message}</div>
+              <div className="detail-message">{problemDetails.message || formatProblemMessage(problemDetails, t)}</div>
               <div className="actions">
                 <button type="button" onClick={() => {
                   const rowNode = problemDetails.node_id || problemDetails.nodeId || problemDetails.node || problemDetails.target_id;
