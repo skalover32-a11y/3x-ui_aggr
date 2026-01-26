@@ -297,7 +297,7 @@ function SidebarNav({ active }) {
           onClick={() => setInfraOpen((prev) => !prev)}
         >
           <span>{t("Infrastructure")}</span>
-          <span className={`chev ${infraOpen ? "open" : ""}`}>?</span>
+          <span className={`chev ${infraOpen ? "open" : ""}`}>▾</span>
         </button>
         {infraOpen &&
           infraItems.map((item) => (
@@ -318,7 +318,7 @@ function SidebarNav({ active }) {
           onClick={() => setToolsOpen((prev) => !prev)}
         >
           <span>{t("Tools")}</span>
-          <span className={`chev ${toolsOpen ? "open" : ""}`}>?</span>
+          <span className={`chev ${toolsOpen ? "open" : ""}`}>▾</span>
         </button>
         {toolsOpen &&
           toolsItems.map((item) => (
@@ -338,7 +338,7 @@ function SidebarNav({ active }) {
           onClick={() => setSecurityOpen((prev) => !prev)}
         >
           <span>{t("Access & Security")}</span>
-          <span className={`chev ${securityOpen ? "open" : ""}`}>?</span>
+          <span className={`chev ${securityOpen ? "open" : ""}`}>▾</span>
         </button>
         {securityOpen &&
           securityItems.map((item) => (

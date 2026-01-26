@@ -1879,6 +1879,13 @@ body {
   cursor: pointer;
 }
 
+.sidebar-brand-button:hover,
+.sidebar-brand-button:focus,
+.sidebar-brand-button:focus-visible {
+  background: transparent;
+  outline: none;
+}
+
 .sidebar-section {
   font-size: 11px;
   text-transform: uppercase;
