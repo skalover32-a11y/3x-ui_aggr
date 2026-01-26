@@ -290,6 +290,8 @@ sudo cp backend/vlf-agent /usr/local/bin/vlf-agent
 ```yaml
 listen: "0.0.0.0:9191"
 token: "CHANGE_ME"
+# Optional: multiple tokens separated by commas
+# token: "tokenA,tokenB"
 allow_cidrs:
   - "<AGG_IP>/32"
 xray_access_log_path: "/var/log/xray/access.log"

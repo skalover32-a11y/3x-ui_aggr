@@ -282,12 +282,28 @@ func (s *state) allowIP(remote string) bool {
 }
 
 func (s *state) authOK(r *http.Request) bool {
-	token := strings.TrimSpace(s.cfg.Token)
-	if token == "" {
+	raw := strings.TrimSpace(s.cfg.Token)
+	if raw == "" {
 		return false
 	}
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	return auth == "Bearer "+token
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	bearer := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	if bearer == "" {
+		return false
+	}
+	for _, token := range strings.Split(raw, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if bearer == token {
+			return true
+		}
+	}
+	return false
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
