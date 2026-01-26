@@ -382,13 +382,36 @@ func (s *Service) listActiveUsers(ctx context.Context, limit int, search string)
 	}
 	deduped := make(map[string]DashboardActiveUser, len(rows))
 	for _, row := range rows {
-		inbound := ""
-		if row.InboundTag != nil {
-			inbound = strings.TrimSpace(*row.InboundTag)
+		key := strings.ToLower(strings.TrimSpace(row.ClientEmail))
+		if key == "" {
+			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(row.ClientEmail)) + "|" + inbound + "|" + strings.TrimSpace(row.IP)
 		prev, ok := deduped[key]
-		if !ok || row.LastSeen.After(prev.LastSeen) {
+		if !ok {
+			deduped[key] = row
+			continue
+		}
+		prevTotal := int64(0)
+		if prev.TotalUpBytes != nil {
+			prevTotal += *prev.TotalUpBytes
+		}
+		if prev.TotalDownBytes != nil {
+			prevTotal += *prev.TotalDownBytes
+		}
+		rowTotal := int64(0)
+		if row.TotalUpBytes != nil {
+			rowTotal += *row.TotalUpBytes
+		}
+		if row.TotalDownBytes != nil {
+			rowTotal += *row.TotalDownBytes
+		}
+		if row.TotalUpBytes != nil || row.TotalDownBytes != nil {
+			if rowTotal > prevTotal {
+				deduped[key] = row
+				continue
+			}
+		}
+		if row.LastSeen.After(prev.LastSeen) {
 			deduped[key] = row
 		}
 	}

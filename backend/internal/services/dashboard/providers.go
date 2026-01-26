@@ -369,6 +369,9 @@ func isOnline(entry map[string]any) bool {
 			return false
 		}
 	}
+	if val, ok := entry["enable"].(bool); ok && !val {
+		return false
+	}
 	if ip := asString(entry["ip"]); ip != "" {
 		return true
 	}
@@ -378,7 +381,7 @@ func isOnline(entry map[string]any) bool {
 	if down := asInt64(entry["down"]); down != nil && *down > 0 {
 		return true
 	}
-	return false
+	return true
 }
 
 func parseCPUStat(out string, err error) (int64, int64, bool) {
