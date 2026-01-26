@@ -243,9 +243,9 @@ function SidebarNav({ active }) {
   const infraKeys = ["nodes", "panels", "hosts", "bots", "add"];
   const toolsKeys = ["files", "dbwork"];
   const securityKeys = ["alerts", "twofa", "passkeys", "settings", "audit"];
-  const [infraOpen, setInfraOpen] = useState(() => infraKeys.includes(active));
-  const [toolsOpen, setToolsOpen] = useState(() => toolsKeys.includes(active));
-  const [securityOpen, setSecurityOpen] = useState(() => securityKeys.includes(active));
+  const [infraOpen, setInfraOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(true);
+  const [securityOpen, setSecurityOpen] = useState(true);
 
   useEffect(() => {
     if (infraKeys.includes(active)) setInfraOpen(true);
@@ -297,7 +297,6 @@ function SidebarNav({ active }) {
           onClick={() => setInfraOpen((prev) => !prev)}
         >
           <span>{t("Infrastructure")}</span>
-          <span className={`chev ${infraOpen ? "open" : ""}`}>▾</span>
         </button>
         {infraOpen &&
           infraItems.map((item) => (
@@ -318,7 +317,6 @@ function SidebarNav({ active }) {
           onClick={() => setToolsOpen((prev) => !prev)}
         >
           <span>{t("Tools")}</span>
-          <span className={`chev ${toolsOpen ? "open" : ""}`}>▾</span>
         </button>
         {toolsOpen &&
           toolsItems.map((item) => (
@@ -338,7 +336,6 @@ function SidebarNav({ active }) {
           onClick={() => setSecurityOpen((prev) => !prev)}
         >
           <span>{t("Access & Security")}</span>
-          <span className={`chev ${securityOpen ? "open" : ""}`}>▾</span>
         </button>
         {securityOpen &&
           securityItems.map((item) => (

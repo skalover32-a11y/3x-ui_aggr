@@ -1906,7 +1906,7 @@ body {
   font-size: 11px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   width: 100%;
   cursor: pointer;
 }
