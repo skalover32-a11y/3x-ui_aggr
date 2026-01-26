@@ -561,7 +561,7 @@ function LoginPage() {
         recovery_code: recoveryCode.trim(),
       });
       setAuth(data.token, data.role, data.username);
-      navigate("/nodes");
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message);
     }
@@ -597,7 +597,7 @@ function LoginPage() {
         credential: payload,
       });
       setAuth(data.token, data.role, data.username);
-      navigate("/nodes");
+      navigate("/dashboard");
     } catch (err) {
       setError(err.message);
     } finally {
