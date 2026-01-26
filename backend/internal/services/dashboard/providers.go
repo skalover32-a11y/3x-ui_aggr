@@ -363,11 +363,13 @@ func isOnline(entry map[string]any) bool {
 	}
 	if val, ok := entry["status"].(string); ok {
 		status := strings.ToLower(strings.TrimSpace(val))
-		if status == "online" || status == "active" {
-			return true
-		}
 		if status == "offline" || status == "disabled" {
 			return false
+		}
+		if status == "online" || status == "active" {
+			if ip := asString(entry["ip"]); ip != "" {
+				return true
+			}
 		}
 	}
 	if val, ok := entry["enable"].(bool); ok && !val {
