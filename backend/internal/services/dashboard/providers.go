@@ -173,19 +173,19 @@ func (p *SSHMetricsProvider) computeCPUPercent(nodeID uuid.UUID, total, idle int
 }
 
 type PanelActiveUsersProvider struct {
-	Encryptor *security.Encryptor
-	Timeout   time.Duration
+	Encryptor  *security.Encryptor
+	Timeout    time.Duration
 	SessionTTL time.Duration
-	mu        sync.Mutex
-	clients   map[uuid.UUID]*panelSession
+	mu         sync.Mutex
+	clients    map[uuid.UUID]*panelSession
 }
 
 func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration) *PanelActiveUsersProvider {
 	return &PanelActiveUsersProvider{
-		Encryptor: enc,
-		Timeout:   timeout,
+		Encryptor:  enc,
+		Timeout:    timeout,
 		SessionTTL: 30 * time.Minute,
-		clients:   make(map[uuid.UUID]*panelSession),
+		clients:    make(map[uuid.UUID]*panelSession),
 	}
 }
 
@@ -337,6 +337,7 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 			if email == "" {
 				continue
 			}
+			lastSeen := parseLastSeen(entry, now)
 			up := asInt64(entry["up"])
 			down := asInt64(entry["down"])
 			user := ActiveUser{
@@ -345,7 +346,7 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 				IP:             asString(entry["ip"]),
 				TotalUpBytes:   up,
 				TotalDownBytes: down,
-				LastSeen:       now,
+				LastSeen:       lastSeen,
 			}
 			users = append(users, user)
 		}
@@ -375,13 +376,74 @@ func isOnline(entry map[string]any) bool {
 	if ip := asString(entry["ip"]); ip != "" {
 		return true
 	}
-	if up := asInt64(entry["up"]); up != nil && *up > 0 {
-		return true
+	return false
+}
+
+func parseLastSeen(entry map[string]any, fallback time.Time) time.Time {
+	keys := []string{
+		"last_seen",
+		"lastSeen",
+		"last_online",
+		"lastOnline",
+		"last_online_at",
+		"lastOnlineAt",
 	}
-	if down := asInt64(entry["down"]); down != nil && *down > 0 {
-		return true
+	for _, key := range keys {
+		if raw, ok := entry[key]; ok {
+			if val := parseTimeValue(raw); val != nil {
+				return *val
+			}
+		}
 	}
-	return true
+	return fallback
+}
+
+func parseTimeValue(raw any) *time.Time {
+	switch v := raw.(type) {
+	case time.Time:
+		return &v
+	case string:
+		val := strings.TrimSpace(v)
+		if val == "" {
+			return nil
+		}
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return &t
+		}
+		if t, err := time.Parse("2006-01-02 15:04:05", val); err == nil {
+			return &t
+		}
+	case float64:
+		iv := int64(v)
+		if iv <= 0 {
+			return nil
+		}
+		return unixToTime(iv)
+	case int64:
+		if v <= 0 {
+			return nil
+		}
+		return unixToTime(v)
+	case int:
+		if v <= 0 {
+			return nil
+		}
+		return unixToTime(int64(v))
+	case json.Number:
+		if iv, err := v.Int64(); err == nil && iv > 0 {
+			return unixToTime(iv)
+		}
+	}
+	return nil
+}
+
+func unixToTime(val int64) *time.Time {
+	if val > 1_000_000_000_000 {
+		t := time.UnixMilli(val).UTC()
+		return &t
+	}
+	t := time.Unix(val, 0).UTC()
+	return &t
 }
 
 func parseCPUStat(out string, err error) (int64, int64, bool) {
