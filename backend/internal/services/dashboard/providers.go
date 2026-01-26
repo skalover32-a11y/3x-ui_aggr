@@ -175,10 +175,18 @@ func (p *SSHMetricsProvider) computeCPUPercent(nodeID uuid.UUID, total, idle int
 type PanelActiveUsersProvider struct {
 	Encryptor *security.Encryptor
 	Timeout   time.Duration
+	SessionTTL time.Duration
+	mu        sync.Mutex
+	clients   map[uuid.UUID]*panelSession
 }
 
 func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration) *PanelActiveUsersProvider {
-	return &PanelActiveUsersProvider{Encryptor: enc, Timeout: timeout}
+	return &PanelActiveUsersProvider{
+		Encryptor: enc,
+		Timeout:   timeout,
+		SessionTTL: 30 * time.Minute,
+		clients:   make(map[uuid.UUID]*panelSession),
+	}
 }
 
 func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
@@ -199,16 +207,8 @@ func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node 
 			Available:    false,
 		}, nil
 	}
-	client, err := panelclient.New(node.BaseURL, node.PanelUsername, pass, node.VerifyTLS)
+	client, err := p.getClient(node, pass)
 	if err != nil {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "panel",
-			SourceDetail: fmt.Sprintf("client init failed: %v", err),
-			Available:    false,
-		}, nil
-	}
-	if err := client.Login(); err != nil {
 		return ActiveUsersResult{
 			Users:        nil,
 			Source:       "panel",
@@ -217,6 +217,12 @@ func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node 
 		}, nil
 	}
 	listResp, err := client.ListInbounds()
+	if err != nil && isAuthError(err) {
+		if loginErr := client.Login(); loginErr == nil {
+			p.markLogin(node.ID)
+			listResp, err = client.ListInbounds()
+		}
+	}
 	if err != nil {
 		return ActiveUsersResult{
 			Users:        nil,
@@ -232,6 +238,70 @@ func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node 
 		SourceDetail: "ok",
 		Available:    true,
 	}, nil
+}
+
+type panelSession struct {
+	client    *panelclient.Client
+	key       string
+	lastLogin time.Time
+}
+
+func (p *PanelActiveUsersProvider) sessionKey(node *db.Node, pass string) string {
+	return strings.TrimSpace(node.BaseURL) + "|" + strings.TrimSpace(node.PanelUsername) + "|" + pass + "|" + strconv.FormatBool(node.VerifyTLS)
+}
+
+func (p *PanelActiveUsersProvider) getClient(node *db.Node, pass string) (*panelclient.Client, error) {
+	key := p.sessionKey(node, pass)
+	var sess *panelSession
+	now := time.Now()
+	p.mu.Lock()
+	if existing, ok := p.clients[node.ID]; ok {
+		sess = existing
+	}
+	p.mu.Unlock()
+	if sess != nil && sess.key == key && p.sessionValid(sess, now) {
+		return sess.client, nil
+	}
+	client, err := panelclient.New(node.BaseURL, node.PanelUsername, pass, node.VerifyTLS)
+	if err != nil {
+		return nil, fmt.Errorf("client init failed: %v", err)
+	}
+	if err := client.Login(); err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	p.clients[node.ID] = &panelSession{client: client, key: key, lastLogin: now}
+	p.mu.Unlock()
+	return client, nil
+}
+
+func (p *PanelActiveUsersProvider) sessionValid(sess *panelSession, now time.Time) bool {
+	if sess == nil {
+		return false
+	}
+	if p.SessionTTL <= 0 {
+		return true
+	}
+	return now.Sub(sess.lastLogin) <= p.SessionTTL
+}
+
+func (p *PanelActiveUsersProvider) markLogin(nodeID uuid.UUID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if sess, ok := p.clients[nodeID]; ok {
+		sess.lastLogin = time.Now()
+	}
+}
+
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "status 401") ||
+		strings.Contains(msg, "status 403") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "forbidden")
 }
 
 func extractActiveUsers(listResp map[string]any) []ActiveUser {

@@ -58,7 +58,7 @@ make run
 - `DASHBOARD_COLLECT_INTERVAL` (optional, default `10s`)
 - `DASHBOARD_COLLECT_PARALLELISM` (optional, default `5`)
 - `DASHBOARD_COLLECT_TIMEOUT` (optional, default `8s`)
-- `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED` (optional, default `false`)
+- `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED` (optional, default `true`)
 - `DASHBOARD_AGENT_TIMEOUT` (optional, default `5s`)
 - `DASHBOARD_AGENT_PREFER` (optional, default `true`)
 - `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)
@@ -247,8 +247,10 @@ Notes:
 - `public_token` is returned on job creation (`POST /api/ops/jobs`, `POST /api/ops/deploy-agent`).
 
 ## Dashboard (realtime)
-Dashboard data is collected via node-agent (`/stats`, `/active-users`). SSH and panel API are not used for dashboard telemetry.
-Panel version is reported by the agent and shown in the dashboard table.
+Dashboard data is collected via node-agent (`/stats`, `/active-users`). SSH is not used for dashboard telemetry.
+If agent active users are not available, panel API can be used when `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED=true`.
+Panel version is reported by the agent and shown in the dashboard table. Average ping comes from agent `ping_ms`.
+Total traffic (24h/7d) is calculated from time-series `node_metrics` net byte counters.
 
 Summary (nodes + aggregates):
 ```bash

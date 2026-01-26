@@ -108,13 +108,16 @@ func main() {
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
 	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)
+	panelProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout)
 	metricsProvider := &dashboard.CompositeMetricsProvider{
 		Agent:       agentProvider,
-		PreferAgent: true,
+		PreferAgent: cfg.DashboardAgentPrefer,
 	}
 	usersProvider := &dashboard.CompositeActiveUsersProvider{
-		Agent:       agentProvider,
-		PreferAgent: true,
+		Agent:        agentProvider,
+		Panel:        panelProvider,
+		PreferAgent:  cfg.DashboardAgentPrefer,
+		PanelEnabled: cfg.DashboardPanelActiveUsers,
 	}
 	dashboardSvc := dashboard.New(dbConn, metricsProvider, usersProvider, cfg.DashboardCollectInterval, cfg.DashboardCollectParallelism)
 	handler.Dashboard = dashboardSvc

@@ -129,6 +129,7 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 	metrics, err := s.Metrics.CollectNodeMetrics(ctx, node)
 	if err == nil {
 		_ = s.upsertMetrics(ctx, node.ID, metrics)
+		_ = s.insertMetricSample(ctx, node.ID, metrics)
 		if metrics.FromAgent && node.AgentEnabled {
 			_ = s.updateAgentLastSeen(ctx, node.ID, metrics.CollectedAt)
 			_ = s.updateAgentInstalled(ctx, node.ID, true)
@@ -260,6 +261,31 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 	}).Create(&row).Error
 }
 
+func (s *Service) insertMetricSample(ctx context.Context, nodeID uuid.UUID, metrics NodeMetrics) error {
+	if s == nil || s.DB == nil {
+		return nil
+	}
+	memAvail := (*int64)(nil)
+	if metrics.RAMTotalBytes != nil && metrics.RAMUsedBytes != nil {
+		if *metrics.RAMTotalBytes >= *metrics.RAMUsedBytes {
+			val := *metrics.RAMTotalBytes - *metrics.RAMUsedBytes
+			memAvail = &val
+		}
+	}
+	row := db.NodeMetric{
+		NodeID:            nodeID,
+		TS:                metrics.CollectedAt,
+		MemTotalBytes:     metrics.RAMTotalBytes,
+		MemAvailableBytes: memAvail,
+		DiskTotalBytes:    metrics.DiskTotalBytes,
+		DiskUsedBytes:     metrics.DiskUsedBytes,
+		NetRxBytes:        metrics.NetRxBytes,
+		NetTxBytes:        metrics.NetTxBytes,
+		PingMs:            metrics.PingMs,
+	}
+	return s.DB.WithContext(ctx).Create(&row).Error
+}
+
 func (s *Service) replaceActiveUsers(ctx context.Context, nodeID uuid.UUID, users []ActiveUser) error {
 	now := time.Now()
 	rows := make([]db.ActiveUserLatest, 0, len(users))
@@ -354,7 +380,23 @@ func (s *Service) listActiveUsers(ctx context.Context, limit int, search string)
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	return rows, nil
+	deduped := make(map[string]DashboardActiveUser, len(rows))
+	for _, row := range rows {
+		inbound := ""
+		if row.InboundTag != nil {
+			inbound = strings.TrimSpace(*row.InboundTag)
+		}
+		key := strings.ToLower(strings.TrimSpace(row.ClientEmail)) + "|" + inbound + "|" + strings.TrimSpace(row.IP)
+		prev, ok := deduped[key]
+		if !ok || row.LastSeen.After(prev.LastSeen) {
+			deduped[key] = row
+		}
+	}
+	out := make([]DashboardActiveUser, 0, len(deduped))
+	for _, row := range deduped {
+		out = append(out, row)
+	}
+	return out, nil
 }
 
 type DashboardNode struct {
@@ -415,6 +457,11 @@ func (s *Service) Summary(ctx context.Context) (map[string]any, error) {
 	}
 	s.applySources(nodes)
 	agg := computeAggregate(nodes)
+	traffic24h, traffic7d, err := s.computeTrafficTotals(ctx)
+	if err == nil {
+		agg.TotalTraffic24h = traffic24h
+		agg.TotalTraffic7d = traffic7d
+	}
 	agg.ActiveAlertsCount = s.countActiveAlerts(ctx)
 	agg.ActiveUsers = s.countActiveUsers(ctx)
 	return map[string]any{
@@ -440,6 +487,7 @@ type AggregateSummary struct {
 	TotalRxBps        int64    `json:"total_rx_bps"`
 	TotalTxBps        int64    `json:"total_tx_bps"`
 	TotalTraffic24h   *int64   `json:"total_traffic_24h"`
+	TotalTraffic7d    *int64   `json:"total_traffic_7d"`
 	TotalConnections  *int64   `json:"total_connections"`
 	ActiveUsers       int      `json:"active_users"`
 	ActiveAlertsCount int      `json:"active_alerts"`
@@ -468,7 +516,7 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 			cpuCount++
 			cpuSum += *node.CPUPct
 		}
-		if node.PingMs != nil {
+		if node.AgentOnline && node.PingMs != nil {
 			pingCount++
 			pingSum += float64(*node.PingMs)
 		}
@@ -497,6 +545,70 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 	}
 	agg.NodesOffline = agg.NodesTotal - agg.NodesOnline
 	return agg
+}
+
+type trafficPoint struct {
+	NodeID    uuid.UUID
+	TS        time.Time
+	NetRx     *int64
+	NetTx     *int64
+}
+
+func (s *Service) computeTrafficTotals(ctx context.Context) (*int64, *int64, error) {
+	traffic24h, err := s.computeTrafficTotalForRange(ctx, 24*time.Hour)
+	if err != nil {
+		return nil, nil, err
+	}
+	traffic7d, err := s.computeTrafficTotalForRange(ctx, 7*24*time.Hour)
+	if err != nil {
+		return nil, nil, err
+	}
+	return traffic24h, traffic7d, nil
+}
+
+func (s *Service) computeTrafficTotalForRange(ctx context.Context, window time.Duration) (*int64, error) {
+	if s == nil || s.DB == nil {
+		return nil, nil
+	}
+	cutoff := time.Now().UTC().Add(-window)
+	var rows []trafficPoint
+	err := s.DB.WithContext(ctx).
+		Table("node_metrics").
+		Select("node_id, ts, net_rx_bytes, net_tx_bytes").
+		Where("ts >= ?", cutoff).
+		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
+		Order("node_id, ts").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	var total int64
+	var current uuid.UUID
+	var prevRx, prevTx *int64
+	first := true
+	for _, row := range rows {
+		if first || row.NodeID != current {
+			current = row.NodeID
+			prevRx, prevTx = row.NetRx, row.NetTx
+			first = false
+			continue
+		}
+		if prevRx != nil && row.NetRx != nil {
+			if delta := *row.NetRx - *prevRx; delta > 0 {
+				total += delta
+			}
+		}
+		if prevTx != nil && row.NetTx != nil {
+			if delta := *row.NetTx - *prevTx; delta > 0 {
+				total += delta
+			}
+		}
+		prevRx, prevTx = row.NetRx, row.NetTx
+	}
+	return &total, nil
 }
 
 func (s *Service) countActiveAlerts(ctx context.Context) int {

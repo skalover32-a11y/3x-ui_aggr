@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 	cfg.DashboardCollectInterval = parseDurationEnv("DASHBOARD_COLLECT_INTERVAL", 10*time.Second)
 	cfg.DashboardCollectTimeout = parseDurationEnv("DASHBOARD_COLLECT_TIMEOUT", 8*time.Second)
 	cfg.DashboardCollectParallelism = parseIntEnv("DASHBOARD_COLLECT_PARALLELISM", 5)
-	cfg.DashboardPanelActiveUsers = parseBoolEnv("DASHBOARD_PANEL_ACTIVE_USERS_ENABLED", false)
+	cfg.DashboardPanelActiveUsers = parseBoolEnv("DASHBOARD_PANEL_ACTIVE_USERS_ENABLED", true)
 	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
 	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {

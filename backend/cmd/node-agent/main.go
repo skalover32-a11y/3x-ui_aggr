@@ -28,7 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentVersion = "v1.13"
+const agentVersion = "v1.14"
 
 type Config struct {
 	Listen            string   `yaml:"listen"`
@@ -1064,6 +1064,7 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 	panelRunning := checkSystemctl("x-ui")
 	xrayRunning := checkSystemctl("xray")
 	panelVersion := readPanelVersion()
+	pingMs := measureLatency(ctx)
 
 	return map[string]any{
 		"agent_version":    agentVersion,
@@ -1084,7 +1085,34 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 		"panel_version":    panelVersion,
 		"panel_running":    panelRunning,
 		"xray_running":     xrayRunning,
+		"ping_ms":          pingMs,
 	}
+}
+
+func measureLatency(ctx context.Context) *int64 {
+	targets := []string{"1.1.1.1:443", "8.8.8.8:443"}
+	var total time.Duration
+	var count int64
+	for _, target := range targets {
+		start := time.Now()
+		dialer := net.Dialer{Timeout: 2 * time.Second}
+		conn, err := dialer.DialContext(ctx, "tcp", target)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		total += time.Since(start)
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+	avg := total / time.Duration(count)
+	ms := avg.Milliseconds()
+	if ms < 0 {
+		ms = 0
+	}
+	return &ms
 }
 
 func (s *state) computeNetBps(rxBytes, txBytes *int64) (*int64, *int64) {

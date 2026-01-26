@@ -181,13 +181,35 @@ type CompositeActiveUsersProvider struct {
 }
 
 func (p *CompositeActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
-	if p.Agent == nil || node == nil || !node.AgentEnabled {
+	if node == nil {
 		return ActiveUsersResult{
 			Users:        nil,
 			Source:       "no_source",
-			SourceDetail: "agent not configured",
+			SourceDetail: "node missing",
 			Available:    false,
 		}, nil
 	}
-	return p.Agent.CollectActiveUsers(ctx, node)
+	if p.Agent != nil && node.AgentEnabled {
+		result, err := p.Agent.CollectActiveUsers(ctx, node)
+		if err == nil && result.Available {
+			return result, nil
+		}
+		if !p.PanelEnabled || p.Panel == nil {
+			return result, nil
+		}
+		panelResult, panelErr := p.Panel.CollectActiveUsers(ctx, node)
+		if panelErr == nil {
+			return panelResult, nil
+		}
+		return result, nil
+	}
+	if p.PanelEnabled && p.Panel != nil {
+		return p.Panel.CollectActiveUsers(ctx, node)
+	}
+	return ActiveUsersResult{
+		Users:        nil,
+		Source:       "no_source",
+		SourceDetail: "agent not configured",
+		Available:    false,
+	}, nil
 }

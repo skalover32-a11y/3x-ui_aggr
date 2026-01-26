@@ -3644,11 +3644,12 @@ function DashboardPage() {
     agents_active: 0,
     agents_total: 0,
     panels_available: 0,
-    avg_cpu: 0,
-    avg_ping_ms: null,
-    total_traffic_24h: null,
-    active_alerts: 0,
-  });
+      avg_cpu: 0,
+      avg_ping_ms: null,
+      total_traffic_24h: null,
+      total_traffic_7d: null,
+      active_alerts: 0,
+    });
   const [generatedAt, setGeneratedAt] = useState("");
   const [systemStatus, setSystemStatus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3890,11 +3891,12 @@ function DashboardPage() {
       agentsActive: aggregate.agents_active ?? 0,
       agentsTotal: aggregate.agents_total ?? 0,
       panelsAvailable: aggregate.panels_available ?? 0,
-      avgCPU: aggregate.avg_cpu ?? 0,
-      avgPingMs: aggregate.avg_ping_ms,
-      totalTraffic24h: aggregate.total_traffic_24h,
-      totalRxBps: aggregate.total_rx_bps ?? 0,
-      totalTxBps: aggregate.total_tx_bps ?? 0,
+        avgCPU: aggregate.avg_cpu ?? 0,
+        avgPingMs: aggregate.avg_ping_ms,
+        totalTraffic24h: aggregate.total_traffic_24h,
+        totalTraffic7d: aggregate.total_traffic_7d,
+        totalRxBps: aggregate.total_rx_bps ?? 0,
+        totalTxBps: aggregate.total_tx_bps ?? 0,
       totalConnections: aggregate.total_connections,
       activeAlerts: aggregate.active_alerts ?? 0,
     };
@@ -3927,11 +3929,12 @@ function DashboardPage() {
   const nodesOnline = aggregateSafe.nodesOnline || 0;
   const agentsActive = aggregateSafe.agentsActive || 0;
   const agentsTotal = aggregateSafe.agentsTotal || 0;
-  const panelsAvailable = aggregateSafe.panelsAvailable || 0;
-  const avgPing = aggregateSafe.avgPingMs;
-  const traffic24h = aggregateSafe.totalTraffic24h;
-  const rxBps = aggregateSafe.totalRxBps;
-  const txBps = aggregateSafe.totalTxBps;
+    const panelsAvailable = aggregateSafe.panelsAvailable || 0;
+    const avgPing = aggregateSafe.avgPingMs;
+    const traffic24h = aggregateSafe.totalTraffic24h;
+    const traffic7d = aggregateSafe.totalTraffic7d;
+    const rxBps = aggregateSafe.totalRxBps;
+    const txBps = aggregateSafe.totalTxBps;
 
   return (
     <div className="app-shell">
@@ -4017,12 +4020,12 @@ function DashboardPage() {
               loadProblems();
             }}
           />
-          <MiniStatCard
-            label={t("Total Traffic (24h)")}
-            value={traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
-            subvalue={t("Fleet bandwidth")}
-            progress={traffic24h != null ? 0.65 : 0.4}
-          />
+            <MiniStatCard
+              label={t("Total Traffic (24h)")}
+              value={traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
+              subvalue={t("Fleet bandwidth")}
+              progress={traffic24h != null ? 0.65 : 0.4}
+            />
         </section>
 
         <section className="service-card">
@@ -4131,14 +4134,18 @@ function DashboardPage() {
         </section>
 
         <section className="grid-bottom">
-          <div className="bottom-card">
-            <h4>{t("Total Traffic")}</h4>
-            <div className="bottom-value">
-              {traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
+            <div className="bottom-card">
+              <h4>{t("Total Traffic")}</h4>
+              <div className="bottom-value">
+                {traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
+              </div>
+              <div className="muted small">{t("Sent / Received")}</div>
+              <div className="bottom-sub">
+                {traffic24h != null && traffic7d != null
+                  ? `${t("24h")}: ${formatBytes(traffic24h)} · ${t("7d")}: ${formatBytes(traffic7d)}`
+                  : t("24h + 7d counters")}
+              </div>
             </div>
-            <div className="muted small">{t("Sent / Received")}</div>
-            <div className="bottom-sub">{t("24h + 7d counters")}</div>
-          </div>
           <div className="bottom-card">
             <h4>{t("Connections")}</h4>
             <div className="bottom-value">{aggregateSafe.totalConnections != null ? aggregateSafe.totalConnections : t("No data")}</div>

@@ -156,6 +156,9 @@ type NodeMetric struct {
 	MemAvailableBytes *int64    `json:"mem_available_bytes"`
 	DiskTotalBytes    *int64    `json:"disk_total_bytes"`
 	DiskUsedBytes     *int64    `json:"disk_used_bytes"`
+	NetRxBytes        *int64    `json:"net_rx_bytes"`
+	NetTxBytes        *int64    `json:"net_tx_bytes"`
+	PingMs            *int64    `json:"ping_ms"`
 	Error             *string   `json:"error"`
 }
 
