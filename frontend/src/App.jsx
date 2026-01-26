@@ -3633,8 +3633,9 @@ function NodesPage() {
 }
 
 function DashboardPage() {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const user = getUser();
   const [nodes, setNodes] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
   const [aggregate, setAggregate] = useState({
@@ -3936,6 +3937,34 @@ function DashboardPage() {
     <div className="app-shell">
       <SidebarNav active="dashboard" />
       <div className="app-main">
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
+                <option value="ru">{t("Russian")}</option>
+                <option value="fa">{t("Persian")}</option>
+              </select>
+            </div>
+            <div className="header-user">
+              {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+              <button
+                onClick={async () => {
+                  try {
+                    await request("POST", "/auth/logout", {});
+                  } catch {
+                  }
+                  clearAuth();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("Logout")}
+              </button>
+            </div>
+          </div>
+        </header>
         <div className="topbar">
           <div>
             <div className="topbar-title">{t("Dashboard")}</div>

@@ -3,6 +3,36 @@ import { useEffect, useMemo, useState } from "react";
 const STORAGE_KEY = "agg_lang";
 const DEFAULT_LANG = "en";
 
+const readStoredLang = () => {
+  if (typeof localStorage === "undefined") return DEFAULT_LANG;
+  return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG;
+};
+
+let currentLang = readStoredLang();
+const listeners = new Set();
+
+const applyLang = (next) => {
+  currentLang = next || DEFAULT_LANG;
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(STORAGE_KEY, currentLang);
+  }
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = currentLang;
+    const rtl = currentLang === "fa";
+    document.documentElement.dir = rtl ? "rtl" : "ltr";
+    document.documentElement.classList.toggle("rtl", rtl);
+  }
+  listeners.forEach((handler) => handler(currentLang));
+};
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY) return;
+    if (!event.newValue || event.newValue === currentLang) return;
+    applyLang(event.newValue);
+  });
+}
+
 const STRINGS = {
   en: {
     "Nodes": "Nodes",
@@ -1266,17 +1296,22 @@ const STRINGS = {
 };
 
 export function useI18n() {
-  const [lang, setLang] = useState(() => {
-    return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG;
-  });
+  const [lang, setLangState] = useState(currentLang);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, lang);
-    document.documentElement.lang = lang;
-    const rtl = lang === "fa";
-    document.documentElement.dir = rtl ? "rtl" : "ltr";
-    document.documentElement.classList.toggle("rtl", rtl);
-  }, [lang]);
+    const handler = (value) => setLangState(value);
+    listeners.add(handler);
+    applyLang(currentLang);
+    return () => {
+      listeners.delete(handler);
+    };
+  }, []);
+
+  const setLang = (next) => {
+    const value = next || DEFAULT_LANG;
+    if (value === currentLang) return;
+    applyLang(value);
+  };
 
   const t = useMemo(
     () =>
