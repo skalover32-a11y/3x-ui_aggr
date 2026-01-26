@@ -222,6 +222,7 @@ function DashboardStatusBadge({ status }) {
 function SidebarNav({ active }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [securityOpen, setSecurityOpen] = useState(false);
   const items = [
     { key: "dashboard", label: t("Dashboard"), path: "/dashboard" },
     { key: "nodes", label: t("Nodes"), path: "/nodes" },
@@ -250,10 +251,24 @@ function SidebarNav({ active }) {
         </div>
       </button>
       <div className="sidebar-nav">
-        {items.map((item) => (
-          item.section ? (
-            <div key={item.key} className="sidebar-section">{item.label}</div>
-          ) : (
+        {items.map((item) => {
+          if (item.section) {
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className="sidebar-section-toggle"
+                onClick={() => setSecurityOpen((prev) => !prev)}
+              >
+                <span>{item.label}</span>
+                <span className={`chev ${securityOpen ? "open" : ""}`}>▾</span>
+              </button>
+            );
+          }
+          if (["alerts", "twofa", "passkeys", "settings", "audit"].includes(item.key) && !securityOpen) {
+            return null;
+          }
+          return (
             <button
               key={item.key}
               type="button"
@@ -262,8 +277,8 @@ function SidebarNav({ active }) {
             >
               <span>{item.label}</span>
             </button>
-          )
-        ))}
+          );
+        })}
       </div>
     </aside>
   );
@@ -3578,6 +3593,7 @@ function DashboardPage() {
   const [problemsError, setProblemsError] = useState("");
   const [problemsLoading, setProblemsLoading] = useState(false);
   const [problemsNode, setProblemsNode] = useState("");
+  const [problemDetails, setProblemDetails] = useState(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -4127,7 +4143,7 @@ function DashboardPage() {
                       <div data-label={t("Last seen")}>{formatTS(row.last_seen || row.updated_at || row.created_at)}</div>
                       <div data-label={t("Message")}>{message}</div>
                       <div className="actions">
-                        <button type="button" onClick={() => rowNode && navigate(`/nodes?node=${rowNode}`)}>{t("Open")}</button>
+                        <button type="button" onClick={() => setProblemDetails({ ...row, nodeName, message })}>{t("Open")}</button>
                       </div>
                     </div>
                   );
@@ -4140,6 +4156,41 @@ function DashboardPage() {
               </div>
               <div className="actions">
                 <button type="button" onClick={() => setProblemsOpen(false)}>{t("Close")}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {problemDetails && (
+          <div className="modal overlay-modal" onClick={() => setProblemDetails(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <h3>{t("Problem details")}</h3>
+              <div className="detail-grid">
+                <div>
+                  <div className="muted small">{t("Node")}</div>
+                  <div>{problemDetails.nodeName || "-"}</div>
+                </div>
+                <div>
+                  <div className="muted small">{t("Type")}</div>
+                  <div>{problemDetails.alert_type || problemDetails.type || problemDetails.check_type || "-"}</div>
+                </div>
+                <div>
+                  <div className="muted small">{t("Status")}</div>
+                  <div>{problemDetails.last_status || problemDetails.status || "-"}</div>
+                </div>
+                <div>
+                  <div className="muted small">{t("Last seen")}</div>
+                  <div>{formatTS(problemDetails.last_seen || problemDetails.updated_at || problemDetails.created_at)}</div>
+                </div>
+              </div>
+              <div className="muted small">{t("Message")}</div>
+              <div className="detail-message">{problemDetails.message}</div>
+              <div className="actions">
+                <button type="button" onClick={() => {
+                  const rowNode = problemDetails.node_id || problemDetails.nodeId || problemDetails.node || problemDetails.target_id;
+                  if (rowNode) navigate(`/nodes?node=${rowNode}`);
+                }}>{t("Open node")}</button>
+                <button type="button" onClick={() => setProblemDetails(null)}>{t("Close")}</button>
               </div>
             </div>
           </div>

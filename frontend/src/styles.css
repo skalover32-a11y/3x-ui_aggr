@@ -1888,6 +1888,48 @@ body {
   margin-top: 8px;
 }
 
+.sidebar-section-toggle {
+  background: transparent;
+  border: none;
+  padding: 6px 12px 2px;
+  margin-top: 8px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  cursor: pointer;
+}
+
+.sidebar-section-toggle .chev {
+  transition: transform 0.2s ease;
+}
+
+.sidebar-section-toggle .chev.open {
+  transform: rotate(180deg);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.detail-message {
+  background: rgba(15, 23, 36, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 6px 0 16px;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .brand-dot {
   width: 12px;
   height: 12px;
