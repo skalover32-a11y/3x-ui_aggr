@@ -360,7 +360,22 @@ func isOnline(entry map[string]any) bool {
 	if val, ok := entry["is_online"].(bool); ok {
 		return val
 	}
-	if val, ok := entry["status"].(string); ok && strings.ToLower(val) == "online" {
+	if val, ok := entry["status"].(string); ok {
+		status := strings.ToLower(strings.TrimSpace(val))
+		if status == "online" || status == "active" {
+			return true
+		}
+		if status == "offline" || status == "disabled" {
+			return false
+		}
+	}
+	if ip := asString(entry["ip"]); ip != "" {
+		return true
+	}
+	if up := asInt64(entry["up"]); up != nil && *up > 0 {
+		return true
+	}
+	if down := asInt64(entry["down"]); down != nil && *down > 0 {
 		return true
 	}
 	return false

@@ -574,7 +574,7 @@ func (s *Service) computeTrafficTotalForRange(ctx context.Context, window time.D
 	var rows []trafficPoint
 	err := s.DB.WithContext(ctx).
 		Table("node_metrics").
-		Select("node_id, ts, net_rx_bytes, net_tx_bytes").
+		Select("node_id, ts, net_rx_bytes as net_rx, net_tx_bytes as net_tx").
 		Where("ts >= ?", cutoff).
 		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
 		Order("node_id, ts").
