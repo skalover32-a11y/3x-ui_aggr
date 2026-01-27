@@ -385,11 +385,28 @@ func extractOnlineUsers(listResp map[string]any) []ActiveUser {
 	}
 	arr, ok := obj.([]any)
 	if !ok {
-		return nil
+		if raw, ok := obj.([]string); ok {
+			arr = make([]any, 0, len(raw))
+			for _, item := range raw {
+				arr = append(arr, item)
+			}
+		} else {
+			return nil
+		}
 	}
 	now := time.Now()
 	var users []ActiveUser
 	for _, item := range arr {
+		if email, ok := item.(string); ok {
+			email = strings.TrimSpace(email)
+			if email != "" {
+				users = append(users, ActiveUser{
+					ClientEmail: email,
+					LastSeen:    now,
+				})
+			}
+			continue
+		}
 		entry, ok := item.(map[string]any)
 		if !ok {
 			continue
