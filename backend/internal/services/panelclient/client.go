@@ -44,6 +44,9 @@ func New(baseURL, username, password string, verifyTLS bool) (*Client, error) {
 }
 
 func (c *Client) Login() error {
+	if c.hasSessionCookie() {
+		return nil
+	}
 	form := url.Values{}
 	form.Set("username", c.username)
 	form.Set("password", c.password)
@@ -139,16 +142,19 @@ func (c *Client) RestartXray() (map[string]any, error) {
 }
 
 func (c *Client) doJSON(method, url string, body map[string]any) (map[string]any, error) {
-	var buf *bytes.Buffer
+	var raw []byte
 	if body != nil {
-		raw, err := json.Marshal(body)
+		data, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		buf = bytes.NewBuffer(raw)
-	} else {
-		buf = bytes.NewBuffer(nil)
+		raw = data
 	}
+	return c.doJSONWithRetry(method, url, raw, true)
+}
+
+func (c *Client) doJSONWithRetry(method, url string, raw []byte, allowRetry bool) (map[string]any, error) {
+	buf := bytes.NewBuffer(raw)
 	req, err := http.NewRequest(method, url, buf)
 	if err != nil {
 		return nil, err
@@ -158,18 +164,24 @@ func (c *Client) doJSON(method, url string, body map[string]any) (map[string]any
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		if allowRetry {
+			if err := c.Login(); err == nil {
+				return c.doJSONWithRetry(method, url, raw, false)
+			}
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		body, _ := io.ReadAll(resp.Body)
-		msg := strings.TrimSpace(string(body))
+		msg := strings.TrimSpace(string(bodyBytes))
 		if msg == "" {
 			msg = resp.Status
 		}
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, msg)
 	}
 	var data map[string]any
-	decoder := json.NewDecoder(resp.Body)
-	if err := decoder.Decode(&data); err != nil {
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -199,6 +211,27 @@ func (c *Client) joinURL(suffix string) (string, error) {
 		u.Path = path.Join(basePath, suffix)
 	}
 	return u.String(), nil
+}
+
+func (c *Client) hasSessionCookie() bool {
+	if c == nil || c.client == nil || c.client.Jar == nil {
+		return false
+	}
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return false
+	}
+	now := time.Now()
+	for _, cookie := range c.client.Jar.Cookies(u) {
+		name := strings.ToLower(cookie.Name)
+		if name != "3x-ui" && name != "3xui" && !strings.Contains(name, "3x-ui") {
+			continue
+		}
+		if cookie.Expires.IsZero() || cookie.Expires.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePayload(payload map[string]any) map[string]any {
