@@ -31,6 +31,7 @@ type Config struct {
 	DashboardCollectParallelism  int
 	DashboardCollectTimeout      time.Duration
 	DashboardPanelActiveUsers    bool
+	DashboardPanelSessionTTL     time.Duration
 	DashboardAgentTimeout        time.Duration
 	DashboardAgentPrefer         bool
 	SudoPasswords                []string
@@ -91,6 +92,7 @@ func Load() (*Config, error) {
 	cfg.DashboardCollectTimeout = parseDurationEnv("DASHBOARD_COLLECT_TIMEOUT", 8*time.Second)
 	cfg.DashboardCollectParallelism = parseIntEnv("DASHBOARD_COLLECT_PARALLELISM", 5)
 	cfg.DashboardPanelActiveUsers = parseBoolEnv("DASHBOARD_PANEL_ACTIVE_USERS_ENABLED", true)
+	cfg.DashboardPanelSessionTTL = parseDurationAllowZeroEnv("DASHBOARD_PANEL_SESSION_TTL", 12*time.Hour)
 	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
 	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
@@ -126,6 +128,18 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	}
 	val, err := time.ParseDuration(raw)
 	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func parseDurationAllowZeroEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := time.ParseDuration(raw)
+	if err != nil || val < 0 {
 		return fallback
 	}
 	return val

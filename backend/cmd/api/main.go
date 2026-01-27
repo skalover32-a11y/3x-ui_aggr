@@ -108,7 +108,7 @@ func main() {
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
 	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)
-	panelProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout)
+	panelProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout, cfg.DashboardPanelSessionTTL)
 	metricsProvider := &dashboard.CompositeMetricsProvider{
 		Agent:       agentProvider,
 		PreferAgent: cfg.DashboardAgentPrefer,

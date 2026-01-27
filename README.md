@@ -59,6 +59,7 @@ make run
 - `DASHBOARD_COLLECT_PARALLELISM` (optional, default `5`)
 - `DASHBOARD_COLLECT_TIMEOUT` (optional, default `8s`)
 - `DASHBOARD_PANEL_ACTIVE_USERS_ENABLED` (optional, default `true`)
+- `DASHBOARD_PANEL_SESSION_TTL` (optional, default `12h`, set `0` to keep session until panel expires it)
 - `DASHBOARD_AGENT_TIMEOUT` (optional, default `5s`)
 - `DASHBOARD_AGENT_PREFER` (optional, default `true`)
 - `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)

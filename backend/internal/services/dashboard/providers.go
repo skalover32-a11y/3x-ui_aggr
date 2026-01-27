@@ -180,11 +180,11 @@ type PanelActiveUsersProvider struct {
 	clients    map[uuid.UUID]*panelSession
 }
 
-func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration) *PanelActiveUsersProvider {
+func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration, sessionTTL time.Duration) *PanelActiveUsersProvider {
 	return &PanelActiveUsersProvider{
 		Encryptor:  enc,
 		Timeout:    timeout,
-		SessionTTL: 30 * time.Minute,
+		SessionTTL: sessionTTL,
 		clients:    make(map[uuid.UUID]*panelSession),
 	}
 }
