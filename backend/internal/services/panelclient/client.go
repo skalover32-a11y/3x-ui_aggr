@@ -87,15 +87,18 @@ func (c *Client) OnlineClients() (map[string]any, error) {
 			lastErr = err
 			continue
 		}
-		resp, err := c.doJSON(http.MethodGet, endpoint, nil)
-		if err != nil {
-			if isNotFoundErr(err) {
-				lastErr = err
-				continue
+		methods := []string{http.MethodGet, http.MethodPost}
+		for _, method := range methods {
+			resp, err := c.doJSON(method, endpoint, nil)
+			if err != nil {
+				if isNotFoundErr(err) {
+					lastErr = err
+					continue
+				}
+				return nil, err
 			}
-			return nil, err
+			return resp, nil
 		}
-		return resp, nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("online endpoint not available")
@@ -177,7 +180,10 @@ func isNotFoundErr(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "status 404") || strings.Contains(msg, "not found")
+	return strings.Contains(msg, "status 404") ||
+		strings.Contains(msg, "status 405") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "method not allowed")
 }
 
 func (c *Client) joinURL(suffix string) (string, error) {
