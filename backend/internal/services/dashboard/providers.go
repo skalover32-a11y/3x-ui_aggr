@@ -216,6 +216,30 @@ func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node 
 			Available:    false,
 		}, nil
 	}
+	onlineResp, err := client.OnlineClients()
+	if err != nil && isAuthError(err) {
+		if loginErr := client.Login(); loginErr == nil {
+			p.markLogin(node.ID)
+			onlineResp, err = client.OnlineClients()
+		}
+	}
+	if err == nil {
+		users := extractOnlineUsers(onlineResp)
+		return ActiveUsersResult{
+			Users:        users,
+			Source:       "panel",
+			SourceDetail: "ok",
+			Available:    true,
+		}, nil
+	}
+	if err != nil && !isOnlineEndpointUnavailable(err) {
+		return ActiveUsersResult{
+			Users:        nil,
+			Source:       "panel",
+			SourceDetail: fmt.Sprintf("request failed: %v", err),
+			Available:    false,
+		}, nil
+	}
 	listResp, err := client.ListInbounds()
 	if err != nil && isAuthError(err) {
 		if loginErr := client.Login(); loginErr == nil {
@@ -354,6 +378,64 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 	return users
 }
 
+func extractOnlineUsers(listResp map[string]any) []ActiveUser {
+	obj, ok := listResp["obj"]
+	if !ok {
+		return nil
+	}
+	arr, ok := obj.([]any)
+	if !ok {
+		return nil
+	}
+	now := time.Now()
+	var users []ActiveUser
+	for _, item := range arr {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		email := asString(entry["email"])
+		if email == "" {
+			email = asString(entry["client"])
+		}
+		if email == "" {
+			email = asString(entry["user"])
+		}
+		if email == "" {
+			email = asString(entry["username"])
+		}
+		if email == "" {
+			continue
+		}
+		tag := asString(entry["inboundTag"])
+		if tag == "" {
+			tag = asString(entry["inbound_tag"])
+		}
+		if tag == "" {
+			tag = asString(entry["tag"])
+		}
+		up := asInt64(entry["up"])
+		if up == 0 {
+			up = asInt64(entry["uplink"])
+		}
+		down := asInt64(entry["down"])
+		if down == 0 {
+			down = asInt64(entry["downlink"])
+		}
+		lastSeen := parseLastSeen(entry, now)
+		user := ActiveUser{
+			InboundTag:     nilifyString(tag),
+			ClientEmail:    email,
+			IP:             asString(entry["ip"]),
+			TotalUpBytes:   up,
+			TotalDownBytes: down,
+			LastSeen:       lastSeen,
+		}
+		users = append(users, user)
+	}
+	return users
+}
+
 func isOnline(entry map[string]any) bool {
 	if val, ok := entry["online"].(bool); ok {
 		return val
@@ -379,6 +461,16 @@ func isOnline(entry map[string]any) bool {
 		return true
 	}
 	return false
+}
+
+func isOnlineEndpointUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "status 404") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "not available")
 }
 
 func parseLastSeen(entry map[string]any, fallback time.Time) time.Time {

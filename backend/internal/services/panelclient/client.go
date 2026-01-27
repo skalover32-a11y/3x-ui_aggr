@@ -75,6 +75,34 @@ func (c *Client) ListInbounds() (map[string]any, error) {
 	return c.doJSON(http.MethodGet, endpoint, nil)
 }
 
+func (c *Client) OnlineClients() (map[string]any, error) {
+	endpoints := []string{
+		"/panel/api/inbounds/onlines",
+		"/panel/api/inbounds/online",
+	}
+	var lastErr error
+	for _, suffix := range endpoints {
+		endpoint, err := c.joinURL(suffix)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		resp, err := c.doJSON(http.MethodGet, endpoint, nil)
+		if err != nil {
+			if isNotFoundErr(err) {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+		return resp, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("online endpoint not available")
+	}
+	return nil, lastErr
+}
+
 func (c *Client) AddInbound(payload map[string]any) (map[string]any, error) {
 	endpoint, err := c.joinURL("/panel/api/inbounds/add")
 	if err != nil {
@@ -142,6 +170,14 @@ func (c *Client) doJSON(method, url string, body map[string]any) (map[string]any
 		return nil, err
 	}
 	return data, nil
+}
+
+func isNotFoundErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "status 404") || strings.Contains(msg, "not found")
 }
 
 func (c *Client) joinURL(suffix string) (string, error) {
