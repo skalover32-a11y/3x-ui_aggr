@@ -415,11 +415,11 @@ func extractOnlineUsers(listResp map[string]any) []ActiveUser {
 			tag = asString(entry["tag"])
 		}
 		up := asInt64(entry["up"])
-		if up == 0 {
+		if up == nil || *up == 0 {
 			up = asInt64(entry["uplink"])
 		}
 		down := asInt64(entry["down"])
-		if down == 0 {
+		if down == nil || *down == 0 {
 			down = asInt64(entry["downlink"])
 		}
 		lastSeen := parseLastSeen(entry, now)
