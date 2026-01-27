@@ -225,6 +225,25 @@ func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node 
 	}
 	if err == nil {
 		users := extractOnlineUsers(onlineResp)
+		if isOnlineListOnly(onlineResp) {
+			listResp, listErr := client.ListInbounds()
+			if listErr != nil && isAuthError(listErr) {
+				if loginErr := client.Login(); loginErr == nil {
+					p.markLogin(node.ID)
+					listResp, listErr = client.ListInbounds()
+				}
+			}
+			if listErr == nil {
+				if detailed := extractActiveUsers(listResp); len(detailed) > 0 {
+					return ActiveUsersResult{
+						Users:        detailed,
+						Source:       "panel",
+						SourceDetail: "ok",
+						Available:    true,
+					}, nil
+				}
+			}
+		}
 		return ActiveUsersResult{
 			Users:        users,
 			Source:       "panel",
@@ -338,13 +357,17 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 		return nil
 	}
 	now := time.Now()
+	activeWindow := 5 * time.Minute
 	var users []ActiveUser
 	for _, item := range arr {
 		inbound, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		tag := asString(inbound["tag"])
+		tag := strings.TrimSpace(asString(inbound["remark"]))
+		if tag == "" {
+			tag = strings.TrimSpace(asString(inbound["tag"]))
+		}
 		stats, ok := inbound["clientStats"].([]any)
 		if !ok {
 			continue
@@ -354,14 +377,23 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 			if !ok {
 				continue
 			}
+			lastSeenPtr := parseLastSeenPtr(entry)
 			if !isOnline(entry) {
-				continue
+				if lastSeenPtr == nil {
+					continue
+				}
+				if now.Sub(*lastSeenPtr) > activeWindow {
+					continue
+				}
+			}
+			lastSeen := now
+			if lastSeenPtr != nil {
+				lastSeen = *lastSeenPtr
 			}
 			email := asString(entry["email"])
 			if email == "" {
 				continue
 			}
-			lastSeen := parseLastSeen(entry, now)
 			up := asInt64(entry["up"])
 			down := asInt64(entry["down"])
 			user := ActiveUser{
@@ -376,6 +408,48 @@ func extractActiveUsers(listResp map[string]any) []ActiveUser {
 		}
 	}
 	return users
+}
+
+func isOnlineListOnly(listResp map[string]any) bool {
+	obj, ok := listResp["obj"]
+	if !ok {
+		return false
+	}
+	arr, ok := obj.([]any)
+	if !ok {
+		if raw, ok := obj.([]string); ok {
+			return len(raw) > 0
+		}
+		return false
+	}
+	if len(arr) == 0 {
+		return false
+	}
+	for _, item := range arr {
+		if _, ok := item.(string); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func parseLastSeenPtr(entry map[string]any) *time.Time {
+	keys := []string{
+		"last_seen",
+		"lastSeen",
+		"last_online",
+		"lastOnline",
+		"last_online_at",
+		"lastOnlineAt",
+	}
+	for _, key := range keys {
+		if raw, ok := entry[key]; ok {
+			if val := parseTimeValue(raw); val != nil {
+				return val
+			}
+		}
+	}
+	return nil
 }
 
 func extractOnlineUsers(listResp map[string]any) []ActiveUser {

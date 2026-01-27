@@ -2030,6 +2030,16 @@ body {
   gap: 12px;
 }
 
+.dashboard-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 0 12px;
+  margin: -8px 0 20px;
+  background: linear-gradient(180deg, rgba(7, 11, 18, 0.98) 0%, rgba(7, 11, 18, 0.92) 65%, rgba(7, 11, 18, 0) 100%);
+  backdrop-filter: blur(8px);
+}
+
 .mini-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

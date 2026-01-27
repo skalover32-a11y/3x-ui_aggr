@@ -4007,65 +4007,67 @@ function DashboardPage() {
             </div>
           </div>
         </header>
-        <div className="topbar">
-          <div>
-            <div className="topbar-title">{t("Dashboard")}</div>
-            <div className="topbar-sub">{t("Fleet overview")}</div>
+        <div className="dashboard-sticky">
+          <div className="topbar">
+            <div>
+              <div className="topbar-title">{t("Dashboard")}</div>
+              <div className="topbar-sub">{t("Fleet overview")}</div>
+            </div>
+            <div className="topbar-actions">
+              <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
+              <button onClick={() => { loadSummary(); loadUsers(); loadSystemStatus(); }}>{t("Refresh")}</button>
+            </div>
           </div>
-          <div className="topbar-actions">
-            <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
-            <button onClick={() => { loadSummary(); loadUsers(); loadSystemStatus(); }}>{t("Refresh")}</button>
-          </div>
-        </div>
 
-        {error && <div className="error">{error}</div>}
+          {error && <div className="error">{error}</div>}
 
-        <section className="mini-grid">
-          <MiniStatCard
-            label={t("Nodes Online")}
-            value={`${nodesOnline} / ${totalNodes}`}
-            subvalue={t("Fleet availability")}
-            progress={totalNodes > 0 ? nodesOnline / totalNodes : 0}
-            accent="ok"
-          />
-          <MiniStatCard
-            label={t("Agents Active")}
-            value={`${agentsActive} / ${agentsTotal}`}
-            subvalue={t("Agent heartbeat")}
-            progress={agentsTotal > 0 ? agentsActive / agentsTotal : 0}
-            accent="ok"
-          />
-          <MiniStatCard
-            label={t("Panels Available")}
-            value={`${panelsAvailable}`}
-            subvalue={t("Panels healthy")}
-            progress={totalNodes > 0 ? panelsAvailable / totalNodes : 0}
-            accent="ok"
-          />
-          <MiniStatCard
-            label={t("Average Ping")}
-            value={avgPing != null ? `${avgPing.toFixed(0)} ms` : "-"}
-            subvalue={t("Network latency")}
-            progress={avgPing != null ? Math.max(0, 1 - avgPing / 200) : 0}
-          />
-          <MiniStatCard
-            label={t("Active issues")}
-            value={`${activeIssues}`}
-            subvalue={t("Incidents")}
-            progress={activeIssues === 0 ? 1 : Math.max(0, 1 - activeIssues / Math.max(1, totalNodes))}
-            accent={activeIssues === 0 ? "ok" : "warn"}
-            onClick={() => {
-              setProblemsOpen(true);
-              loadProblems();
-            }}
-          />
+          <section className="mini-grid">
             <MiniStatCard
-              label={t("Total Traffic (24h)")}
-              value={traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
-              subvalue={t("Fleet bandwidth")}
-              progress={traffic24h != null ? 0.65 : 0.4}
+              label={t("Nodes Online")}
+              value={`${nodesOnline} / ${totalNodes}`}
+              subvalue={t("Fleet availability")}
+              progress={totalNodes > 0 ? nodesOnline / totalNodes : 0}
+              accent="ok"
             />
-        </section>
+            <MiniStatCard
+              label={t("Agents Active")}
+              value={`${agentsActive} / ${agentsTotal}`}
+              subvalue={t("Agent heartbeat")}
+              progress={agentsTotal > 0 ? agentsActive / agentsTotal : 0}
+              accent="ok"
+            />
+            <MiniStatCard
+              label={t("Panels Available")}
+              value={`${panelsAvailable}`}
+              subvalue={t("Panels healthy")}
+              progress={totalNodes > 0 ? panelsAvailable / totalNodes : 0}
+              accent="ok"
+            />
+            <MiniStatCard
+              label={t("Average Ping")}
+              value={avgPing != null ? `${avgPing.toFixed(0)} ms` : "-"}
+              subvalue={t("Network latency")}
+              progress={avgPing != null ? Math.max(0, 1 - avgPing / 200) : 0}
+            />
+            <MiniStatCard
+              label={t("Active issues")}
+              value={`${activeIssues}`}
+              subvalue={t("Incidents")}
+              progress={activeIssues === 0 ? 1 : Math.max(0, 1 - activeIssues / Math.max(1, totalNodes))}
+              accent={activeIssues === 0 ? "ok" : "warn"}
+              onClick={() => {
+                setProblemsOpen(true);
+                loadProblems();
+              }}
+            />
+              <MiniStatCard
+                label={t("Total Traffic (24h)")}
+                value={traffic24h != null ? formatBytes(traffic24h) : `${formatBps(rxBps)} / ${formatBps(txBps)}`}
+                subvalue={t("Fleet bandwidth")}
+                progress={traffic24h != null ? 0.65 : 0.4}
+              />
+          </section>
+        </div>
 
         <section className="service-card">
           <div>
