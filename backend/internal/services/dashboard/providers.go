@@ -411,6 +411,37 @@ func extractOnlineUsers(listResp map[string]any) []ActiveUser {
 		if !ok {
 			continue
 		}
+		if stats, ok := entry["clientStats"].([]any); ok {
+			tag := strings.TrimSpace(asString(entry["remark"]))
+			if tag == "" {
+				tag = strings.TrimSpace(asString(entry["tag"]))
+			}
+			for _, raw := range stats {
+				stat, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				email := asString(stat["email"])
+				if email == "" {
+					continue
+				}
+				lastSeen := parseTimeValue(stat["lastOnline"])
+				if lastSeen == nil {
+					continue
+				}
+				up := asInt64(stat["up"])
+				down := asInt64(stat["down"])
+				users = append(users, ActiveUser{
+					InboundTag:     nilifyString(tag),
+					ClientEmail:    email,
+					IP:             asString(stat["ip"]),
+					TotalUpBytes:   up,
+					TotalDownBytes: down,
+					LastSeen:       *lastSeen,
+				})
+			}
+			continue
+		}
 		email := asString(entry["email"])
 		if email == "" {
 			email = asString(entry["client"])
