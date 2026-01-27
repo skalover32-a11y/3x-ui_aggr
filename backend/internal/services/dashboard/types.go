@@ -26,14 +26,14 @@ type NodeMetrics struct {
 }
 
 type ActiveUser struct {
-	InboundTag     *string
-	ClientEmail    string
-	IP             string
-	RxBps          *int64
-	TxBps          *int64
-	TotalUpBytes   *int64
-	TotalDownBytes *int64
-	LastSeen       time.Time
+	InboundTag     *string   `json:"inbound_tag"`
+	ClientEmail    string    `json:"client_email"`
+	IP             string    `json:"ip"`
+	RxBps          *int64    `json:"rx_bps"`
+	TxBps          *int64    `json:"tx_bps"`
+	TotalUpBytes   *int64    `json:"total_up_bytes"`
+	TotalDownBytes *int64    `json:"total_down_bytes"`
+	LastSeen       time.Time `json:"last_seen"`
 }
 
 type ActiveUsersResult struct {

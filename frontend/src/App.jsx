@@ -3672,6 +3672,34 @@ function DashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
+  function dedupeActiveUsers(list) {
+    const deduped = new Map();
+    list.forEach((row) => {
+      if (!row) return;
+      const email = (row.client_email || "").trim().toLowerCase();
+      if (!email) return;
+      const prev = deduped.get(email);
+      if (!prev) {
+        deduped.set(email, row);
+        return;
+      }
+      const prevTotal = (prev.total_up_bytes || 0) + (prev.total_down_bytes || 0);
+      const rowTotal = (row.total_up_bytes || 0) + (row.total_down_bytes || 0);
+      if (rowTotal > prevTotal) {
+        deduped.set(email, row);
+        return;
+      }
+      const prevSeen = prev.last_seen ? new Date(prev.last_seen).getTime() : 0;
+      const rowSeen = row.last_seen ? new Date(row.last_seen).getTime() : 0;
+      if (rowSeen > prevSeen) {
+        deduped.set(email, row);
+      }
+    });
+    return Array.from(deduped.values()).sort(
+      (a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
+    );
+  }
+
   async function loadSummary() {
     setLoading(true);
     setError("");
@@ -3792,15 +3820,26 @@ function DashboardPage() {
             return next;
           });
           setActiveUsers((prev) => {
-            const filtered = prev.filter((u) => u.node_id !== node_id);
+            const filtered = prev.filter((u) => u.node_id !== node_id && u.client_email);
             const mapped = Array.isArray(users)
-              ? users.map((u) => ({
-                  ...u,
-                  node_id,
-                  node_name: node_name || u.node_name,
-                }))
+              ? users.map((u) => {
+                  if (typeof u === "string") {
+                    return { client_email: u, node_id, node_name, last_seen: new Date().toISOString() };
+                  }
+                  const clientEmail = u.client_email || u.ClientEmail || "";
+                  const inboundTag = u.inbound_tag ?? u.InboundTag ?? null;
+                  const ip = u.ip || u.IP || "";
+                  return {
+                    ...u,
+                    client_email: clientEmail,
+                    inbound_tag: inboundTag,
+                    ip,
+                    node_id,
+                    node_name: node_name || u.node_name,
+                  };
+                })
               : [];
-            return [...filtered, ...mapped].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+            return dedupeActiveUsers([...filtered, ...mapped]);
           });
         }
       };
