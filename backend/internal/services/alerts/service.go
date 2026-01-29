@@ -757,15 +757,8 @@ func (s *Service) sendRecovery(ctx context.Context, settings *Settings, alert Al
 	for chatID, msgID := range messageIDs {
 		if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
 			log.Printf("telegram recovery edit failed chat_id=%s error=%v", chatID, err)
-			newID, sendErr := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
-			if sendErr != nil {
-				log.Printf("telegram recovery resend failed chat_id=%s error=%v", chatID, sendErr)
-				continue
-			}
-			messageIDs[chatID] = newID
 		}
 	}
-	s.updateState(ctx, alert, state, "ok", time.Now(), true, messageIDs)
 }
 
 func messageIDsFromJSON(raw datatypes.JSON) map[string]int {
