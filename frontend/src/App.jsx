@@ -4281,9 +4281,13 @@ function DashboardPage() {
                   const nodeName = nodeNameById[rowNode] || rowNode || "-";
                   const status = row.last_status || row.status || "fail";
                   const message = formatProblemMessage(row, t);
+                  const occurrences = row.occurrences || row.count || 0;
                   return (
                     <div className="table-row" key={row.id || row.fingerprint}>
-                      <div data-label={t("Node")}>{nodeName}</div>
+                      <div data-label={t("Node")}>
+                        <span>{nodeName}</span>
+                        {occurrences > 1 && <span className="badge problem-count">×{occurrences}</span>}
+                      </div>
                       <div data-label={t("Type")}>{row.alert_type || row.type || row.check_type || "-"}</div>
                       <div data-label={t("Status")}>{status}</div>
                       <div data-label={t("Last seen")}>{formatTS(row.last_seen || row.updated_at || row.created_at)}</div>
