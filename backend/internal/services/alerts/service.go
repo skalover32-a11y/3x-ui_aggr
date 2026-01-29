@@ -483,13 +483,6 @@ func (s *Service) AnswerCallback(ctx context.Context, token, callbackID, text st
 	return s.client.AnswerCallback(ctx, token, callbackID, text)
 }
 
-func (s *Service) SetWebhook(ctx context.Context, token, url string) error {
-	if s == nil || s.client == nil {
-		return nil
-	}
-	return s.client.SetWebhook(ctx, token, url)
-}
-
 func (s *Service) setMute(fingerprint string, dur time.Duration) {
 	if strings.TrimSpace(fingerprint) == "" {
 		return
