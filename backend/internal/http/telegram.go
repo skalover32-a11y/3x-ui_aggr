@@ -140,6 +140,24 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
 		return
 	}
+	if h.Alerts != nil && strings.TrimSpace(h.PublicBaseURL) != "" {
+		webhookURL := strings.TrimRight(h.PublicBaseURL, "/") + "/api/telegram/webhook"
+		tokenToUse := strings.TrimSpace(botToken)
+		if tokenToUse == "" {
+			tokenToUse = strings.TrimSpace(botTokenEnc)
+			if tokenToUse != "" {
+				dec, err := h.Encryptor.DecryptString(tokenToUse)
+				if err == nil {
+					tokenToUse = strings.TrimSpace(dec)
+				}
+			}
+		}
+		if tokenToUse != "" {
+			if err := h.Alerts.SetWebhook(c.Request.Context(), tokenToUse, webhookURL); err != nil {
+				c.Error(err)
+			}
+		}
+	}
 	h.auditEvent(c, nil, "TELEGRAM_SETTINGS_UPDATE", "ok", nil, gin.H{
 		"admin_chat_id":    adminChatID,
 		"alert_connection": req.AlertConnection,

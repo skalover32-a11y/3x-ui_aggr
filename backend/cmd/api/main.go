@@ -74,6 +74,7 @@ func main() {
 		Encryptor:           enc,
 		Audit:               audit.New(dbConn),
 		Alerts:              alertsSvc,
+		PublicBaseURL:       cfg.PublicBaseURL,
 		AdminUser:           cfg.AdminUser,
 		AdminPass:           cfg.AdminPass,
 		JWTSecret:           []byte(cfg.JWTSecret),

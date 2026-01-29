@@ -29,6 +29,7 @@ type Handler struct {
 	Audit               *audit.Service
 	Alerts              *alerts.Service
 	Checks              *checks.Worker
+	PublicBaseURL       string
 	AdminUser           string
 	AdminPass           string
 	JWTSecret           []byte

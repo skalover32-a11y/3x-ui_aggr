@@ -50,6 +50,10 @@ type telegramCallbackAnswer struct {
 	Text            string `json:"text,omitempty"`
 }
 
+type telegramWebhookRequest struct {
+	URL string `json:"url"`
+}
+
 func newTelegramClient() *telegramClient {
 	return &telegramClient{
 		http: &http.Client{Timeout: 8 * time.Second},
@@ -102,6 +106,18 @@ func (c *telegramClient) AnswerCallback(ctx context.Context, token, callbackID, 
 	}
 	if !resp.OK {
 		return fmt.Errorf("telegram callback failed: %s", resp.Description)
+	}
+	return nil
+}
+
+func (c *telegramClient) SetWebhook(ctx context.Context, token, url string) error {
+	reqBody := telegramWebhookRequest{URL: url}
+	var resp telegramBasicResponse
+	if err := c.do(ctx, token, "setWebhook", reqBody, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram setWebhook failed: %s", resp.Description)
 	}
 	return nil
 }
