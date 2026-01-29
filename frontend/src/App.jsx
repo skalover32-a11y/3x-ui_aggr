@@ -4286,7 +4286,7 @@ function DashboardPage() {
                     <div className="table-row" key={row.id || row.fingerprint}>
                       <div data-label={t("Node")}>
                         <span>{nodeName}</span>
-                        {occurrences > 1 && <span className="badge problem-count">×{occurrences}</span>}
+                        {occurrences > 0 && <span className="badge problem-count">×{occurrences}</span>}
                       </div>
                       <div data-label={t("Type")}>{row.alert_type || row.type || row.check_type || "-"}</div>
                       <div data-label={t("Status")}>{status}</div>
