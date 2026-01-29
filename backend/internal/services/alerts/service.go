@@ -365,27 +365,18 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		return
 	}
 
-	needSend := true
 	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 		alert.Occurrences = state.Occurrences
-		messageIDs := messageIDsFromJSON(state.LastMessageIDs)
-		if len(messageIDs) > 0 {
-			s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
-			return
-		}
-		needSend = true
-	} else if state != nil {
+		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
+		return
+	}
+	if state != nil {
 		alert.Occurrences = state.Occurrences + 1
 	} else {
 		alert.Occurrences = 1
 	}
 
 	if s.isMuted(ctx, alert.Fingerprint) {
-		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
-		return
-	}
-
-	if !needSend {
 		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
 		return
 	}
