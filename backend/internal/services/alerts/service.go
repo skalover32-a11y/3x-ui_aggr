@@ -104,9 +104,9 @@ func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node
 		return
 	}
 	now := time.Now()
-	panelTarget := panelTargetType(panelCode)
-	panelAlert := Alert{
-		Type:       AlertConnection,
+	tlsCode := tlsCodeFromPanelCode(panelCode)
+	tlsAlert := Alert{
+		Type:       AlertTLS,
 		NodeID:     node.ID,
 		NodeName:   nodeLabel(node),
 		TS:         now,
@@ -115,12 +115,33 @@ func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node
 		SSHOK:      sshOK,
 		PanelURL:   node.BaseURL,
 		IP:         node.SSHHost,
-		TargetType: panelTarget,
+		TargetType: "tls",
+		CheckType:  tlsCode,
 	}
 	if panelErr != nil {
-		panelAlert.Error = strings.TrimSpace(*panelErr)
+		tlsAlert.Error = strings.TrimSpace(*panelErr)
 	}
-	s.maybeSendAlert(ctx, settings, !panelOK, panelAlert)
+	s.maybeSendAlert(ctx, settings, tlsCode != "" && !panelOK, tlsAlert)
+
+	panelTarget := panelTargetType(panelCode)
+	if panelTarget != "tls" {
+		panelAlert := Alert{
+			Type:       AlertConnection,
+			NodeID:     node.ID,
+			NodeName:   nodeLabel(node),
+			TS:         now,
+			Severity:   SeverityCritical,
+			PanelOK:    panelOK,
+			SSHOK:      sshOK,
+			PanelURL:   node.BaseURL,
+			IP:         node.SSHHost,
+			TargetType: panelTarget,
+		}
+		if panelErr != nil {
+			panelAlert.Error = strings.TrimSpace(*panelErr)
+		}
+		s.maybeSendAlert(ctx, settings, !panelOK, panelAlert)
+	}
 
 	sshAlert := Alert{
 		Type:       AlertConnection,
@@ -551,6 +572,18 @@ func panelTargetType(code *string) string {
 		return "http"
 	default:
 		return "panel"
+	}
+}
+
+func tlsCodeFromPanelCode(code *string) string {
+	if code == nil {
+		return ""
+	}
+	switch strings.TrimSpace(*code) {
+	case "CERT_EXPIRED", "CERT_NOT_YET_VALID", "UNKNOWN_CA", "HOSTNAME_MISMATCH", "HANDSHAKE":
+		return strings.TrimSpace(*code)
+	default:
+		return ""
 	}
 }
 func (s *Service) isMuted(ctx context.Context, fingerprint string) bool {

@@ -79,6 +79,8 @@ func renderTitle(alert Alert) string {
 		return fmt.Sprintf("<b>?? Low disk space - %s</b>", title)
 	case AlertConnection:
 		return fmt.Sprintf("<b>?? Connection issue - %s</b>", title)
+	case AlertTLS:
+		return fmt.Sprintf("<b>?? TLS issue - %s</b>", title)
 	case AlertGeneric:
 		if alert.TargetType == "bot" {
 			if strings.TrimSpace(alert.BotKind) != "" {
@@ -105,6 +107,12 @@ func renderPrimary(alert Alert) string {
 		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) | %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
 	case AlertConnection:
 		return fmt.Sprintf("PANEL: %s | SSH: %s | %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
+	case AlertTLS:
+		reason := tlsLabel(alert.CheckType)
+		if reason == "" {
+			reason = "TLS error"
+		}
+		return fmt.Sprintf("%s | %s", escapeHTML(reason), ts)
 	case AlertGeneric:
 		label := strings.TrimSpace(alert.CheckType)
 		if label == "" {
@@ -288,6 +296,8 @@ func recommendationLine(alert Alert) string {
 		return "Recommendation: free disk space or grow the volume."
 	case AlertConnection:
 		return "Recommendation: verify panel URL and network connectivity."
+	case AlertTLS:
+		return "Recommendation: renew TLS certificate or disable TLS verification if appropriate."
 	case AlertGeneric:
 		if alert.TargetType == "bot" {
 			return "Recommendation: inspect bot process and check configuration."
@@ -295,6 +305,23 @@ func recommendationLine(alert Alert) string {
 		return "Recommendation: inspect service health and check configuration."
 	default:
 		return "Recommendation: inspect logs for details."
+	}
+}
+
+func tlsLabel(code string) string {
+	switch strings.TrimSpace(code) {
+	case "CERT_EXPIRED":
+		return "TLS certificate expired"
+	case "CERT_NOT_YET_VALID":
+		return "TLS certificate not yet valid"
+	case "UNKNOWN_CA":
+		return "TLS unknown CA"
+	case "HOSTNAME_MISMATCH":
+		return "TLS hostname mismatch"
+	case "HANDSHAKE":
+		return "TLS handshake failed"
+	default:
+		return ""
 	}
 }
 func formatTime(ts time.Time) string {
@@ -345,6 +372,8 @@ func fingerprintFor(alert Alert) string {
 			component = "connection"
 		}
 		return fmt.Sprintf("connection|%s|%s", nodeKey, component)
+	case AlertTLS:
+		return fmt.Sprintf("tls|%s", nodeKey)
 	case AlertCPU:
 		return fmt.Sprintf("cpu|%s|load1>=%.2f", nodeKey, alert.Metrics.Threshold)
 	case AlertMemory:

@@ -223,6 +223,24 @@ function formatProblemMessage(problem, t) {
   if (!problem) return "-";
   const direct = problem.message || problem.error || problem.details;
   if (direct) return direct;
+  const alertType = String(problem.alert_type || problem.type || "").toLowerCase();
+  if (alertType === "tls") {
+    const code = String(problem.check_type || "").trim();
+    switch (code) {
+      case "CERT_EXPIRED":
+        return t("TLS cert expired");
+      case "CERT_NOT_YET_VALID":
+        return t("TLS cert not yet valid");
+      case "UNKNOWN_CA":
+        return t("TLS unknown CA");
+      case "HOSTNAME_MISMATCH":
+        return t("TLS hostname mismatch");
+      case "HANDSHAKE":
+        return t("TLS handshake failed");
+      default:
+        return t("TLS check failed");
+    }
+  }
   const fingerprint = problem.fingerprint || "";
   if (!fingerprint) return "-";
   const parts = fingerprint.split("|");

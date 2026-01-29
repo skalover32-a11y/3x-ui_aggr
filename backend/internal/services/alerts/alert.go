@@ -13,6 +13,7 @@ const (
 	AlertMemory     AlertType = "memory"
 	AlertDisk       AlertType = "disk"
 	AlertConnection AlertType = "connection"
+	AlertTLS        AlertType = "tls"
 	AlertGeneric    AlertType = "generic"
 )
 
