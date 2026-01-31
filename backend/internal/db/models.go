@@ -218,6 +218,18 @@ type TelegramSettings struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+type FSAuditLog struct {
+	ID     uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	TS     time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"ts"`
+	UserID *uuid.UUID     `gorm:"type:uuid" json:"user_id"`
+	Actor  string         `gorm:"type:text;not null" json:"actor"`
+	NodeID uuid.UUID      `gorm:"type:uuid;not null" json:"node_id"`
+	Op     string         `gorm:"type:text;not null" json:"op"`
+	Path   string         `gorm:"type:text;not null" json:"path"`
+	Extra  datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"extra"`
+	OK     bool           `gorm:"not null;default:true" json:"ok"`
+}
+
 type User struct {
 	ID           uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	Username     string     `gorm:"type:text;not null" json:"username"`

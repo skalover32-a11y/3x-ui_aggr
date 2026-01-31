@@ -1106,6 +1106,19 @@ button.ghost:hover {
   overflow: auto;
 }
 
+
+.files-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.tree-divider {
+  height: 1px;
+  background: #1f2937;
+  margin: 8px 0 12px;
+}
 .tree-node {
   display: flex;
   flex-direction: column;

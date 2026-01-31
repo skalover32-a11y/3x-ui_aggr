@@ -42,6 +42,8 @@ type Config struct {
 	AdminerPort       int      `yaml:"adminer_port"`
 	SqlitePort        int      `yaml:"sqlite_port"`
 	SqliteRoots       []string `yaml:"sqlite_roots"`
+	FSMaxTextBytes    int64    `yaml:"fs_max_text_bytes"`
+	FSMaxUploadBytes  int64    `yaml:"fs_max_upload_bytes"`
 }
 
 type state struct {
@@ -97,6 +99,15 @@ func main() {
 	mux.HandleFunc("/apps/db/adminer/start", st.withMiddleware(st.startAdminerHandler))
 	mux.HandleFunc("/apps/db/sqlite/ui/", st.withMiddleware(st.proxySqliteUI))
 	mux.HandleFunc("/apps/db/adminer/ui/", st.withMiddleware(st.proxyAdminerUI))
+	mux.HandleFunc("/fs/list", st.withMiddleware(st.fsListHandler))
+	mux.HandleFunc("/fs/stat", st.withMiddleware(st.fsStatHandler))
+	mux.HandleFunc("/fs/read", st.withMiddleware(st.fsReadHandler))
+	mux.HandleFunc("/fs/write", st.withMiddleware(st.fsWriteHandler))
+	mux.HandleFunc("/fs/mkdir", st.withMiddleware(st.fsMkdirHandler))
+	mux.HandleFunc("/fs/rename", st.withMiddleware(st.fsRenameHandler))
+	mux.HandleFunc("/fs/delete", st.withMiddleware(st.fsDeleteHandler))
+	mux.HandleFunc("/fs/upload", st.withMiddleware(st.fsUploadHandler))
+	mux.HandleFunc("/fs/download", st.withMiddleware(st.fsDownloadHandler))
 
 	addr := cfg.Listen
 	if addr == "" {
@@ -131,6 +142,8 @@ func loadConfig(override string) (Config, error) {
 		AdminerPort:       18081,
 		SqlitePort:        18082,
 		SqliteRoots:       []string{"/opt", "/var/lib"},
+		FSMaxTextBytes:    parseInt64Env("NODE_AGENT_FS_MAX_TEXT_BYTES", 2*1024*1024),
+		FSMaxUploadBytes:  parseInt64Env("NODE_AGENT_FS_MAX_UPLOAD_BYTES", 50*1024*1024),
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -249,6 +262,10 @@ func (s *state) timeoutForPath(path string) time.Duration {
 		return 3 * time.Minute
 	case strings.HasPrefix(path, "/apps/db/adminer/start"):
 		return 2 * time.Minute
+	case strings.HasPrefix(path, "/fs/upload"):
+		return 5 * time.Minute
+	case strings.HasPrefix(path, "/fs/download"):
+		return 5 * time.Minute
 	default:
 		return 8 * time.Second
 	}
@@ -256,6 +273,18 @@ func (s *state) timeoutForPath(path string) time.Duration {
 
 func newRequestID() string {
 	return fmt.Sprintf("%d-%04x", time.Now().UnixNano(), rand.Intn(65536))
+}
+
+func parseInt64Env(key string, fallback int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return val
 }
 
 func (s *state) allowIP(remote string) bool {

@@ -390,6 +390,12 @@ const STRINGS = {
     "New folder": "New folder",
     "Folder name": "Folder name",
     "Root": "Root",
+    "Quick roots": "Quick roots",
+    "File too large to preview": "File too large to preview",
+    "File is not text": "File is not text",
+    "File saved": "File saved",
+    "Save failed": "Save failed",
+    "Delete folder {name}? This cannot be undone.": "Delete folder {name}? This cannot be undone.",
     "Folder": "Folder",
     "Actions": "Actions",
     "Download": "Download",
@@ -838,6 +844,12 @@ const STRINGS = {
     "New folder": "Новая папка",
     "Folder name": "Имя папки",
     "Root": "Корень",
+    "Quick roots": "Быстрые корни",
+    "File too large to preview": "Файл слишком большой для просмотра",
+    "File is not text": "Файл не является текстовым",
+    "File saved": "Файл сохранён",
+    "Save failed": "Не удалось сохранить",
+    "Delete folder {name}? This cannot be undone.": "Удалить папку {name}? Это действие необратимо.",
     "Folder": "Папка",
     "Actions": "Действия",
     "Download": "Скачать",
@@ -1291,7 +1303,14 @@ const STRINGS = {
     "subId/tgId are kept if present": "در صورت وجود subId/tgId حفظ می‌شود",
     "Reality Xver": "Reality Xver",
     "Private key": "کلید خصوصی",
-    "Dest Override": "Dest Override"
+    "Dest Override": "Dest Override",
+
+    "Quick roots": "ریشه‌های سریع",
+    "File too large to preview": "فایل برای پیش‌نمایش خیلی بزرگ است",
+    "File is not text": "فایل متنی نیست",
+    "File saved": "فایل ذخیره شد",
+    "Save failed": "ذخیره ناموفق بود",
+    "Delete folder {name}? This cannot be undone.": "پوشه {name} حذف شود؟ این عملیات قابل بازگشت نیست."
   },
 };
 

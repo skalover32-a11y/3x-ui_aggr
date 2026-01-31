@@ -4381,9 +4381,11 @@ function FilesPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
   const [tree, setTree] = useState({});
-  const [preview, setPreview] = useState({ open: false, entry: null, content: "", imageUrl: "", note: "" });
+  const [preview, setPreview] = useState({ open: false, entry: null, content: "", imageUrl: "", note: "", editable: false });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const role = getRole();
+  const canWrite = role === "admin";
 
   useEffect(() => {
     let active = true;
@@ -4414,13 +4416,17 @@ function FilesPage() {
       setEntries([]);
       setTree({});
       try {
-        const data = await request("GET", `/nodes/${nodeId}/files/roots`);
-        if (!active) return;
-        const list = data?.roots || [];
-        setRoots(list);
-        if (list.length > 0) {
-          setCurrentPath(list[0].path);
+        let list = [];
+        try {
+          const data = await request("GET", `/nodes/${nodeId}/files/roots`);
+          list = data?.roots || [];
+        } catch {
+          list = [];
         }
+        if (!active) return;
+        const rootList = [{ path: "/", label: "/" }, ...list].filter((item, idx, arr) => arr.findIndex((r) => r.path === item.path) === idx);
+        setRoots(rootList);
+        setCurrentPath("/");
       } catch (err) {
         setError(err.message);
       }
@@ -4440,8 +4446,18 @@ function FilesPage() {
     setBusy(true);
     setError("");
     try {
-      const data = await request("GET", `/nodes/${nodeId}/files/list?path=${encodeURIComponent(pathValue)}`);
-      setEntries(data);
+      const data = await request("GET", `/nodes/${nodeId}/fs/list?path=${encodeURIComponent(pathValue)}`);
+      const mapped = (data || []).map((item) => ({
+        name: item.name,
+        path: item.path,
+        is_dir: item.type === "dir",
+        size: item.size,
+        modified: item.modified,
+        type: item.type,
+        mime_guess: "",
+        mode: item.mode,
+      }));
+      setEntries(mapped);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -4452,8 +4468,8 @@ function FilesPage() {
   async function loadTreeChildren(pathValue) {
     setTree((prev) => ({ ...prev, [pathValue]: { ...(prev[pathValue] || {}), loading: true } }));
     try {
-      const data = await request("GET", `/nodes/${nodeId}/files/list?path=${encodeURIComponent(pathValue)}`);
-      const children = (data || []).filter((item) => item.is_dir);
+      const data = await request("GET", `/nodes/${nodeId}/fs/list?path=${encodeURIComponent(pathValue)}`);
+      const children = (data || []).filter((item) => item.type === "dir").map((item) => ({ name: item.name, path: item.path }));
       setTree((prev) => ({
         ...prev,
         [pathValue]: { children, expanded: true, loading: false },
@@ -4523,7 +4539,7 @@ function FilesPage() {
 
   async function downloadEntry(entry) {
     const token = getToken();
-    const res = await fetch(`${API_BASE}/nodes/${nodeId}/files/download?path=${encodeURIComponent(entry.path)}`, {
+    const res = await fetch(`${API_BASE}/nodes/${nodeId}/fs/download?path=${encodeURIComponent(entry.path)}`, {
       method: "GET",
       headers: {
         Authorization: token ? `Bearer ${token}` : "",
@@ -4545,8 +4561,14 @@ function FilesPage() {
   }
 
   async function deleteEntry(entry) {
-    if (!confirm(t("Delete file {name}?", { name: entry.name }))) return;
-    await request("POST", `/nodes/${nodeId}/files/delete`, { path: entry.path });
+    if (entry.is_dir) {
+      const confirmRecursive = confirm(t("Delete folder {name}? This cannot be undone.", { name: entry.name }));
+      if (!confirmRecursive) return;
+      await request("POST", `/nodes/${nodeId}/fs/delete`, { path: entry.path, recursive: true });
+    } else {
+      if (!confirm(t("Delete file {name}?", { name: entry.name }))) return;
+      await request("POST", `/nodes/${nodeId}/fs/delete`, { path: entry.path });
+    }
     await loadList(currentPath);
   }
 
@@ -4555,14 +4577,14 @@ function FilesPage() {
     if (!next || next === entry.name) return;
     const parent = entry.path.split("/").slice(0, -1).join("/") || "/";
     const newPath = joinPath(parent, next);
-    await request("POST", `/nodes/${nodeId}/files/rename`, { old_path: entry.path, new_path: newPath });
+    await request("POST", `/nodes/${nodeId}/fs/rename`, { from: entry.path, to: newPath });
     await loadList(currentPath);
   }
 
   async function createFolder() {
     const name = prompt(t("Folder name"));
     if (!name) return;
-    await request("POST", `/nodes/${nodeId}/files/mkdir`, { path: joinPath(currentPath, name) });
+    await request("POST", `/nodes/${nodeId}/fs/mkdir`, { path: joinPath(currentPath, name) });
     await loadList(currentPath);
   }
 
@@ -4574,7 +4596,7 @@ function FilesPage() {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${API_BASE}/nodes/${nodeId}/files/upload?path=${encodeURIComponent(currentPath)}`, {
+      const res = await fetch(`${API_BASE}/nodes/${nodeId}/fs/upload?path=${encodeURIComponent(currentPath)}`, {
         method: "POST",
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
@@ -4599,53 +4621,33 @@ function FilesPage() {
   }
 
   async function openPreview(entry) {
-    const name = entry.name.toLowerCase();
-    const ext = name.includes(".") ? name.split(".").pop() : "";
-    const textExts = ["log", "txt", "json", "yaml", "yml"];
-    const imgExts = ["png", "jpg", "jpeg", "webp", "gif"];
-    setPreview({ open: true, entry, content: "", imageUrl: "", note: "" });
-    if (imgExts.includes(ext)) {
-      try {
-        const token = getToken();
-        const res = await fetch(`${API_BASE}/nodes/${nodeId}/files/download?path=${encodeURIComponent(entry.path)}`, {
-          method: "GET",
-          headers: {
-            Authorization: token ? `Bearer ${token}` : "",
-            "X-Requested-With": "XMLHttpRequest",
-          },
-          credentials: "include",
-        });
-        if (!res.ok) {
-          throw new Error(`Preview failed: ${res.status}`);
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        setPreview({ open: true, entry, content: "", imageUrl: url, note: "" });
-      } catch (err) {
-        setPreview({ open: true, entry, content: "", imageUrl: "", note: err.message });
+    setPreview({ open: true, entry, content: "", imageUrl: "", note: "", editable: false });
+    try {
+      const data = await request("GET", `/nodes/${nodeId}/fs/read?path=${encodeURIComponent(entry.path)}`);
+      setPreview({ open: true, entry, content: data.content || "", imageUrl: "", note: "", editable: true });
+    } catch (err) {
+      const code = err?.data?.error?.code;
+      if (code === "too_large") {
+        setPreview({ open: true, entry, content: "", imageUrl: "", note: t("File too large to preview"), editable: false });
+        return;
       }
-      return;
-    }
-    if (textExts.includes(ext)) {
-      try {
-        const data = await request("GET", `/nodes/${nodeId}/files/read?path=${encodeURIComponent(entry.path)}`);
-        setPreview({ open: true, entry, content: data.data || "", imageUrl: "", note: "" });
-      } catch (err) {
-        const code = err?.data?.error?.code;
-        if (code === "FILE_TOO_LARGE") {
-          try {
-            const data = await request("GET", `/nodes/${nodeId}/files/tail?path=${encodeURIComponent(entry.path)}`);
-            setPreview({ open: true, entry, content: data.data || "", imageUrl: "", note: t("Showing tail") });
-          } catch (tailErr) {
-            setPreview({ open: true, entry, content: "", imageUrl: "", note: tailErr.message });
-          }
-          return;
-        }
-        setPreview({ open: true, entry, content: "", imageUrl: "", note: err.message });
+      if (code === "not_text") {
+        setPreview({ open: true, entry, content: "", imageUrl: "", note: t("File is not text"), editable: false });
+        return;
       }
-      return;
+      setPreview({ open: true, entry, content: "", imageUrl: "", note: err.message, editable: false });
     }
-    setPreview({ open: true, entry, content: "", imageUrl: "", note: t("No preview available") });
+  }
+
+  async function savePreview() {
+    if (!preview.entry || !canWrite) return;
+    try {
+      await request("PUT", `/nodes/${nodeId}/fs/write?path=${encodeURIComponent(preview.entry.path)}`, { content: preview.content });
+      setPreview((prev) => ({ ...prev, note: t("File saved") }));
+      await loadList(currentPath);
+    } catch (err) {
+      setPreview((prev) => ({ ...prev, note: err.message || t("Save failed") }));
+    }
   }
 
   function renderTreeNode(rootPath, label) {
@@ -4693,14 +4695,6 @@ function FilesPage() {
               ))}
             </select>
           </label>
-          <label>
-            {t("Root")}
-            <select value={currentPath} onChange={(e) => setCurrentPath(e.target.value)}>
-              {roots.map((root) => (
-                <option key={root.path} value={root.path}>{root.label}</option>
-              ))}
-            </select>
-          </label>
         </div>
         <div className="files-actions">
           <input
@@ -4709,8 +4703,8 @@ function FilesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button type="button" className="secondary" onClick={createFolder}>{t("New folder")}</button>
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}>{uploading ? t("Loading...") : t("Upload")}</button>
+          <button type="button" className="secondary" onClick={createFolder} disabled={!canWrite}>{t("New folder")}</button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || !canWrite}>{uploading ? t("Loading...") : t("Upload")}</button>
           <input
             ref={fileInputRef}
             type="file"
@@ -4733,7 +4727,16 @@ function FilesPage() {
 
       <div className="files-layout">
         <aside className="files-sidebar">
-          {roots.map((root) => renderTreeNode(root.path, root.label))}
+          <div className="files-shortcuts">
+            <div className="muted small">{t("Quick roots")}</div>
+            {roots.map((root) => (
+              <button key={root.path} type="button" className={`tree-item ${currentPath === root.path ? "active" : ""}`} onClick={() => setCurrentPath(root.path)}>
+                {root.label}
+              </button>
+            ))}
+          </div>
+          <div className="tree-divider" />
+          {renderTreeNode("/", "/")}
         </aside>
         <section className="files-list">
           <div className="table files">
@@ -4756,8 +4759,8 @@ function FilesPage() {
                   {!entry.is_dir && (
                     <button type="button" onClick={() => downloadEntry(entry)}>{t("Download")}</button>
                   )}
-                  <button type="button" className="secondary" onClick={() => renameEntry(entry)}>{t("Rename")}</button>
-                  <button type="button" className="danger" onClick={() => deleteEntry(entry)}>{t("Delete")}</button>
+                  <button type="button" className="secondary" onClick={() => renameEntry(entry)} disabled={!canWrite}>{t("Rename")}</button>
+                  <button type="button" className="danger" onClick={() => deleteEntry(entry)} disabled={!canWrite}>{t("Delete")}</button>
                 </div>
               </div>
             ))}
@@ -4784,19 +4787,35 @@ function FilesPage() {
                   if (preview.imageUrl) {
                     URL.revokeObjectURL(preview.imageUrl);
                   }
-                  setPreview({ open: false, entry: null, content: "", imageUrl: "", note: "" });
+                  setPreview({ open: false, entry: null, content: "", imageUrl: "", note: "", editable: false });
                 }}>
                   {t("Close")}
                 </button>
               </div>
               {preview.note && <div className="muted small">{preview.note}</div>}
               {preview.imageUrl && <img className="file-preview-image" src={preview.imageUrl} alt="preview" />}
-              {preview.content && (
+              {preview.editable && (
+                <textarea
+                  rows={20}
+                  value={preview.content}
+                  onChange={(e) => setPreview((prev) => ({ ...prev, content: e.target.value }))}
+                  readOnly={!canWrite}
+                />
+              )}
+              {!preview.editable && preview.content && (
                 <textarea readOnly rows={20} value={preview.content} />
               )}
               {!preview.imageUrl && !preview.content && (
                 <div className="muted small">{t("No preview available")}</div>
               )}
+              <div className="actions">
+                {preview.entry && (
+                  <button type="button" onClick={() => downloadEntry(preview.entry)}>{t("Download")}</button>
+                )}
+                {preview.editable && canWrite && (
+                  <button type="button" onClick={savePreview}>{t("Save")}</button>
+                )}
+              </div>
             </div>
           </div>
         )}
