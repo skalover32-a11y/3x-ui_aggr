@@ -258,7 +258,11 @@ function formatProblemMessage(problem, t) {
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const infraItems = [{ key: "panels", label: t("3x-ui Panels"), path: "/panels" }];
+  const infraItems = [{
+    key: "panels",
+    label: t("3x-ui Panels"),
+    path: isGlobalAdmin ? "/nodes?view=panel" : "/panels",
+  }];
   if (isGlobalAdmin) {
     infraItems.unshift({ key: "nodes", label: t("Nodes"), path: "/nodes" });
     infraItems.push(
@@ -807,6 +811,12 @@ function PanelsSelfServicePage() {
     return now - ts < 2 * 60 * 1000;
   };
   const noOrg = !orgId;
+
+  useEffect(() => {
+    if (isGlobalAdmin) {
+      navigate("/nodes?view=panel", { replace: true });
+    }
+  }, [isGlobalAdmin, navigate]);
 
   async function loadNodes() {
     if (!orgId) return;
