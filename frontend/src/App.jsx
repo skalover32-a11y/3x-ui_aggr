@@ -2735,6 +2735,40 @@ function NodesPage() {
     }
   }
 
+  async function createInvite() {
+    setInvitesBusy(true);
+    setInvitesError("");
+    try {
+      const payload = {
+        expires_in_hours: Number(inviteDraft.expires_in_hours) || 168,
+        org_name: inviteDraft.org_name ? String(inviteDraft.org_name).trim() : "",
+        role: inviteDraft.role || "owner",
+      };
+      const created = await request("POST", "/admin/invites", payload);
+      if (created?.code) {
+        await copyText(created.code);
+      }
+      await loadInvites();
+    } catch (err) {
+      setInvitesError(err.message);
+    } finally {
+      setInvitesBusy(false);
+    }
+  }
+
+  async function revokeInvite(inviteId) {
+    setInvitesBusy(true);
+    setInvitesError("");
+    try {
+      await request("POST", `/admin/invites/${inviteId}/revoke`, {});
+      await loadInvites();
+    } catch (err) {
+      setInvitesError(err.message);
+    } finally {
+      setInvitesBusy(false);
+    }
+  }
+
   async function openTOTP() {
     setTotpOpen(true);
     setTotpSetup(null);
@@ -4192,40 +4226,6 @@ function DashboardPage() {
     return Array.from(deduped.values()).sort(
       (a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
     );
-  }
-
-  async function createInvite() {
-    setInvitesBusy(true);
-    setInvitesError("");
-    try {
-      const payload = {
-        expires_in_hours: Number(inviteDraft.expires_in_hours) || 168,
-        org_name: inviteDraft.org_name ? String(inviteDraft.org_name).trim() : "",
-        role: inviteDraft.role || "owner",
-      };
-      const created = await request("POST", "/admin/invites", payload);
-      if (created?.code) {
-        await copyText(created.code);
-      }
-      await loadInvites();
-    } catch (err) {
-      setInvitesError(err.message);
-    } finally {
-      setInvitesBusy(false);
-    }
-  }
-
-  async function revokeInvite(inviteId) {
-    setInvitesBusy(true);
-    setInvitesError("");
-    try {
-      await request("POST", `/admin/invites/${inviteId}/revoke`, {});
-      await loadInvites();
-    } catch (err) {
-      setInvitesError(err.message);
-    } finally {
-      setInvitesBusy(false);
-    }
   }
 
   async function loadSummary() {
