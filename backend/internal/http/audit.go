@@ -35,6 +35,22 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 	nodeID := strings.TrimSpace(c.Query("node_id"))
 	var rows []db.AuditLog
 	query := h.DB.WithContext(c.Request.Context()).Order("ts desc").Limit(limit).Offset(offset)
+	if !h.actorIsGlobalAdmin(c) {
+		nodeIDs, _, err := h.accessibleNodeIDs(c)
+		if err != nil {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
+		if len(nodeIDs) == 0 {
+			respondStatus(c, http.StatusOK, rows)
+			return
+		}
+		ids := make([]string, 0, len(nodeIDs))
+		for id := range nodeIDs {
+			ids = append(ids, id.String())
+		}
+		query = query.Where("node_id IN ?", ids)
+	}
 	if nodeID != "" {
 		query = query.Where("node_id = ?", nodeID)
 	}

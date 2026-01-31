@@ -62,7 +62,7 @@ type fileRenameRequest struct {
 }
 
 func (h *Handler) ListFileRoots(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -76,7 +76,7 @@ func (h *Handler) ListFileRoots(c *gin.Context) {
 }
 
 func (h *Handler) ListFiles(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -129,7 +129,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 }
 
 func (h *Handler) ReadFileChunk(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -208,7 +208,7 @@ func (h *Handler) ReadFileChunk(c *gin.Context) {
 }
 
 func (h *Handler) TailFile(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -277,7 +277,7 @@ func (h *Handler) TailFile(c *gin.Context) {
 }
 
 func (h *Handler) DownloadFile(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -326,7 +326,7 @@ func (h *Handler) DownloadFile(c *gin.Context) {
 }
 
 func (h *Handler) UploadFile(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -388,7 +388,7 @@ func (h *Handler) UploadFile(c *gin.Context) {
 }
 
 func (h *Handler) Mkdir(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -418,7 +418,7 @@ func (h *Handler) Mkdir(c *gin.Context) {
 }
 
 func (h *Handler) RenamePath(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -453,7 +453,7 @@ func (h *Handler) RenamePath(c *gin.Context) {
 }
 
 func (h *Handler) DeletePath(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return

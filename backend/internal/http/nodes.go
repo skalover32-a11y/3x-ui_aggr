@@ -163,8 +163,13 @@ func computeAgentOnline(lastSeen *time.Time, installed bool, ttl time.Duration) 
 }
 
 func (h *Handler) ListNodes(c *gin.Context) {
+	query, err := h.scopedNodesQuery(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	var nodes []db.Node
-	if err := h.DB.WithContext(c.Request.Context()).Find(&nodes).Error; err != nil {
+	if err := query.Find(&nodes).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list nodes")
 		return
 	}
@@ -176,7 +181,7 @@ func (h *Handler) ListNodes(c *gin.Context) {
 }
 
 func (h *Handler) GetNode(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -329,7 +334,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 }
 
 func (h *Handler) UpdateNode(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -515,7 +520,7 @@ func nilifyString(val string) *string {
 }
 
 func (h *Handler) DeleteNode(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -592,7 +597,7 @@ func (h *Handler) deleteNodeRecords(ctx context.Context, node *db.Node) error {
 }
 
 func (h *Handler) TestNode(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return

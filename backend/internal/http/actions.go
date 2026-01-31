@@ -24,7 +24,7 @@ type actionRunRequest struct {
 }
 
 func (h *Handler) RestartXray(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -54,7 +54,7 @@ func (h *Handler) RestartXray(c *gin.Context) {
 }
 
 func (h *Handler) RebootServer(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -93,7 +93,7 @@ func normalizeAction(value string) string {
 }
 
 func (h *Handler) PlanNodeAction(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -126,7 +126,7 @@ func (h *Handler) PlanNodeAction(c *gin.Context) {
 }
 
 func (h *Handler) RunNodeAction(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return

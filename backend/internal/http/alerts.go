@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 )
@@ -79,10 +80,25 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		}
 	}
 
+	nodeIDs, all, err := h.accessibleNodeIDs(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+
 	var rows []db.AlertState
 	if err := query.Order("last_seen desc").Limit(limit).Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list alerts")
 		return
+	}
+	if !all && len(rows) > 0 {
+		filtered := make([]db.AlertState, 0, len(rows))
+		for _, row := range rows {
+			if alertAllowed(c.Request.Context(), h.DB, nodeIDs, &row) {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
 	}
 	resp := make([]alertStateResponse, 0, len(rows))
 	for i := range rows {
@@ -133,6 +149,18 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		respondError(c, http.StatusServiceUnavailable, "ALERTS_DISABLED", "alerts service not configured")
 		return
 	}
+	if !h.actorIsGlobalAdmin(c) {
+		var state db.AlertState
+		if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
+			return
+		}
+		nodeIDs, all, err := h.accessibleNodeIDs(c)
+		if err != nil || (!all && !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state)) {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
+	}
 	if err := h.Alerts.MuteFingerprint(c.Request.Context(), fingerprint, time.Duration(durationSec)*time.Second); err != nil {
 		respondError(c, http.StatusInternalServerError, "MUTE_FAILED", "failed to mute alert")
 		return
@@ -145,6 +173,18 @@ func (h *Handler) RetryAlert(c *gin.Context) {
 	if fingerprint == "" {
 		respondError(c, http.StatusBadRequest, "INVALID_FINGERPRINT", "fingerprint required")
 		return
+	}
+	if !h.actorIsGlobalAdmin(c) {
+		var state db.AlertState
+		if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
+			return
+		}
+		nodeIDs, all, err := h.accessibleNodeIDs(c)
+		if err != nil || (!all && !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state)) {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
 	}
 	result, err := h.runRetry(c.Request.Context(), fingerprint)
 	if err != nil {
@@ -194,4 +234,31 @@ func uuidToStringPtr(id *uuid.UUID) *string {
 	}
 	v := id.String()
 	return &v
+}
+
+func alertAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, state *db.AlertState) bool {
+	if state == nil || dbConn == nil {
+		return false
+	}
+	if state.NodeID != nil {
+		_, ok := nodeIDs[*state.NodeID]
+		return ok
+	}
+	if state.ServiceID != nil {
+		var svc db.Service
+		if err := dbConn.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *state.ServiceID).Error; err == nil {
+			_, ok := nodeIDs[svc.NodeID]
+			return ok
+		}
+		return false
+	}
+	if state.BotID != nil {
+		var bot db.Bot
+		if err := dbConn.WithContext(ctx).Select("node_id").First(&bot, "id = ?", *state.BotID).Error; err == nil {
+			_, ok := nodeIDs[bot.NodeID]
+			return ok
+		}
+		return false
+	}
+	return false
 }

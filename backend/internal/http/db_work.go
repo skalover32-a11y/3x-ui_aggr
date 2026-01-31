@@ -31,7 +31,7 @@ type adminerStartRequest struct {
 }
 
 func (h *Handler) ListNodeSqlite(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -45,7 +45,7 @@ func (h *Handler) ListNodeSqlite(c *gin.Context) {
 }
 
 func (h *Handler) StartNodeSqlite(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -69,7 +69,7 @@ func (h *Handler) StartNodeSqlite(c *gin.Context) {
 }
 
 func (h *Handler) StartNodeAdminer(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -97,7 +97,7 @@ func (h *Handler) ProxyNodeAdminer(c *gin.Context) {
 }
 
 func (h *Handler) proxyAgentUI(c *gin.Context, agentBase string) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return

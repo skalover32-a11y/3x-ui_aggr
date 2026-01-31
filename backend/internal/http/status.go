@@ -47,7 +47,7 @@ type nodeMetricPoint struct {
 }
 
 func (h *Handler) GetNodeStatus(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -81,7 +81,7 @@ func (h *Handler) GetNodeStatus(c *gin.Context) {
 }
 
 func (h *Handler) GetNodeUptime(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -120,7 +120,7 @@ func (h *Handler) GetNodeUptime(c *gin.Context) {
 }
 
 func (h *Handler) GetNodeMetrics(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return

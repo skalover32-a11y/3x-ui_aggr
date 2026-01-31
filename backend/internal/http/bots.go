@@ -158,7 +158,7 @@ func (h *Handler) validateBotRequest(kind string, req *botRequest) error {
 }
 
 func (h *Handler) ListBots(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -176,7 +176,7 @@ func (h *Handler) ListBots(c *gin.Context) {
 }
 
 func (h *Handler) CreateBot(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -214,7 +214,7 @@ func (h *Handler) CreateBot(c *gin.Context) {
 }
 
 func (h *Handler) GetBot(c *gin.Context) {
-	bot, err := h.getBot(c, c.Param("bot_id"))
+	bot, err := h.getBotForActor(c, c.Param("bot_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "bot not found")
 		return
@@ -223,7 +223,7 @@ func (h *Handler) GetBot(c *gin.Context) {
 }
 
 func (h *Handler) UpdateBot(c *gin.Context) {
-	bot, err := h.getBot(c, c.Param("bot_id"))
+	bot, err := h.getBotForActor(c, c.Param("bot_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "bot not found")
 		return
@@ -296,7 +296,7 @@ func (h *Handler) UpdateBot(c *gin.Context) {
 }
 
 func (h *Handler) DeleteBot(c *gin.Context) {
-	bot, err := h.getBot(c, c.Param("bot_id"))
+	bot, err := h.getBotForActor(c, c.Param("bot_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "bot not found")
 		return
@@ -329,7 +329,7 @@ func (h *Handler) DeleteBot(c *gin.Context) {
 }
 
 func (h *Handler) RunBotCheck(c *gin.Context) {
-	bot, err := h.getBot(c, c.Param("bot_id"))
+	bot, err := h.getBotForActor(c, c.Param("bot_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "bot not found")
 		return
@@ -356,7 +356,7 @@ func (h *Handler) RunBotCheck(c *gin.Context) {
 }
 
 func (h *Handler) ListBotResults(c *gin.Context) {
-	bot, err := h.getBot(c, c.Param("bot_id"))
+	bot, err := h.getBotForActor(c, c.Param("bot_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "bot not found")
 		return

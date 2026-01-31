@@ -16,7 +16,7 @@ import (
 )
 
 func (h *Handler) ListInbounds(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -39,7 +39,7 @@ func (h *Handler) ListInbounds(c *gin.Context) {
 }
 
 func (h *Handler) AddInbound(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -77,7 +77,7 @@ func (h *Handler) AddInbound(c *gin.Context) {
 }
 
 func (h *Handler) UpdateInbound(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -128,7 +128,7 @@ func (h *Handler) UpdateInbound(c *gin.Context) {
 }
 
 func (h *Handler) DeleteInbound(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return

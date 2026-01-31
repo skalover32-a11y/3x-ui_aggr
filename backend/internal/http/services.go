@@ -132,8 +132,21 @@ func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID
 }
 
 func (h *Handler) ListAllServices(c *gin.Context) {
+	query := h.DB.WithContext(c.Request.Context()).Model(&db.Service{})
+	if !h.actorIsGlobalAdmin(c) {
+		user, err := h.actorUser(c)
+		if err != nil {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
+		query = query.
+			Joins("JOIN nodes ON nodes.id = services.node_id").
+			Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
+			Where("om.user_id = ?", user.ID).
+			Where("nodes.org_id IS NOT NULL")
+	}
 	var rows []db.Service
-	if err := h.DB.WithContext(c.Request.Context()).Find(&rows).Error; err != nil {
+	if err := query.Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list services")
 		return
 	}
@@ -153,7 +166,7 @@ func (h *Handler) CreateServiceGlobal(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_NODE", "node_id required")
 		return
 	}
-	node, err := h.getNode(c.Request.Context(), strings.TrimSpace(*req.NodeID))
+	node, err := h.getNodeForActor(c, strings.TrimSpace(*req.NodeID))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -177,7 +190,7 @@ func (h *Handler) CreateServiceGlobal(c *gin.Context) {
 }
 
 func (h *Handler) ListServices(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -195,7 +208,7 @@ func (h *Handler) ListServices(c *gin.Context) {
 }
 
 func (h *Handler) CreateService(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -227,7 +240,7 @@ func (h *Handler) UpdateService(c *gin.Context) {
 	if param == "" {
 		param = c.Param("serviceId")
 	}
-	service, err := h.getService(c.Request.Context(), param)
+	service, err := h.getServiceForActor(c, param)
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -284,7 +297,7 @@ func (h *Handler) DeleteService(c *gin.Context) {
 	if param == "" {
 		param = c.Param("serviceId")
 	}
-	service, err := h.getService(c.Request.Context(), param)
+	service, err := h.getServiceForActor(c, param)
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -317,7 +330,7 @@ func (h *Handler) DeleteService(c *gin.Context) {
 }
 
 func (h *Handler) RunServiceCheck(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	service, err := h.getServiceForActor(c, c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -344,7 +357,7 @@ func (h *Handler) RunServiceCheck(c *gin.Context) {
 }
 
 func (h *Handler) ListServiceResults(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	service, err := h.getServiceForActor(c, c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return

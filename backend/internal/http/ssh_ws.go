@@ -68,7 +68,7 @@ func (h *Handler) SSHWebsocket(c *gin.Context) {
 		writeClose("forbidden")
 		return
 	}
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		log.Printf("ssh ws node lookup failed user=%s error=%v", actor, err)
 		writeClose("node not found")

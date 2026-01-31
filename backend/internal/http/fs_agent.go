@@ -68,7 +68,7 @@ type fsDeleteRequest struct {
 }
 
 func (h *Handler) FSList(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -99,7 +99,7 @@ func (h *Handler) FSList(c *gin.Context) {
 }
 
 func (h *Handler) FSStat(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -131,7 +131,7 @@ func (h *Handler) FSStat(c *gin.Context) {
 }
 
 func (h *Handler) FSRead(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -163,7 +163,7 @@ func (h *Handler) FSRead(c *gin.Context) {
 }
 
 func (h *Handler) FSWrite(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -199,7 +199,7 @@ func (h *Handler) FSWrite(c *gin.Context) {
 }
 
 func (h *Handler) FSMkdir(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -234,7 +234,7 @@ func (h *Handler) FSMkdir(c *gin.Context) {
 }
 
 func (h *Handler) FSRename(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -269,7 +269,7 @@ func (h *Handler) FSRename(c *gin.Context) {
 }
 
 func (h *Handler) FSDelete(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -304,7 +304,7 @@ func (h *Handler) FSDelete(c *gin.Context) {
 }
 
 func (h *Handler) FSUpload(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return
@@ -360,7 +360,7 @@ func (h *Handler) FSUpload(c *gin.Context) {
 }
 
 func (h *Handler) FSDownload(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NODE_NOT_FOUND", "node not found")
 		return

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,7 +10,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
+
+	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/services/dashboard"
 )
 
 func (h *Handler) GetDashboardSummary(c *gin.Context) {
@@ -21,6 +27,28 @@ func (h *Handler) GetDashboardSummary(c *gin.Context) {
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "DASHBOARD_SUMMARY", "failed to load summary")
 		return
+	}
+	if !h.actorIsGlobalAdmin(c) {
+		nodeIDs, _, err := h.accessibleNodeIDs(c)
+		if err != nil {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
+		if nodesRaw, ok := data["nodes"]; ok {
+			if nodes, ok := nodesRaw.([]dashboard.DashboardNode); ok {
+				filtered := make([]dashboard.DashboardNode, 0, len(nodes))
+				for _, node := range nodes {
+					if _, ok := nodeIDs[node.NodeID]; ok {
+						filtered = append(filtered, node)
+					}
+				}
+				data["nodes"] = filtered
+				agg := computeAggregateScoped(filtered)
+				agg.ActiveAlertsCount = countActiveAlertsScoped(c.Request.Context(), h.DB, nodeIDs)
+				agg.ActiveUsers = countActiveUsersScoped(c.Request.Context(), h.DB, nodeIDs)
+				data["aggregate"] = agg
+			}
+		}
 	}
 	respondStatus(c, http.StatusOK, data)
 }
@@ -36,6 +64,20 @@ func (h *Handler) GetDashboardActiveUsers(c *gin.Context) {
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "DASHBOARD_USERS", "failed to load active users")
 		return
+	}
+	if !h.actorIsGlobalAdmin(c) {
+		nodeIDs, _, err := h.accessibleNodeIDs(c)
+		if err != nil {
+			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+			return
+		}
+		filtered := make([]dashboard.DashboardActiveUser, 0, len(users))
+		for _, row := range users {
+			if _, ok := nodeIDs[row.NodeID]; ok {
+				filtered = append(filtered, row)
+			}
+		}
+		users = filtered
 	}
 	respondStatus(c, http.StatusOK, users)
 }
@@ -122,6 +164,95 @@ func (h *Handler) DashboardStream(c *gin.Context) {
 
 func canDashboardRole(role string) bool {
 	return role == "admin" || role == "operator" || role == "viewer"
+}
+
+func computeAggregateScoped(nodes []dashboard.DashboardNode) dashboard.AggregateSummary {
+	var agg dashboard.AggregateSummary
+	var cpuCount int
+	var cpuSum float64
+	var pingCount int
+	var pingSum float64
+	var totalConnections int64
+	for _, node := range nodes {
+		agg.NodesTotal++
+		if node.AgentInstalled {
+			agg.AgentsTotal++
+		}
+		if node.AgentOnline {
+			agg.NodesOnline++
+			agg.AgentsActive++
+		}
+		if node.PanelRunning != nil && *node.PanelRunning {
+			agg.PanelsAvailable++
+		}
+		if node.CPUPct != nil {
+			cpuSum += *node.CPUPct
+			cpuCount++
+		}
+		if node.PingMs != nil {
+			pingSum += float64(*node.PingMs)
+			pingCount++
+		}
+		if node.NetRxBps != nil {
+			agg.TotalRxBps += *node.NetRxBps
+		}
+		if node.NetTxBps != nil {
+			agg.TotalTxBps += *node.NetTxBps
+		}
+		if node.TCPConnections != nil {
+			totalConnections += *node.TCPConnections
+		}
+		if node.UDPConnections != nil {
+			totalConnections += *node.UDPConnections
+		}
+	}
+	if cpuCount > 0 {
+		agg.AvgCPU = cpuSum / float64(cpuCount)
+	}
+	if pingCount > 0 {
+		val := pingSum / float64(pingCount)
+		agg.AvgPingMs = &val
+	}
+	agg.TotalConnections = &totalConnections
+	agg.NodesOffline = agg.NodesTotal - agg.NodesOnline
+	return agg
+}
+
+func countActiveAlertsScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) int {
+	if dbConn == nil || len(nodeIDs) == 0 {
+		return 0
+	}
+	ids := make([]uuid.UUID, 0, len(nodeIDs))
+	for id := range nodeIDs {
+		ids = append(ids, id)
+	}
+	var count int64
+	if err := dbConn.WithContext(ctx).
+		Model(&db.AlertState{}).
+		Where("node_id IN ?", ids).
+		Where("last_status <> ?", "ok").
+		Count(&count).Error; err != nil {
+		return 0
+	}
+	return int(count)
+}
+
+func countActiveUsersScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) int {
+	if dbConn == nil || len(nodeIDs) == 0 {
+		return 0
+	}
+	ids := make([]uuid.UUID, 0, len(nodeIDs))
+	for id := range nodeIDs {
+		ids = append(ids, id)
+	}
+	var count int64
+	if err := dbConn.WithContext(ctx).
+		Table("active_users_latest").
+		Where("node_id IN ?", ids).
+		Count(&count).Error; err != nil {
+		return 0
+	}
+	return int(count)
 }
 
 func parseIntQuery(c *gin.Context, key string, fallback int) int {

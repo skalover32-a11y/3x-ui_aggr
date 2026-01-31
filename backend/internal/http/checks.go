@@ -76,7 +76,7 @@ func toCheckResponse(check *db.Check) checkResponse {
 }
 
 func (h *Handler) ListNodeChecks(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -94,7 +94,7 @@ func (h *Handler) ListNodeChecks(c *gin.Context) {
 }
 
 func (h *Handler) ListServiceChecks(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	service, err := h.getServiceForActor(c, c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -112,7 +112,7 @@ func (h *Handler) ListServiceChecks(c *gin.Context) {
 }
 
 func (h *Handler) CreateNodeCheck(c *gin.Context) {
-	node, err := h.getNode(c.Request.Context(), c.Param("id"))
+	node, err := h.getNodeForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
 		return
@@ -162,7 +162,7 @@ func (h *Handler) CreateNodeCheck(c *gin.Context) {
 }
 
 func (h *Handler) CreateServiceCheck(c *gin.Context) {
-	service, err := h.getService(c.Request.Context(), c.Param("service_id"))
+	service, err := h.getServiceForActor(c, c.Param("service_id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "service not found")
 		return
@@ -212,7 +212,7 @@ func (h *Handler) CreateServiceCheck(c *gin.Context) {
 }
 
 func (h *Handler) UpdateCheck(c *gin.Context) {
-	check, err := h.getCheck(c.Request.Context(), c.Param("id"))
+	check, err := h.getCheckForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "check not found")
 		return
@@ -253,7 +253,7 @@ func (h *Handler) UpdateCheck(c *gin.Context) {
 }
 
 func (h *Handler) DeleteCheck(c *gin.Context) {
-	check, err := h.getCheck(c.Request.Context(), c.Param("id"))
+	check, err := h.getCheckForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "check not found")
 		return
@@ -270,7 +270,7 @@ func (h *Handler) DeleteCheck(c *gin.Context) {
 }
 
 func (h *Handler) ListCheckResults(c *gin.Context) {
-	check, err := h.getCheck(c.Request.Context(), c.Param("id"))
+	check, err := h.getCheckForActor(c, c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "check not found")
 		return
