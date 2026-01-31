@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
@@ -258,20 +258,20 @@ function formatProblemMessage(problem, t) {
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const infraItems = [{
-    key: "panels",
-    label: t("3x-ui Panels"),
-    path: isGlobalAdmin ? "/nodes?view=panel" : "/panels",
-  }];
-  if (isGlobalAdmin) {
-    infraItems.unshift({ key: "nodes", label: t("Nodes"), path: "/nodes" });
-    infraItems.push(
-      { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
-      { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-      { key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true }
-    );
+  const infraItems = [
+    { key: "nodes", label: t("Nodes"), path: "/nodes" },
+    {
+      key: "panels",
+      label: t("3x-ui Panels"),
+      path: "/nodes?view=panel",
+    },
+    { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
+    { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
+  ];
+  if (isOrgAdmin || isGlobalAdmin) {
+    infraItems.push({ key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true });
   }
-  const toolsItems = isGlobalAdmin
+  const toolsItems = (isOrgAdmin || isGlobalAdmin)
     ? [
         { key: "files", label: t("File Manager"), path: "/files" },
         { key: "dbwork", label: t("DB work"), path: "/db" },
@@ -281,10 +281,12 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
     { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
   ];
-  if (isGlobalAdmin) {
+  if (isOrgAdmin || isGlobalAdmin) {
     securityItems.unshift({ key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" });
-    securityItems.push({ key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" });
     securityItems.push({ key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" });
+  }
+  if (isGlobalAdmin) {
+    securityItems.push({ key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" });
   } else if (isOrgAdmin) {
     securityItems.push({ key: "settings", label: t("Team & invites"), path: "/nodes?view=settings" });
   }
@@ -813,10 +815,10 @@ function PanelsSelfServicePage() {
   const noOrg = !orgId;
 
   useEffect(() => {
-    if (isGlobalAdmin) {
+    if (orgId) {
       navigate("/nodes?view=panel", { replace: true });
     }
-  }, [isGlobalAdmin, navigate]);
+  }, [orgId, navigate]);
 
   async function loadNodes() {
     if (!orgId) return;
@@ -1109,6 +1111,8 @@ function NodesPage() {
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const isOperator = role === "operator";
   const isViewer = role === "viewer";
+  const canManage = isAdmin || isOrgAdmin;
+  const canOperate = canManage || isOperator;
   const [nodes, setNodes] = useState([]);
   const [selectedNodes, setSelectedNodes] = useState({});
   const [error, setError] = useState("");
@@ -1208,11 +1212,6 @@ function NodesPage() {
     expected_status: ["200"],
     is_enabled: true,
   });
-  useEffect(() => {
-    if (!isAdmin) {
-      navigate("/panels", { replace: true });
-    }
-  }, [isAdmin, navigate]);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
@@ -1453,8 +1452,8 @@ function NodesPage() {
       setSidebarActive("nodes");
     }
     if (view === "alerts") {
-      if (!isAdmin) {
-        navigate("/panels");
+      if (!isAdmin && !isOrgAdmin) {
+        navigate("/nodes?view=panel");
         return;
       }
       setTelegramSaved(false);
@@ -1478,8 +1477,8 @@ function NodesPage() {
         .catch((err) => setError(err.message));
     }
     if (view === "audit") {
-      if (!isAdmin) {
-        navigate("/panels");
+      if (!isAdmin && !isOrgAdmin) {
+        navigate("/nodes?view=panel");
         return;
       }
       openAudit();
@@ -1492,7 +1491,7 @@ function NodesPage() {
     }
     if (view === "settings") {
       if (!isAdmin && !isOrgAdmin) {
-        navigate("/panels");
+        navigate("/nodes?view=panel");
         return;
       }
       setUsersOpen(true);
@@ -1504,7 +1503,7 @@ function NodesPage() {
         loadOrgInvites();
       }
     }
-    if (add === "1" && isAdmin) {
+    if (add === "1" && (isAdmin || isOrgAdmin)) {
       openAddForm();
     }
     if (!nodes.length) return;
@@ -2491,12 +2490,12 @@ function NodesPage() {
             <>
               {node.kind !== "HOST" && <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>}
               <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
-              {isAdmin && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
+              {canManage && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
               {node.kind !== "HOST" && <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>}
               <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
             </>
           )}
-          {isAdmin && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
+          {canManage && <button className="danger ghost" onClick={() => onDelete(node)}>{t("Delete")}</button>}
         </div>
       </>
     );
@@ -3079,7 +3078,7 @@ function NodesPage() {
                 : t("Servers configured: {count}", { count: filteredNodes.length })}
             </div>
           </div>
-          {!showingBots && (isAdmin || isOperator) && (
+          {!showingBots && canOperate && (
             <div className="node-actions">
               <div className="muted small">{t("Selected: {count}", { count: selectedNodeIDs.length })}</div>
               <button type="button" className="secondary" onClick={() => selectAllFilteredNodes(filteredNodes)} disabled={filteredNodes.length === 0}>
@@ -3110,7 +3109,7 @@ function NodesPage() {
           <div className="table-card">
             <div className="data-table nodes-table selectable">
               <div className="data-row head">
-                {(isAdmin || isOperator) && <div />}
+                {canOperate && <div />}
                 <div>{t("Status")}</div>
                 <div>{t("Node Name")}</div>
                 <div>{t("Location")}</div>
@@ -3131,7 +3130,7 @@ function NodesPage() {
                     key={node.id}
                     onClick={() => openNodeDetails(node)}
                   >
-                    {(isAdmin || isOperator) && (
+                    {canOperate && (
                       <div onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
@@ -3210,7 +3209,7 @@ function NodesPage() {
                     {t("Copy")}
                   </button>
                 </div>
-                {isAdmin && nodeDetails.node.agent_token && (
+                {canManage && nodeDetails.node.agent_token && (
                   <div className="node-id">
                     <span className="muted small">{t("Agent token")}: {showAgentToken ? nodeDetails.node.agent_token : maskSecret(nodeDetails.node.agent_token)}</span>
                     <button
@@ -3624,7 +3623,7 @@ function NodesPage() {
                 onClick={async () => {
                   setTelegramTestStatus("");
                   try {
-                    const res = await request("POST", "/telegram/test", {
+                    const res = await sendTelegramTest({
                       message: telegramTestMsg,
                       admin_chat_ids: telegramForm.admin_chat_ids,
                       bot_token: telegramForm.bot_token,
@@ -5101,9 +5100,9 @@ function FilesPage() {
   const [preview, setPreview] = useState({ open: false, entry: null, content: "", imageUrl: "", note: "", editable: false });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
-  const canWrite = isGlobalAdmin;
+  const canWrite = isGlobalAdmin || isOrgAdmin;
 
-  if (!isGlobalAdmin) {
+  if (!isGlobalAdmin && !isOrgAdmin) {
     return (
       <div className="page">
         <SidebarNav active="files" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
@@ -5650,7 +5649,7 @@ function DbWorkPage() {
     }
   }
 
-  if (!isGlobalAdmin) {
+  if (!isGlobalAdmin && !isOrgAdmin) {
     return (
       <div className="page">
         <SidebarNav active="dbwork" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />

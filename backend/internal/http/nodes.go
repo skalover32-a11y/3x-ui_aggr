@@ -204,6 +204,16 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, err := h.firstOrgForUser(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "organization required")
+		return
+	}
 	kind, err := normalizeNodeKind(req.Kind)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_KIND", err.Error())
@@ -275,6 +285,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	}
 
 	node := db.Node{
+		OrgID:            &orgID,
 		Name:             req.Name,
 		Kind:             kind,
 		Tags:             req.Tags,

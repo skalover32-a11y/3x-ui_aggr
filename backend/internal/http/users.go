@@ -36,6 +36,10 @@ type userUpdateRequest struct {
 }
 
 func (h *Handler) ListUsers(c *gin.Context) {
+	if !h.actorIsGlobalAdmin(c) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	var users []db.User
 	if err := h.DB.WithContext(c.Request.Context()).Order("created_at desc").Find(&users).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list users")
@@ -49,6 +53,10 @@ func (h *Handler) ListUsers(c *gin.Context) {
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {
+	if !h.actorIsGlobalAdmin(c) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	var req userCreateRequest
 	if !parseJSONBody(c, &req) {
 		return
@@ -88,6 +96,10 @@ func (h *Handler) CreateUser(c *gin.Context) {
 }
 
 func (h *Handler) UpdateUser(c *gin.Context) {
+	if !h.actorIsGlobalAdmin(c) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	userID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "USER_ID", "invalid user id")
@@ -132,6 +144,10 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 }
 
 func (h *Handler) DeleteUser(c *gin.Context) {
+	if !h.actorIsGlobalAdmin(c) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	userID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "USER_ID", "invalid user id")

@@ -158,9 +158,102 @@ export async function convertSSHKey(file, passphrase) {
 }
 
 export async function getTelegramSettings() {
-  return request("GET", "/telegram/settings");
+  const headers = { "X-Requested-With": "XMLHttpRequest" };
+  const token = getToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const orgId = getOrgId();
+  if (orgId) {
+    headers["X-Org-ID"] = orgId;
+  }
+  const res = await fetch(`${API_BASE}/telegram/settings`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const message = data?.error?.message || `Request failed: ${res.status}`;
+    const err = new Error(message);
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
 
 export async function saveTelegramSettings(payload) {
-  return request("PUT", "/telegram/settings", payload);
+  const headers = { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" };
+  const token = getToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const orgId = getOrgId();
+  if (orgId) {
+    headers["X-Org-ID"] = orgId;
+  }
+  const res = await fetch(`${API_BASE}/telegram/settings`, {
+    method: "PUT",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload || {}),
+  });
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const message = data?.error?.message || `Request failed: ${res.status}`;
+    const err = new Error(message);
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+export async function sendTelegramTest(payload) {
+  const headers = { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" };
+  const token = getToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const orgId = getOrgId();
+  if (orgId) {
+    headers["X-Org-ID"] = orgId;
+  }
+  const res = await fetch(`${API_BASE}/telegram/test`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(payload || {}),
+  });
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const message = data?.error?.message || `Request failed: ${res.status}`;
+    const err = new Error(message);
+    err.data = data;
+    throw err;
+  }
+  return data;
 }
