@@ -32,9 +32,6 @@ func (h *Handler) actorUser(c *gin.Context) (*db.User, error) {
 }
 
 func (h *Handler) scopedNodesQuery(c *gin.Context) (*gorm.DB, error) {
-	if h.actorIsGlobalAdmin(c) {
-		return h.DB.WithContext(c.Request.Context()).Model(&db.Node{}), nil
-	}
 	user, err := h.actorUser(c)
 	if err != nil {
 		return nil, err
@@ -68,13 +65,6 @@ func (h *Handler) getServiceForActor(c *gin.Context, idStr string) (*db.Service,
 		return nil, err
 	}
 	query := h.DB.WithContext(c.Request.Context()).Model(&db.Service{})
-	if h.actorIsGlobalAdmin(c) {
-		var service db.Service
-		if err := query.First(&service, "id = ?", serviceID).Error; err != nil {
-			return nil, err
-		}
-		return &service, nil
-	}
 	user, err := h.actorUser(c)
 	if err != nil {
 		return nil, err
@@ -97,13 +87,6 @@ func (h *Handler) getBotForActor(c *gin.Context, idStr string) (*db.Bot, error) 
 		return nil, err
 	}
 	query := h.DB.WithContext(c.Request.Context()).Model(&db.Bot{})
-	if h.actorIsGlobalAdmin(c) {
-		var bot db.Bot
-		if err := query.First(&bot, "id = ?", botID).Error; err != nil {
-			return nil, err
-		}
-		return &bot, nil
-	}
 	user, err := h.actorUser(c)
 	if err != nil {
 		return nil, err
@@ -129,9 +112,6 @@ func (h *Handler) getCheckForActor(c *gin.Context, idStr string) (*db.Check, err
 	if err := h.DB.WithContext(c.Request.Context()).First(&check, "id = ?", checkID).Error; err != nil {
 		return nil, err
 	}
-	if h.actorIsGlobalAdmin(c) {
-		return &check, nil
-	}
 	switch check.TargetType {
 	case "node":
 		if _, err := h.getNodeForActor(c, check.TargetID.String()); err != nil {
@@ -151,13 +131,10 @@ func (h *Handler) getCheckForActor(c *gin.Context, idStr string) (*db.Check, err
 	return &check, nil
 }
 
-func (h *Handler) accessibleNodeIDs(c *gin.Context) (map[uuid.UUID]struct{}, bool, error) {
-	if h.actorIsGlobalAdmin(c) {
-		return nil, true, nil
-	}
+func (h *Handler) accessibleNodeIDs(c *gin.Context) (map[uuid.UUID]struct{}, error) {
 	user, err := h.actorUser(c)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	var ids []uuid.UUID
 	if err := h.DB.WithContext(c.Request.Context()).
@@ -167,11 +144,11 @@ func (h *Handler) accessibleNodeIDs(c *gin.Context) (map[uuid.UUID]struct{}, boo
 		Where("om.user_id = ?", user.ID).
 		Where("nodes.org_id IS NOT NULL").
 		Scan(&ids).Error; err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	out := make(map[uuid.UUID]struct{}, len(ids))
 	for _, id := range ids {
 		out[id] = struct{}{}
 	}
-	return out, false, nil
+	return out, nil
 }

@@ -80,7 +80,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		}
 	}
 
-	nodeIDs, all, err := h.accessibleNodeIDs(c)
+	nodeIDs, err := h.accessibleNodeIDs(c)
 	if err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
@@ -91,7 +91,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list alerts")
 		return
 	}
-	if !all && len(rows) > 0 {
+	if len(rows) > 0 {
 		filtered := make([]db.AlertState, 0, len(rows))
 		for _, row := range rows {
 			if alertAllowed(c.Request.Context(), h.DB, nodeIDs, &row) {
@@ -149,17 +149,15 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		respondError(c, http.StatusServiceUnavailable, "ALERTS_DISABLED", "alerts service not configured")
 		return
 	}
-	if !h.actorIsGlobalAdmin(c) {
-		var state db.AlertState
-		if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
-			return
-		}
-		nodeIDs, all, err := h.accessibleNodeIDs(c)
-		if err != nil || (!all && !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state)) {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
-			return
-		}
+	var state db.AlertState
+	if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
+		return
+	}
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
 	}
 	if err := h.Alerts.MuteFingerprint(c.Request.Context(), fingerprint, time.Duration(durationSec)*time.Second); err != nil {
 		respondError(c, http.StatusInternalServerError, "MUTE_FAILED", "failed to mute alert")
@@ -174,17 +172,15 @@ func (h *Handler) RetryAlert(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_FINGERPRINT", "fingerprint required")
 		return
 	}
-	if !h.actorIsGlobalAdmin(c) {
-		var state db.AlertState
-		if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
-			return
-		}
-		nodeIDs, all, err := h.accessibleNodeIDs(c)
-		if err != nil || (!all && !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state)) {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
-			return
-		}
+	var state db.AlertState
+	if err := h.DB.WithContext(c.Request.Context()).First(&state, "fingerprint = ?", fingerprint).Error; err != nil {
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "alert not found")
+		return
+	}
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
 	}
 	result, err := h.runRetry(c.Request.Context(), fingerprint)
 	if err != nil {

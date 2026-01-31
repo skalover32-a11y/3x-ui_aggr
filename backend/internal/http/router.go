@@ -49,13 +49,16 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.GET("/orgs", middleware.RequireRoles(readRoles...), h.ListOrgs)
 	auth.POST("/orgs", middleware.RequireRoles(writeRoles...), h.CreateOrg)
-	orgsRead := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, h.AdminUser, "viewer"))
-	orgsWrite := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, h.AdminUser, "admin"))
+	orgsRead := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, "viewer"))
+	orgsWrite := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, "admin"))
 	orgsRead.GET("/nodes", h.ListOrgNodes)
 	orgsRead.GET("/nodes/:nodeId", h.GetOrgNode)
+	orgsRead.GET("/invites", h.OrgListInvites)
 	orgsWrite.POST("/nodes", h.CreateOrgNode)
 	orgsWrite.DELETE("/nodes/:nodeId", h.DeleteOrgNode)
 	orgsWrite.POST("/nodes/:nodeId/agent/revoke", h.RevokeAgent)
+	orgsWrite.POST("/invites", h.OrgCreateInvite)
+	orgsWrite.POST("/invites/:id/revoke", h.OrgRevokeInvite)
 
 	auth.GET("/nodes", middleware.RequireRoles(readRoles...), h.ListNodes)
 	auth.GET("/nodes/:id", middleware.RequireRoles(readRoles...), h.GetNode)

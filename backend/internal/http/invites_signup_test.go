@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +17,23 @@ import (
 	"agr_3x_ui/internal/http/middleware"
 )
 
-func seedInvite(t *testing.T, dbConn *gorm.DB, code string, expiresAt time.Time) db.Invite {
-	invite := db.Invite{ID: uuid.New(), Code: code, Role: "owner", ExpiresAt: expiresAt, CreatedAt: time.Now().UTC()}
+func seedInvite(t *testing.T, dbConn *gorm.DB, code string, expiresAt time.Time, createdBy uuid.UUID, mode string, targetOrg *uuid.UUID, role string) db.Invite {
+	if mode == "" {
+		mode = "create_private_stack"
+	}
+	if role == "" {
+		role = "owner"
+	}
+	invite := db.Invite{
+		ID:              uuid.New(),
+		Code:            code,
+		CreatedByUserID: createdBy,
+		TargetOrgID:     targetOrg,
+		Mode:            mode,
+		Role:            role,
+		ExpiresAt:       expiresAt,
+		CreatedAt:       time.Now().UTC(),
+	}
 	if err := dbConn.Create(&invite).Error; err != nil {
 		t.Fatalf("seed invite: %v", err)
 	}
@@ -29,7 +45,8 @@ func TestSignupSuccessCreatesOrg(t *testing.T) {
 	h := newTestHandler(t, dbConn)
 	signupLimiter.reset()
 	r := NewRouter(h)
-	invite := seedInvite(t, dbConn, "INV_TEST", time.Now().Add(1*time.Hour))
+	admin := createUser(t, dbConn, "admin_creator")
+	invite := seedInvite(t, dbConn, "INV_TEST", time.Now().Add(1*time.Hour), admin.ID, "create_private_stack", nil, "owner")
 	payload := []byte(`{"invite_code":"INV_TEST","username":"newuser","password":"password123"}`)
 	resp := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/api/signup", bytes.NewReader(payload))
@@ -72,7 +89,8 @@ func TestSignupUsedInviteFails(t *testing.T) {
 	signupLimiter.reset()
 	r := NewRouter(h)
 	now := time.Now().UTC()
-	invite := seedInvite(t, dbConn, "INV_USED", now.Add(time.Hour))
+	admin := createUser(t, dbConn, "admin_creator")
+	invite := seedInvite(t, dbConn, "INV_USED", now.Add(time.Hour), admin.ID, "create_private_stack", nil, "owner")
 	if err := dbConn.Model(&db.Invite{}).Where("id = ?", invite.ID).Update("used_at", now).Error; err != nil {
 		t.Fatalf("set used_at: %v", err)
 	}
@@ -91,7 +109,8 @@ func TestSignupExpiredInviteFails(t *testing.T) {
 	h := newTestHandler(t, dbConn)
 	signupLimiter.reset()
 	r := NewRouter(h)
-	seedInvite(t, dbConn, "INV_EXP", time.Now().Add(-time.Hour))
+	admin := createUser(t, dbConn, "admin_creator")
+	seedInvite(t, dbConn, "INV_EXP", time.Now().Add(-time.Hour), admin.ID, "create_private_stack", nil, "owner")
 	payload := []byte(`{"invite_code":"INV_EXP","username":"newuser","password":"password123"}`)
 	resp := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/api/signup", bytes.NewReader(payload))
@@ -107,7 +126,8 @@ func TestSignupDuplicateUsernameFails(t *testing.T) {
 	h := newTestHandler(t, dbConn)
 	signupLimiter.reset()
 	r := NewRouter(h)
-	seedInvite(t, dbConn, "INV_DUP", time.Now().Add(time.Hour))
+	admin := createUser(t, dbConn, "admin_creator")
+	seedInvite(t, dbConn, "INV_DUP", time.Now().Add(time.Hour), admin.ID, "create_private_stack", nil, "owner")
 	_ = dbConn.Create(&db.User{ID: uuid.New(), Username: "dupe", PasswordHash: "x", Role: middleware.RoleViewer}).Error
 	payload := []byte(`{"invite_code":"INV_DUP","username":"dupe","password":"password123"}`)
 	resp := httptest.NewRecorder()
@@ -124,9 +144,9 @@ func TestAdminInviteRequiresAdmin(t *testing.T) {
 	h := newTestHandler(t, dbConn)
 	r := NewRouter(h)
 	user := createUser(t, dbConn, "bob")
-	jwtToken := signJWT(h.JWTSecret, user.Username, middleware.RoleViewer)
+	jwtToken := signJWT(h.JWTSecret, user.Username, middleware.RoleAdmin)
 	resp := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites", bytes.NewReader([]byte(`{"expires_in_hours":24}`)))
+	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites", bytes.NewReader([]byte(`{"expires_in_hours":24,"mode":"create_private_stack"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	r.ServeHTTP(resp, req)
@@ -139,9 +159,9 @@ func TestAdminRevokeInvite(t *testing.T) {
 	dbConn := setupOrgTestDB(t)
 	h := newTestHandler(t, dbConn)
 	r := NewRouter(h)
-	admin := createUser(t, dbConn, "alice")
+	admin := createUser(t, dbConn, h.AdminUser)
 	jwtToken := signJWT(h.JWTSecret, admin.Username, middleware.RoleAdmin)
-	invite := seedInvite(t, dbConn, "INV_REVOKE", time.Now().Add(time.Hour))
+	invite := seedInvite(t, dbConn, "INV_REVOKE", time.Now().Add(time.Hour), admin.ID, "create_private_stack", nil, "owner")
 	resp := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites/"+invite.ID.String()+"/revoke", nil)
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
@@ -198,10 +218,10 @@ func TestAdminCreateInvite(t *testing.T) {
 	dbConn := setupOrgTestDB(t)
 	h := newTestHandler(t, dbConn)
 	r := NewRouter(h)
-	admin := createUser(t, dbConn, "alice")
+	admin := createUser(t, dbConn, h.AdminUser)
 	jwtToken := signJWT(h.JWTSecret, admin.Username, middleware.RoleAdmin)
 	resp := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites", bytes.NewReader([]byte(`{"expires_in_hours":24}`)))
+	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites", bytes.NewReader([]byte(`{"expires_in_hours":24,"mode":"create_private_stack"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	r.ServeHTTP(resp, req)
@@ -210,5 +230,99 @@ func TestAdminCreateInvite(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), "INV_") {
 		t.Fatalf("expected invite code")
+	}
+}
+
+func TestOrgInviteSignupAddsMember(t *testing.T) {
+	dbConn := setupOrgTestDB(t)
+	h := newTestHandler(t, dbConn)
+	signupLimiter.reset()
+	r := NewRouter(h)
+	owner := createUser(t, dbConn, "owner1")
+	org := db.Organization{ID: uuid.New(), Name: "CustOrg", OwnerUserID: owner.ID, CreatedAt: time.Now().UTC()}
+	if err := dbConn.Create(&org).Error; err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if err := dbConn.Create(&db.OrganizationMember{OrgID: org.ID, UserID: owner.ID, Role: "owner", CreatedAt: time.Now().UTC()}).Error; err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+
+	jwtToken := signJWT(h.JWTSecret, owner.Username, middleware.RoleAdmin)
+	resp := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/orgs/"+org.ID.String()+"/invites", bytes.NewReader([]byte(`{"expires_in_hours":24,"role":"viewer"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("org invite status: %d %s", resp.Code, resp.Body.String())
+	}
+	var inv inviteResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &inv); err != nil {
+		t.Fatalf("parse invite: %v", err)
+	}
+
+	payload := []byte(`{"invite_code":"` + inv.Code + `","username":"member1","password":"password123"}`)
+	resp = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, "/api/signup", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("signup status: %d %s", resp.Code, resp.Body.String())
+	}
+	var user db.User
+	if err := dbConn.First(&user, "lower(username)=lower(?)", "member1").Error; err != nil {
+		t.Fatalf("user not created: %v", err)
+	}
+	var member db.OrganizationMember
+	if err := dbConn.First(&member, "org_id = ? AND user_id = ?", org.ID, user.ID).Error; err != nil {
+		t.Fatalf("membership missing: %v", err)
+	}
+	if member.Role != "viewer" {
+		t.Fatalf("expected viewer role, got %s", member.Role)
+	}
+}
+
+func TestAdminInviteJoinRootStack(t *testing.T) {
+	dbConn := setupOrgTestDB(t)
+	h := newTestHandler(t, dbConn)
+	signupLimiter.reset()
+	if _, err := h.EnsureRootOrg(context.Background()); err != nil {
+		t.Fatalf("ensure root org: %v", err)
+	}
+	r := NewRouter(h)
+	jwtToken := signJWT(h.JWTSecret, h.AdminUser, middleware.RoleAdmin)
+
+	resp := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/admin/invites", bytes.NewReader([]byte(`{"expires_in_hours":24,"mode":"join_root_stack","role":"admin"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("admin invite status: %d %s", resp.Code, resp.Body.String())
+	}
+	var inv inviteResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &inv); err != nil {
+		t.Fatalf("parse invite: %v", err)
+	}
+	if inv.TargetOrg == nil || *inv.TargetOrg == "" {
+		t.Fatalf("expected target org in invite")
+	}
+
+	payload := []byte(`{"invite_code":"` + inv.Code + `","username":"partner1","password":"password123"}`)
+	resp = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodPost, "/api/signup", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("signup status: %d %s", resp.Code, resp.Body.String())
+	}
+	var user db.User
+	if err := dbConn.First(&user, "lower(username)=lower(?)", "partner1").Error; err != nil {
+		t.Fatalf("user not created: %v", err)
+	}
+	rootID, _ := uuid.Parse(*inv.TargetOrg)
+	var member db.OrganizationMember
+	if err := dbConn.First(&member, "org_id = ? AND user_id = ?", rootID, user.ID).Error; err != nil {
+		t.Fatalf("membership missing: %v", err)
 	}
 }

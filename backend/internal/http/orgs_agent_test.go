@@ -38,7 +38,7 @@ func setupOrgTestDB(t *testing.T) *gorm.DB {
 	if err := dbConn.Exec("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'org_role') THEN CREATE TYPE org_role AS ENUM ('owner','admin','viewer'); END IF; END $$;").Error; err != nil {
 		t.Fatalf("org_role: %v", err)
 	}
-	if err := dbConn.AutoMigrate(&db.User{}, &db.Organization{}, &db.OrganizationMember{}, &db.Node{}, &db.NodeRegistrationToken{}, &db.AgentCredential{}); err != nil {
+	if err := dbConn.AutoMigrate(&db.User{}, &db.Organization{}, &db.OrganizationMember{}, &db.Node{}, &db.NodeRegistrationToken{}, &db.AgentCredential{}, &db.Invite{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	_ = dbConn.Exec("TRUNCATE organizations, organization_members, node_registration_tokens, agent_credentials, nodes, users RESTART IDENTITY CASCADE").Error
@@ -56,6 +56,7 @@ func newTestHandler(t *testing.T, dbConn *gorm.DB) *Handler {
 		Encryptor:     enc,
 		JWTSecret:     []byte("test"),
 		AdminUser:     "env_admin",
+		AdminPass:     "password",
 		TokenSalt:     "salt",
 		PublicBaseURL: "https://example.test",
 	}

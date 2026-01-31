@@ -93,6 +93,9 @@ func main() {
 		TokenSalt:           cfg.TokenSalt,
 		PublicBaseURL:       cfg.PublicBaseURL,
 	}
+	if _, err := handler.EnsureRootOrg(context.Background()); err != nil {
+		log.Printf("ensure root org failed: %v", err)
+	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()

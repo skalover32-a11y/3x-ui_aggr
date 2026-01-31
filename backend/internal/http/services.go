@@ -133,18 +133,16 @@ func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID
 
 func (h *Handler) ListAllServices(c *gin.Context) {
 	query := h.DB.WithContext(c.Request.Context()).Model(&db.Service{})
-	if !h.actorIsGlobalAdmin(c) {
-		user, err := h.actorUser(c)
-		if err != nil {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
-			return
-		}
-		query = query.
-			Joins("JOIN nodes ON nodes.id = services.node_id").
-			Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
-			Where("om.user_id = ?", user.ID).
-			Where("nodes.org_id IS NOT NULL")
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
 	}
+	query = query.
+		Joins("JOIN nodes ON nodes.id = services.node_id").
+		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
+		Where("om.user_id = ?", user.ID).
+		Where("nodes.org_id IS NOT NULL")
 	var rows []db.Service
 	if err := query.Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list services")

@@ -34,19 +34,6 @@ type orgNodeCreateResponse struct {
 
 func (h *Handler) ListOrgs(c *gin.Context) {
 	actor := getActor(c)
-	if strings.EqualFold(actor, h.AdminUser) {
-		var orgs []db.Organization
-		if err := h.DB.WithContext(c.Request.Context()).Find(&orgs).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list orgs")
-			return
-		}
-		resp := make([]orgResponse, 0, len(orgs))
-		for _, org := range orgs {
-			resp = append(resp, orgResponse{ID: org.ID.String(), Name: org.Name, Role: "owner", CreatedAt: org.CreatedAt})
-		}
-		respondStatus(c, http.StatusOK, resp)
-		return
-	}
 	user, err := h.findUserByActor(c, actor)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -80,6 +67,10 @@ func (h *Handler) ListOrgs(c *gin.Context) {
 }
 
 func (h *Handler) CreateOrg(c *gin.Context) {
+	if !h.actorIsGlobalAdmin(c) {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	var req orgCreateRequest
 	if !parseJSONBody(c, &req) {
 		return
@@ -91,7 +82,7 @@ func (h *Handler) CreateOrg(c *gin.Context) {
 	}
 	actor := getActor(c)
 	user, err := h.findUserByActor(c, actor)
-	if err != nil && !strings.EqualFold(actor, h.AdminUser) {
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 			return

@@ -12,7 +12,7 @@ import (
 	"agr_3x_ui/internal/services/agentauth"
 )
 
-func RequireOrgRole(dbConn *gorm.DB, adminUser string, minRole string) gin.HandlerFunc {
+func RequireOrgRole(dbConn *gorm.DB, minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		orgIDStr := strings.TrimSpace(c.Param("orgId"))
 		orgID, err := uuid.Parse(orgIDStr)
@@ -24,12 +24,6 @@ func RequireOrgRole(dbConn *gorm.DB, adminUser string, minRole string) gin.Handl
 		actor := c.GetString("actor")
 		if actor == "" {
 			respondUnauthorized(c)
-			return
-		}
-		if strings.EqualFold(actor, adminUser) {
-			c.Set("org_id", orgID.String())
-			c.Set("org_role", "owner")
-			c.Next()
 			return
 		}
 		var user db.User

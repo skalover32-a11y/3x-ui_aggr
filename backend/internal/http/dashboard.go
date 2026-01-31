@@ -28,26 +28,24 @@ func (h *Handler) GetDashboardSummary(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "DASHBOARD_SUMMARY", "failed to load summary")
 		return
 	}
-	if !h.actorIsGlobalAdmin(c) {
-		nodeIDs, _, err := h.accessibleNodeIDs(c)
-		if err != nil {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
-			return
-		}
-		if nodesRaw, ok := data["nodes"]; ok {
-			if nodes, ok := nodesRaw.([]dashboard.DashboardNode); ok {
-				filtered := make([]dashboard.DashboardNode, 0, len(nodes))
-				for _, node := range nodes {
-					if _, ok := nodeIDs[node.NodeID]; ok {
-						filtered = append(filtered, node)
-					}
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	if nodesRaw, ok := data["nodes"]; ok {
+		if nodes, ok := nodesRaw.([]dashboard.DashboardNode); ok {
+			filtered := make([]dashboard.DashboardNode, 0, len(nodes))
+			for _, node := range nodes {
+				if _, ok := nodeIDs[node.NodeID]; ok {
+					filtered = append(filtered, node)
 				}
-				data["nodes"] = filtered
-				agg := computeAggregateScoped(filtered)
-				agg.ActiveAlertsCount = countActiveAlertsScoped(c.Request.Context(), h.DB, nodeIDs)
-				agg.ActiveUsers = countActiveUsersScoped(c.Request.Context(), h.DB, nodeIDs)
-				data["aggregate"] = agg
 			}
+			data["nodes"] = filtered
+			agg := computeAggregateScoped(filtered)
+			agg.ActiveAlertsCount = countActiveAlertsScoped(c.Request.Context(), h.DB, nodeIDs)
+			agg.ActiveUsers = countActiveUsersScoped(c.Request.Context(), h.DB, nodeIDs)
+			data["aggregate"] = agg
 		}
 	}
 	respondStatus(c, http.StatusOK, data)
@@ -65,20 +63,18 @@ func (h *Handler) GetDashboardActiveUsers(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "DASHBOARD_USERS", "failed to load active users")
 		return
 	}
-	if !h.actorIsGlobalAdmin(c) {
-		nodeIDs, _, err := h.accessibleNodeIDs(c)
-		if err != nil {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
-			return
-		}
-		filtered := make([]dashboard.DashboardActiveUser, 0, len(users))
-		for _, row := range users {
-			if _, ok := nodeIDs[row.NodeID]; ok {
-				filtered = append(filtered, row)
-			}
-		}
-		users = filtered
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
 	}
+	filtered := make([]dashboard.DashboardActiveUser, 0, len(users))
+	for _, row := range users {
+		if _, ok := nodeIDs[row.NodeID]; ok {
+			filtered = append(filtered, row)
+		}
+	}
+	users = filtered
 	respondStatus(c, http.StatusOK, users)
 }
 

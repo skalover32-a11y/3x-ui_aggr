@@ -80,8 +80,10 @@ type NodeRegistrationToken struct {
 type Invite struct {
 	ID              uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	Code            string     `gorm:"type:text;unique;not null" json:"code"`
-	CreatedByUserID *uuid.UUID `gorm:"type:uuid" json:"created_by_user_id,omitempty"`
-	Role            string     `gorm:"type:text;not null;default:'owner'" json:"role"`
+	CreatedByUserID uuid.UUID  `gorm:"type:uuid;not null" json:"created_by_user_id"`
+	TargetOrgID     *uuid.UUID `gorm:"type:uuid" json:"target_org_id,omitempty"`
+	Mode            string     `gorm:"type:text;not null" json:"mode"`
+	Role            string     `gorm:"type:org_role;not null;default:'owner'" json:"role"`
 	OrgName         *string    `gorm:"type:text" json:"org_name,omitempty"`
 	ExpiresAt       time.Time  `gorm:"type:timestamptz;not null" json:"expires_at"`
 	UsedAt          *time.Time `gorm:"type:timestamptz" json:"used_at,omitempty"`

@@ -40,8 +40,20 @@ export function setOrgId(orgId) {
   }
 }
 
+export function getOrgRole() {
+  return localStorage.getItem("agg_org_role") || "";
+}
+
+export function setOrgRole(role) {
+  if (role) {
+    localStorage.setItem("agg_org_role", role);
+  } else {
+    localStorage.removeItem("agg_org_role");
+  }
+}
+
 export function getRole() {
-  return localStorage.getItem("agg_role") || "admin";
+  return localStorage.getItem("agg_role") || "viewer";
 }
 
 export function getUser() {

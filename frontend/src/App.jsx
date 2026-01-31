@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser, getOrgId, setOrgId, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
@@ -255,12 +255,38 @@ function formatProblemMessage(problem, t) {
   return fingerprint;
 }
 
-function SidebarNav({ active }) {
+function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const infraKeys = ["nodes", "panels", "hosts", "bots", "add"];
-  const toolsKeys = ["files", "dbwork"];
-  const securityKeys = ["alerts", "twofa", "passkeys", "settings", "audit"];
+  const infraItems = [{ key: "panels", label: t("3x-ui Panels"), path: "/panels" }];
+  if (isGlobalAdmin) {
+    infraItems.unshift({ key: "nodes", label: t("Nodes"), path: "/nodes" });
+    infraItems.push(
+      { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
+      { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
+      { key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true }
+    );
+  }
+  const toolsItems = isGlobalAdmin
+    ? [
+        { key: "files", label: t("File Manager"), path: "/files" },
+        { key: "dbwork", label: t("DB work"), path: "/db" },
+      ]
+    : [];
+  const securityItems = [
+    { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
+    { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
+  ];
+  if (isGlobalAdmin) {
+    securityItems.unshift({ key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" });
+    securityItems.push({ key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" });
+    securityItems.push({ key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" });
+  } else if (isOrgAdmin) {
+    securityItems.push({ key: "settings", label: t("Team & invites"), path: "/nodes?view=settings" });
+  }
+  const infraKeys = infraItems.map((item) => item.key);
+  const toolsKeys = toolsItems.map((item) => item.key);
+  const securityKeys = securityItems.map((item) => item.key);
   const [infraOpen, setInfraOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -271,24 +297,6 @@ function SidebarNav({ active }) {
     if (securityKeys.includes(active)) setSecurityOpen(true);
   }, [active]);
 
-  const infraItems = [
-    { key: "nodes", label: t("Nodes"), path: "/nodes" },
-    { key: "panels", label: t("3x-ui Panels"), path: "/panels" },
-    { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
-    { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
-    { key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true },
-  ];
-  const toolsItems = [
-    { key: "files", label: t("File Manager"), path: "/files" },
-    { key: "dbwork", label: t("DB work"), path: "/db" },
-  ];
-  const securityItems = [
-    { key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" },
-    { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
-    { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
-    { key: "settings", label: t("Users & roles"), path: "/nodes?view=settings" },
-    { key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" },
-  ];
   return (
     <aside className="sidebar">
       <button type="button" className="sidebar-brand-button" onClick={() => navigate("/dashboard")}>
@@ -309,63 +317,75 @@ function SidebarNav({ active }) {
           <span>{t("Dashboard")}</span>
         </button>
 
-        <button
-          type="button"
-          className="sidebar-section-toggle"
-          onClick={() => setInfraOpen((prev) => !prev)}
-        >
-          <span>{t("Infrastructure")}</span>
-        </button>
-        {infraOpen &&
-          infraItems.map((item) => (
+        {infraItems.length > 0 && (
+          <>
             <button
-              key={item.key}
               type="button"
-              className={`sidebar-item ${active === item.key ? "active" : ""}`}
-              onClick={() => navigate(item.path)}
+              className="sidebar-section-toggle"
+              onClick={() => setInfraOpen((prev) => !prev)}
             >
-              <span>{item.label}</span>
-              {item.addBadge && <span className="sidebar-add-icon">+</span>}
+              <span>{t("Infrastructure")}</span>
             </button>
-          ))}
+            {infraOpen &&
+              infraItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sidebar-item ${active === item.key ? "active" : ""}`}
+                  onClick={() => navigate(item.path)}
+                >
+                  <span>{item.label}</span>
+                  {item.addBadge && <span className="sidebar-add-icon">+</span>}
+                </button>
+              ))}
+          </>
+        )}
 
-        <button
-          type="button"
-          className="sidebar-section-toggle"
-          onClick={() => setToolsOpen((prev) => !prev)}
-        >
-          <span>{t("Tools")}</span>
-        </button>
-        {toolsOpen &&
-          toolsItems.map((item) => (
+        {toolsItems.length > 0 && (
+          <>
             <button
-              key={item.key}
               type="button"
-              className={`sidebar-item ${active === item.key ? "active" : ""}`}
-              onClick={() => navigate(item.path)}
+              className="sidebar-section-toggle"
+              onClick={() => setToolsOpen((prev) => !prev)}
             >
-              <span>{item.label}</span>
+              <span>{t("Tools")}</span>
             </button>
-          ))}
+            {toolsOpen &&
+              toolsItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sidebar-item ${active === item.key ? "active" : ""}`}
+                  onClick={() => navigate(item.path)}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+          </>
+        )}
 
-        <button
-          type="button"
-          className="sidebar-section-toggle"
-          onClick={() => setSecurityOpen((prev) => !prev)}
-        >
-          <span>{t("Access & Security")}</span>
-        </button>
-        {securityOpen &&
-          securityItems.map((item) => (
+        {securityItems.length > 0 && (
+          <>
             <button
-              key={item.key}
               type="button"
-              className={`sidebar-item ${active === item.key ? "active" : ""}`}
-              onClick={() => navigate(item.path)}
+              className="sidebar-section-toggle"
+              onClick={() => setSecurityOpen((prev) => !prev)}
             >
-              <span>{item.label}</span>
+              <span>{t("Access & Security")}</span>
             </button>
-          ))}
+            {securityOpen &&
+              securityItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sidebar-item ${active === item.key ? "active" : ""}`}
+                  onClick={() => navigate(item.path)}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+          </>
+        )}
       </div>
     </aside>
   );
@@ -543,16 +563,16 @@ function RequireAuth({ children }) {
         const found = Array.isArray(orgs) ? orgs.find((org) => org.id === stored) : null;
         if (found) {
           setOrgId(found.id);
+          setOrgRole(found.role || "");
           return;
         }
         if (Array.isArray(orgs) && orgs.length > 0) {
           setOrgId(orgs[0].id);
+          setOrgRole(orgs[0].role || "");
           return;
         }
-        const created = await request("POST", "/orgs", { name: "Personal" });
-        if (created?.id) {
-          setOrgId(created.id);
-        }
+        setOrgId("");
+        setOrgRole("");
       } catch {
         // keep silent, org flows may be unavailable for admin-only sessions
       }
@@ -756,6 +776,10 @@ function PanelsSelfServicePage() {
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
   const user = getUser();
+  const role = getRole();
+  const orgRole = getOrgRole();
+  const isGlobalAdmin = role === "admin";
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [orgId, setOrgIdState] = useState(getOrgId());
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -782,6 +806,7 @@ function PanelsSelfServicePage() {
     if (!Number.isFinite(ts)) return false;
     return now - ts < 2 * 60 * 1000;
   };
+  const noOrg = !orgId;
 
   async function loadNodes() {
     if (!orgId) return;
@@ -909,7 +934,7 @@ function PanelsSelfServicePage() {
 
   return (
     <div className="app-shell">
-      <SidebarNav active="panels" />
+      <SidebarNav active="panels" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
       <div className="app-main">
         <header className="header">
           <div className="header-left" />
@@ -946,12 +971,13 @@ function PanelsSelfServicePage() {
               <div className="muted small">{t("Self-service panels")}</div>
             </div>
             <div className="page-actions">
-              <button className="primary" onClick={() => { resetWizard(); setWizardOpen(true); }}>{t("Add panel")}</button>
-              <button className="secondary" onClick={loadNodes} disabled={loading}>{t("Refresh")}</button>
+              <button className="primary" onClick={() => { resetWizard(); setWizardOpen(true); }} disabled={noOrg}>{t("Add panel")}</button>
+              <button className="secondary" onClick={loadNodes} disabled={loading || noOrg}>{t("Refresh")}</button>
             </div>
           </div>
 
           {error && <div className="error">{error}</div>}
+          {noOrg && <div className="error">{t("No organization assigned")}</div>}
 
           <div className="data-table nodes-table">
             <div className="table-head">
@@ -1066,8 +1092,10 @@ function NodesPage() {
   const navigate = useNavigate();
   const { t, lang, setLang } = useI18n();
   const role = getRole();
+  const orgRole = getOrgRole();
   const user = getUser();
   const isAdmin = role === "admin";
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const isOperator = role === "operator";
   const isViewer = role === "viewer";
   const [nodes, setNodes] = useState([]);
@@ -1110,7 +1138,16 @@ function NodesPage() {
   const [invitesList, setInvitesList] = useState([]);
   const [invitesBusy, setInvitesBusy] = useState(false);
   const [invitesError, setInvitesError] = useState("");
-  const [inviteDraft, setInviteDraft] = useState({ expires_in_hours: 168, org_name: "Personal", role: "owner" });
+  const [inviteDraft, setInviteDraft] = useState({
+    expires_in_hours: 168,
+    org_name: "Personal",
+    role: "owner",
+    mode: "create_private_stack",
+  });
+  const [orgInvitesList, setOrgInvitesList] = useState([]);
+  const [orgInvitesBusy, setOrgInvitesBusy] = useState(false);
+  const [orgInvitesError, setOrgInvitesError] = useState("");
+  const [orgInviteDraft, setOrgInviteDraft] = useState({ expires_in_hours: 168, role: "viewer" });
   const [totpOpen, setTotpOpen] = useState(false);
   const [totpStatus, setTotpStatus] = useState(null);
   const [totpSetup, setTotpSetup] = useState(null);
@@ -1160,6 +1197,11 @@ function NodesPage() {
     expected_status: ["200"],
     is_enabled: true,
   });
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate("/panels", { replace: true });
+    }
+  }, [isAdmin, navigate]);
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
@@ -1399,7 +1441,11 @@ function NodesPage() {
     } else {
       setSidebarActive("nodes");
     }
-    if (view === "alerts" && isAdmin) {
+    if (view === "alerts") {
+      if (!isAdmin) {
+        navigate("/panels");
+        return;
+      }
       setTelegramSaved(false);
       setTelegramTestMsg("");
       setTelegramTestStatus("");
@@ -1420,21 +1466,34 @@ function NodesPage() {
         })
         .catch((err) => setError(err.message));
     }
-    if (view === "audit" && isAdmin) {
+    if (view === "audit") {
+      if (!isAdmin) {
+        navigate("/panels");
+        return;
+      }
       openAudit();
     }
-    if (view === "2fa" && !isViewer) {
+    if (view === "2fa") {
       openTOTP();
     }
-    if (view === "passkeys" && !isViewer) {
+    if (view === "passkeys") {
       openPasskeys();
     }
-    if (view === "settings" && isAdmin) {
+    if (view === "settings") {
+      if (!isAdmin && !isOrgAdmin) {
+        navigate("/panels");
+        return;
+      }
       setUsersOpen(true);
-      loadUsers();
-      loadInvites();
+      if (isAdmin) {
+        loadUsers();
+        loadInvites();
+      }
+      if (isOrgAdmin) {
+        loadOrgInvites();
+      }
     }
-    if (add === "1" && (isAdmin || isOperator)) {
+    if (add === "1" && isAdmin) {
       openAddForm();
     }
     if (!nodes.length) return;
@@ -2742,6 +2801,7 @@ function NodesPage() {
         expires_in_hours: Number(inviteDraft.expires_in_hours) || 168,
         org_name: inviteDraft.org_name ? String(inviteDraft.org_name).trim() : "",
         role: inviteDraft.role || "owner",
+        mode: inviteDraft.mode || "create_private_stack",
       };
       const created = await request("POST", "/admin/invites", payload);
       if (created?.code) {
@@ -2765,6 +2825,58 @@ function NodesPage() {
       setInvitesError(err.message);
     } finally {
       setInvitesBusy(false);
+    }
+  }
+
+  async function loadOrgInvites() {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgInvitesBusy(true);
+    setOrgInvitesError("");
+    try {
+      const data = await request("GET", `/orgs/${orgId}/invites?active=1`);
+      setOrgInvitesList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setOrgInvitesError(err.message);
+    } finally {
+      setOrgInvitesBusy(false);
+    }
+  }
+
+  async function createOrgInvite() {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgInvitesBusy(true);
+    setOrgInvitesError("");
+    try {
+      const payload = {
+        expires_in_hours: Number(orgInviteDraft.expires_in_hours) || 168,
+        role: orgInviteDraft.role || "viewer",
+      };
+      const created = await request("POST", `/orgs/${orgId}/invites`, payload);
+      if (created?.code) {
+        await copyText(created.code);
+      }
+      await loadOrgInvites();
+    } catch (err) {
+      setOrgInvitesError(err.message);
+    } finally {
+      setOrgInvitesBusy(false);
+    }
+  }
+
+  async function revokeOrgInvite(inviteId) {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgInvitesBusy(true);
+    setOrgInvitesError("");
+    try {
+      await request("POST", `/orgs/${orgId}/invites/${inviteId}/revoke`, {});
+      await loadOrgInvites();
+    } catch (err) {
+      setOrgInvitesError(err.message);
+    } finally {
+      setOrgInvitesBusy(false);
     }
   }
 
@@ -2879,7 +2991,7 @@ function NodesPage() {
 
   return (
     <div className="app-shell">
-      <SidebarNav active={sidebarActive} />
+      <SidebarNav active={sidebarActive} isGlobalAdmin={isAdmin} isOrgAdmin={isOrgAdmin} />
       <div className="app-main">
         <header className="header">
           <div className="header-left" />
@@ -3944,129 +4056,206 @@ function NodesPage() {
       {usersOpen && (
         <div className="modal overlay-modal">
           <div className="modal-content">
-            <h3>{t("Users & roles")}</h3>
-            <div className="form-grid" autoComplete="off">
-              <input
-                name="user_name"
-                autoComplete="off"
-                placeholder={t("Username or email")}
-                value={usersDraft.name}
-                onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
-              />
-              <input
-                name="user_password"
-                autoComplete="new-password"
-                type="password"
-                placeholder={t("Password")}
-                value={usersDraft.password}
-                onChange={(e) => setUsersDraft({ ...usersDraft, password: e.target.value })}
-              />
-              <select
-                name="user_role"
-                value={usersDraft.role}
-                onChange={(e) => setUsersDraft({ ...usersDraft, role: e.target.value })}
-              >
-                <option value="admin">{t("Administrator")}</option>
-                <option value="operator">{t("Operator (no node delete)")}</option>
-                <option value="viewer">{t("Viewer (status only)")}</option>
-              </select>
-            </div>
-            <div className="actions">
-              <button
-                type="button"
-                onClick={createUser}
-                disabled={usersBusy}
-              >
-                {t("Add user")}
-              </button>
-              <button type="button" onClick={() => setUsersOpen(false)}>{t("Close")}</button>
-            </div>
-            <div className="table compact users-table">
-              <div className="table-row head">
-                <div>{t("Username")}</div>
-                <div>{t("Role")}</div>
-                <div>{t("Actions")}</div>
-              </div>
-              {usersList.map((user) => (
-                <div className="table-row" key={user.id}>
-                  <div>{user.username}</div>
-                  <div>
-                    <select
-                      value={user.role}
-                      onChange={(e) => setUsersList(usersList.map((u) => u.id === user.id ? { ...u, role: e.target.value } : u))}
-                    >
-                      <option value="admin">{t("Administrator")}</option>
-                      <option value="operator">{t("Operator")}</option>
-                      <option value="viewer">{t("Viewer")}</option>
-                    </select>
-                  </div>
-                  <div className="actions">
-                    <button type="button" onClick={() => updateUserRole(user)} disabled={usersBusy}>{t("Save")}</button>
-                    <button className="danger ghost" type="button" onClick={() => deleteUser(user)} disabled={usersBusy}>
-                      {t("Remove")}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {usersList.length === 0 && (
-                <div className="table-row">
-                  <div className="muted small">{t("No users yet")}</div>
-                </div>
-              )}
-            </div>
+            <h3>{isAdmin ? t("Users & roles") : t("Team & invites")}</h3>
 
-            <div className="section-divider" />
-            <h4>{t("Invites")}</h4>
-            <div className="form-grid" autoComplete="off">
-              <input
-                name="invite_org"
-                placeholder={t("Org name")}
-                value={inviteDraft.org_name}
-                onChange={(e) => setInviteDraft((prev) => ({ ...prev, org_name: e.target.value }))}
-              />
-              <input
-                name="invite_expiry"
-                type="number"
-                min="1"
-                placeholder={t("Expires (hours)")}
-                value={inviteDraft.expires_in_hours}
-                onChange={(e) => setInviteDraft((prev) => ({ ...prev, expires_in_hours: e.target.value }))}
-              />
-              <select
-                name="invite_role"
-                value={inviteDraft.role}
-                onChange={(e) => setInviteDraft((prev) => ({ ...prev, role: e.target.value }))}
-              >
-                <option value="owner">{t("Owner")}</option>
-                <option value="admin">{t("Administrator")}</option>
-              </select>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={createInvite} disabled={invitesBusy}>{t("Create invite")}</button>
-              <button type="button" className="secondary" onClick={loadInvites} disabled={invitesBusy}>{t("Refresh")}</button>
-            </div>
-            {invitesError && <div className="error">{invitesError}</div>}
-            <div className="table compact users-table">
-              <div className="table-row head">
-                <div>{t("Code")}</div>
-                <div>{t("Expires")}</div>
-                <div>{t("Actions")}</div>
-              </div>
-              {invitesList.map((invite) => (
-                <div className="table-row" key={invite.id}>
-                  <div className="mono">{invite.code}</div>
-                  <div>{formatTS(invite.expires_at)}</div>
-                  <div className="actions">
-                    <button className="secondary" type="button" onClick={() => copyText(invite.code)}>{t("Copy")}</button>
-                    <button className="danger ghost" type="button" onClick={() => revokeInvite(invite.id)} disabled={invitesBusy}>{t("Revoke")}</button>
+            {isAdmin && (
+              <>
+                <div className="form-grid" autoComplete="off">
+                  <input
+                    name="user_name"
+                    autoComplete="off"
+                    placeholder={t("Username or email")}
+                    value={usersDraft.name}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
+                  />
+                  <input
+                    name="user_password"
+                    autoComplete="new-password"
+                    type="password"
+                    placeholder={t("Password")}
+                    value={usersDraft.password}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, password: e.target.value })}
+                  />
+                  <select
+                    name="user_role"
+                    value={usersDraft.role}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, role: e.target.value })}
+                  >
+                    <option value="admin">{t("Administrator")}</option>
+                    <option value="operator">{t("Operator (no node delete)")}</option>
+                    <option value="viewer">{t("Viewer (status only)")}</option>
+                  </select>
+                </div>
+                <div className="actions">
+                  <button
+                    type="button"
+                    onClick={createUser}
+                    disabled={usersBusy}
+                  >
+                    {t("Add user")}
+                  </button>
+                </div>
+                <div className="table compact users-table">
+                  <div className="table-row head">
+                    <div>{t("Username")}</div>
+                    <div>{t("Role")}</div>
+                    <div>{t("Actions")}</div>
                   </div>
+                  {usersList.map((user) => (
+                    <div className="table-row" key={user.id}>
+                      <div>{user.username}</div>
+                      <div>
+                        <select
+                          value={user.role}
+                          onChange={(e) => setUsersList(usersList.map((u) => u.id === user.id ? { ...u, role: e.target.value } : u))}
+                        >
+                          <option value="admin">{t("Administrator")}</option>
+                          <option value="operator">{t("Operator")}</option>
+                          <option value="viewer">{t("Viewer")}</option>
+                        </select>
+                      </div>
+                      <div className="actions">
+                        <button type="button" onClick={() => updateUserRole(user)} disabled={usersBusy}>{t("Save")}</button>
+                        <button className="danger ghost" type="button" onClick={() => deleteUser(user)} disabled={usersBusy}>
+                          {t("Remove")}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {usersList.length === 0 && (
+                    <div className="table-row">
+                      <div className="muted small">{t("No users yet")}</div>
+                    </div>
+                  )}
                 </div>
-              ))}
-              {invitesList.length === 0 && (
-                <div className="table-row">
-                  <div className="muted small">{t("No active invites")}</div>
+              </>
+            )}
+
+            {isOrgAdmin && (
+              <>
+                <div className="section-divider" />
+                <h4>{t("Organization invites")}</h4>
+                <div className="form-grid" autoComplete="off">
+                  <input
+                    name="org_invite_expiry"
+                    type="number"
+                    min="1"
+                    placeholder={t("Expires (hours)")}
+                    value={orgInviteDraft.expires_in_hours}
+                    onChange={(e) => setOrgInviteDraft((prev) => ({ ...prev, expires_in_hours: e.target.value }))}
+                  />
+                  <select
+                    name="org_invite_role"
+                    value={orgInviteDraft.role}
+                    onChange={(e) => setOrgInviteDraft((prev) => ({ ...prev, role: e.target.value }))}
+                  >
+                    <option value="admin">{t("Administrator")}</option>
+                    <option value="viewer">{t("Viewer")}</option>
+                  </select>
                 </div>
-              )}
+                <div className="actions">
+                  <button type="button" onClick={createOrgInvite} disabled={orgInvitesBusy}>{t("Create invite")}</button>
+                  <button type="button" className="secondary" onClick={loadOrgInvites} disabled={orgInvitesBusy}>{t("Refresh")}</button>
+                </div>
+                {orgInvitesError && <div className="error">{orgInvitesError}</div>}
+                <div className="table compact users-table">
+                  <div className="table-row head">
+                    <div>{t("Code")}</div>
+                    <div>{t("Expires")}</div>
+                    <div>{t("Actions")}</div>
+                  </div>
+                  {orgInvitesList.map((invite) => (
+                    <div className="table-row" key={invite.id}>
+                      <div className="mono">{invite.code}</div>
+                      <div>{formatTS(invite.expires_at)}</div>
+                      <div className="actions">
+                        <button className="secondary" type="button" onClick={() => copyText(invite.code)}>{t("Copy")}</button>
+                        <button className="danger ghost" type="button" onClick={() => revokeOrgInvite(invite.id)} disabled={orgInvitesBusy}>{t("Revoke")}</button>
+                      </div>
+                    </div>
+                  ))}
+                  {orgInvitesList.length === 0 && (
+                    <div className="table-row">
+                      <div className="muted small">{t("No active invites")}</div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {isAdmin && (
+              <>
+                <div className="section-divider" />
+                <h4>{t("Admin invites")}</h4>
+                <div className="form-grid" autoComplete="off">
+                  <select
+                    name="invite_mode"
+                    value={inviteDraft.mode}
+                    onChange={(e) => setInviteDraft((prev) => ({ ...prev, mode: e.target.value }))}
+                  >
+                    <option value="create_private_stack">{t("Create private stack")}</option>
+                    <option value="join_root_stack">{t("Join root stack")}</option>
+                  </select>
+                  <input
+                    name="invite_org"
+                    placeholder={t("Org name")}
+                    value={inviteDraft.org_name}
+                    onChange={(e) => setInviteDraft((prev) => ({ ...prev, org_name: e.target.value }))}
+                    disabled={inviteDraft.mode !== "create_private_stack"}
+                  />
+                  <input
+                    name="invite_expiry"
+                    type="number"
+                    min="1"
+                    placeholder={t("Expires (hours)")}
+                    value={inviteDraft.expires_in_hours}
+                    onChange={(e) => setInviteDraft((prev) => ({ ...prev, expires_in_hours: e.target.value }))}
+                  />
+                  <select
+                    name="invite_role"
+                    value={inviteDraft.role}
+                    onChange={(e) => setInviteDraft((prev) => ({ ...prev, role: e.target.value }))}
+                    disabled={inviteDraft.mode === "create_private_stack"}
+                  >
+                    <option value="owner">{t("Owner")}</option>
+                    <option value="admin">{t("Administrator")}</option>
+                    <option value="viewer">{t("Viewer")}</option>
+                  </select>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={createInvite} disabled={invitesBusy}>{t("Create invite")}</button>
+                  <button type="button" className="secondary" onClick={loadInvites} disabled={invitesBusy}>{t("Refresh")}</button>
+                </div>
+                {invitesError && <div className="error">{invitesError}</div>}
+                <div className="table compact users-table">
+                  <div className="table-row head">
+                    <div>{t("Code")}</div>
+                    <div>{t("Mode")}</div>
+                    <div>{t("Expires")}</div>
+                    <div>{t("Actions")}</div>
+                  </div>
+                  {invitesList.map((invite) => (
+                    <div className="table-row" key={invite.id}>
+                      <div className="mono">{invite.code}</div>
+                      <div>{invite.mode || "-"}</div>
+                      <div>{formatTS(invite.expires_at)}</div>
+                      <div className="actions">
+                        <button className="secondary" type="button" onClick={() => copyText(invite.code)}>{t("Copy")}</button>
+                        <button className="danger ghost" type="button" onClick={() => revokeInvite(invite.id)} disabled={invitesBusy}>{t("Revoke")}</button>
+                      </div>
+                    </div>
+                  ))}
+                  {invitesList.length === 0 && (
+                    <div className="table-row">
+                      <div className="muted small">{t("No active invites")}</div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="actions">
+              <button type="button" onClick={() => setUsersOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>
@@ -4163,6 +4352,10 @@ function DashboardPage() {
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
   const user = getUser();
+  const role = getRole();
+  const orgRole = getOrgRole();
+  const isGlobalAdmin = role === "admin";
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
   const [aggregate, setAggregate] = useState({
@@ -4504,7 +4697,7 @@ function DashboardPage() {
 
   return (
     <div className="app-shell">
-      <SidebarNav active="dashboard" />
+      <SidebarNav active="dashboard" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
       <div className="app-main">
         <header className="header">
           <div className="header-left" />
@@ -4880,6 +5073,10 @@ function DashboardPage() {
 function FilesPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const role = getRole();
+  const orgRole = getOrgRole();
+  const isGlobalAdmin = role === "admin";
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [nodeId, setNodeId] = useState("");
   const [roots, setRoots] = useState([]);
@@ -4893,8 +5090,18 @@ function FilesPage() {
   const [preview, setPreview] = useState({ open: false, entry: null, content: "", imageUrl: "", note: "", editable: false });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
-  const role = getRole();
-  const canWrite = role === "admin";
+  const canWrite = isGlobalAdmin;
+
+  if (!isGlobalAdmin) {
+    return (
+      <div className="page">
+        <SidebarNav active="files" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+        <div className="content">
+          <div className="muted">{t("Access denied")}</div>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     let active = true;
@@ -5186,7 +5393,7 @@ function FilesPage() {
 
   return (
     <div className="app-shell">
-      <SidebarNav active="files" />
+      <SidebarNav active="files" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
       <div className="app-main">
         <div className="page page-wide">
       <header className="header">
@@ -5341,6 +5548,10 @@ function FilesPage() {
 
 function DbWorkPage() {
   const { t } = useI18n();
+  const role = getRole();
+  const orgRole = getOrgRole();
+  const isGlobalAdmin = role === "admin";
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [nodeId, setNodeId] = useState("");
   const [tab, setTab] = useState("sqlite");
@@ -5428,9 +5639,20 @@ function DbWorkPage() {
     }
   }
 
+  if (!isGlobalAdmin) {
+    return (
+      <div className="page">
+        <SidebarNav active="dbwork" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+        <div className="content">
+          <div className="muted">{t("Access denied")}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
-      <SidebarNav active="dbwork" />
+      <SidebarNav active="dbwork" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
       <div className="app-main">
         <div className="page page-wide">
           <header className="header">

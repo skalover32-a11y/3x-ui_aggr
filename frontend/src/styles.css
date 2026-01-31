@@ -843,6 +843,9 @@ button.ghost:hover {
 
 .modal-content.auth-modal {
   width: min(520px, 92vw);
+  background: #0b1220;
+  border: 1px solid #1f2937;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 .node-details-content {
