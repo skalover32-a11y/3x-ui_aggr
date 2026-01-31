@@ -10,6 +10,7 @@ import (
 
 type Node struct {
 	ID                uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID             *uuid.UUID     `gorm:"type:uuid" json:"org_id,omitempty"`
 	Name              string         `gorm:"type:text;not null" json:"name"`
 	Kind              string         `gorm:"type:text;not null;default:'PANEL'" json:"kind"`
 	Tags              pq.StringArray `gorm:"type:text[]" json:"tags"`
@@ -43,6 +44,37 @@ type Node struct {
 	VersionsCheckedAt *time.Time     `json:"versions_checked_at"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
+}
+
+type Organization struct {
+	ID          uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Name        string    `gorm:"type:text;not null" json:"name"`
+	OwnerUserID uuid.UUID `gorm:"type:uuid;not null" json:"owner_user_id"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type OrganizationMember struct {
+	OrgID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"org_id"`
+	UserID    uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	Role      string    `gorm:"type:org_role;not null" json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type AgentCredential struct {
+	NodeID     uuid.UUID  `gorm:"type:uuid;primaryKey" json:"node_id"`
+	TokenHash  string     `gorm:"type:text;not null" json:"-"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
+}
+
+type NodeRegistrationToken struct {
+	ID        uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	NodeID    uuid.UUID  `gorm:"type:uuid;not null" json:"node_id"`
+	TokenHash string     `gorm:"type:text;not null" json:"-"`
+	ExpiresAt time.Time  `gorm:"type:timestamptz;not null" json:"expires_at"`
+	UsedAt    *time.Time `gorm:"type:timestamptz" json:"used_at"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type Service struct {

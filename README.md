@@ -22,6 +22,7 @@ MVP aggregator for managing multiple 3x-ui panels: nodes list, inbounds CRUD, Xr
    ADMIN_USER=admin
    ADMIN_PASS=admin123
    JWT_SECRET=supersecretjwt
+   TOKEN_SALT=change-me
    ```
 3. Run (postgres -> migrate -> backend -> frontend):
    ```bash
@@ -40,6 +41,7 @@ make run
 - `AGG_MASTER_KEY_BASE64` (required) 32 bytes, base64
 - `ADMIN_USER` / `ADMIN_PASS` (required)
 - `JWT_SECRET` (required)
+- `TOKEN_SALT` (required, used to hash agent/registration tokens)
 - `ACCESS_TOKEN_TTL` (optional, default `24h`, overrides `JWT_EXP_HOURS`)
 - `JWT_EXP_HOURS` (optional, default 24, legacy)
 - `REFRESH_TOKEN_TTL` (optional, default `720h`)
@@ -51,7 +53,7 @@ make run
 - `PORT` (optional, default 8080)
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
-- `PUBLIC_BASE_URL` (optional, for Telegram alert buttons, example: `https://aggr.example.com`)
+- `PUBLIC_BASE_URL` (optional, for Telegram alert buttons; required to build agent install_command, example: `https://aggr.example.com`)
 - `NODE_AGENT_ADDR` (node-agent, optional, default `:9090`)
 - `NODE_AGENT_TOKEN` (node-agent, optional bearer token)
 - `NODE_AGENT_ALLOWLIST` (node-agent, optional comma-separated IP allowlist)

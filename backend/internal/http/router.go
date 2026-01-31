@@ -34,6 +34,8 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.GET("/settings/public", h.GetPublicSettings)
 	api.GET("/dashboard/stream", h.DashboardStream)
 	api.GET("/agent/ping", h.AgentPing)
+	api.POST("/agent/register", h.AgentRegister)
+	api.POST("/agent/heartbeat", h.AgentAuth(), h.AgentHeartbeat)
 	api.GET("/ops/jobs/:id/public", h.GetOpsJobPublic)
 	api.GET("/ops/jobs/:id", h.OpsReadAuth(), h.GetOpsJob)
 	api.GET("/ops/jobs/:id/items", h.OpsReadAuth(), h.GetOpsJobItems)
@@ -43,6 +45,16 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	readRoles := []string{middleware.RoleAdmin, middleware.RoleOperator, middleware.RoleViewer}
 	writeRoles := []string{middleware.RoleAdmin, middleware.RoleOperator}
+
+	auth.GET("/orgs", middleware.RequireRoles(readRoles...), h.ListOrgs)
+	auth.POST("/orgs", middleware.RequireRoles(writeRoles...), h.CreateOrg)
+	orgsRead := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, h.AdminUser, "viewer"))
+	orgsWrite := auth.Group("/orgs/:orgId", middleware.RequireOrgRole(h.DB, h.AdminUser, "admin"))
+	orgsRead.GET("/nodes", h.ListOrgNodes)
+	orgsRead.GET("/nodes/:nodeId", h.GetOrgNode)
+	orgsWrite.POST("/nodes", h.CreateOrgNode)
+	orgsWrite.DELETE("/nodes/:nodeId", h.DeleteOrgNode)
+	orgsWrite.POST("/nodes/:nodeId/agent/revoke", h.RevokeAgent)
 
 	auth.GET("/nodes", middleware.RequireRoles(readRoles...), h.ListNodes)
 	auth.GET("/nodes/:id", middleware.RequireRoles(readRoles...), h.GetNode)

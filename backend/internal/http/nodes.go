@@ -75,6 +75,7 @@ type nodeUpdateRequest struct {
 
 type nodeResponse struct {
 	ID                string          `json:"id"`
+	OrgID             *string         `json:"org_id,omitempty"`
 	Name              string          `json:"name"`
 	Kind              string          `json:"kind"`
 	Tags              []string        `json:"tags"`
@@ -112,8 +113,14 @@ type nodeResponse struct {
 func toNodeResponse(node *db.Node) nodeResponse {
 	agentInstalled := node.AgentInstalled || node.AgentEnabled
 	agentOnline := computeAgentOnline(node.AgentLastSeenAt, agentInstalled, 90*time.Second)
+	var orgID *string
+	if node.OrgID != nil {
+		idStr := node.OrgID.String()
+		orgID = &idStr
+	}
 	return nodeResponse{
 		ID:                node.ID.String(),
+		OrgID:             orgID,
 		Name:              node.Name,
 		Kind:              node.Kind,
 		Tags:              []string(node.Tags),

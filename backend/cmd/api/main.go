@@ -90,6 +90,8 @@ func main() {
 		SSHIdleTimeout:      cfg.SSHIdleTimeout,
 		MasterKey:           cfg.MasterKeyB64,
 		AllowCIDR:           cfg.AllowCIDR,
+		TokenSalt:           cfg.TokenSalt,
+		PublicBaseURL:       cfg.PublicBaseURL,
 	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)

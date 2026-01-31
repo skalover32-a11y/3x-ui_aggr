@@ -47,6 +47,8 @@ type Handler struct {
 	SSHIdleTimeout      time.Duration
 	MasterKey           string
 	AllowCIDR           string
+	TokenSalt           string
+	PublicBaseURL       string
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {

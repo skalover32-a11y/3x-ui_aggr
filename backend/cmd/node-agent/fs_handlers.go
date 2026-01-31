@@ -10,7 +10,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"agr_3x_ui/internal/agentfs"
@@ -348,7 +347,8 @@ func (s *state) fsUploadHandler(w http.ResponseWriter, r *http.Request) {
 		written, err := io.Copy(out, agentfs.LimitReader(part, maxBytes))
 		_ = out.Close()
 		if err != nil {
-			if errors.As(err, &http.MaxBytesError{}) {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
 				writeFSError(w, http.StatusBadRequest, "too_large", "upload too large")
 				return
 			}
@@ -450,12 +450,4 @@ func writeFSError(w http.ResponseWriter, status int, code string, message string
 			"message": message,
 		},
 	})
-}
-
-func fileOwner(info os.FileInfo) (int, int) {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0
-	}
-	return int(stat.Uid), int(stat.Gid)
 }

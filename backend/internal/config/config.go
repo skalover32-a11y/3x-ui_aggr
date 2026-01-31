@@ -14,6 +14,7 @@ type Config struct {
 	AdminPass                    string
 	JWTSecret                    string
 	MasterKeyB64                 string
+	TokenSalt                    string
 	JWTExpiry                    time.Duration
 	AccessTokenTTL               time.Duration
 	RefreshTokenTTL              time.Duration
@@ -47,6 +48,7 @@ func Load() (*Config, error) {
 		JWTSecret:     strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		MasterKeyB64:  strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
 		PublicBaseURL: strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
+		TokenSalt:     strings.TrimSpace(os.Getenv("TOKEN_SALT")),
 		AuthRPID:      strings.TrimSpace(os.Getenv("AUTH_RP_ID")),
 		AuthRPOrigin:  strings.TrimSpace(os.Getenv("AUTH_RP_ORIGIN")),
 	}
@@ -95,7 +97,7 @@ func Load() (*Config, error) {
 	cfg.DashboardPanelSessionTTL = parseDurationAllowZeroEnv("DASHBOARD_PANEL_SESSION_TTL", 12*time.Hour)
 	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
 	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
-	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" {
+	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" || cfg.TokenSalt == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
 	maxSessions := strings.TrimSpace(os.Getenv("GLOBAL_MAX_SSH_SESSIONS"))
