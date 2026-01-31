@@ -28,6 +28,18 @@ export function clearAuth() {
   localStorage.removeItem("agg_user");
 }
 
+export function getOrgId() {
+  return localStorage.getItem("agg_org_id") || "";
+}
+
+export function setOrgId(orgId) {
+  if (orgId) {
+    localStorage.setItem("agg_org_id", orgId);
+  } else {
+    localStorage.removeItem("agg_org_id");
+  }
+}
+
 export function getRole() {
   return localStorage.getItem("agg_role") || "admin";
 }

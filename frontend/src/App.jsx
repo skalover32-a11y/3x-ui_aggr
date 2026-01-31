@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser, getOrgId, setOrgId, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
@@ -273,7 +273,7 @@ function SidebarNav({ active }) {
 
   const infraItems = [
     { key: "nodes", label: t("Nodes"), path: "/nodes" },
-    { key: "panels", label: t("3x-ui Panels"), path: "/nodes?view=panel" },
+    { key: "panels", label: t("3x-ui Panels"), path: "/panels" },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
     { key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true },
@@ -506,11 +506,19 @@ function RequireAuth({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [checking, setChecking] = useState(true);
+  const [orgReady, setOrgReady] = useState(false);
   useEffect(() => {
     let active = true;
     async function ensureAuth() {
       if (getToken()) {
-        if (active) setChecking(false);
+        try {
+          await ensureOrg();
+        } finally {
+          if (active) {
+            setOrgReady(true);
+            setChecking(false);
+          }
+        }
         return;
       }
       try {
@@ -518,10 +526,35 @@ function RequireAuth({ children }) {
         if (data?.token) {
           setAuth(data.token, data.role, data.username);
         }
+        await ensureOrg();
       } catch {
         navigate("/login", { replace: true, state: { from: location.pathname } });
       } finally {
-        if (active) setChecking(false);
+        if (active) {
+          setOrgReady(true);
+          setChecking(false);
+        }
+      }
+    }
+    async function ensureOrg() {
+      try {
+        const orgs = await request("GET", "/orgs");
+        const stored = getOrgId();
+        const found = Array.isArray(orgs) ? orgs.find((org) => org.id === stored) : null;
+        if (found) {
+          setOrgId(found.id);
+          return;
+        }
+        if (Array.isArray(orgs) && orgs.length > 0) {
+          setOrgId(orgs[0].id);
+          return;
+        }
+        const created = await request("POST", "/orgs", { name: "Personal" });
+        if (created?.id) {
+          setOrgId(created.id);
+        }
+      } catch {
+        // keep silent, org flows may be unavailable for admin-only sessions
       }
     }
     ensureAuth();
@@ -529,7 +562,7 @@ function RequireAuth({ children }) {
       active = false;
     };
   }, [navigate, location]);
-  if (checking) {
+  if (checking || !orgReady) {
     return <div className="page center"><div className="muted">Loading...</div></div>;
   }
   return children;
@@ -654,6 +687,315 @@ function LoginPage() {
         </button>
         {!webAuthnSupported && <div className="hint">{t("Passkeys are not supported in this browser.")}</div>}
       </form>
+    </div>
+  );
+}
+
+function PanelsSelfServicePage() {
+  const { t, lang, setLang } = useI18n();
+  const navigate = useNavigate();
+  const user = getUser();
+  const [orgId, setOrgIdState] = useState(getOrgId());
+  const [nodes, setNodes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [installCommand, setInstallCommand] = useState("");
+  const [createdNodeId, setCreatedNodeId] = useState("");
+  const [pollState, setPollState] = useState({ status: "idle", online: false });
+  const pollRef = useRef(null);
+  const [form, setForm] = useState({
+    name: "",
+    host: "",
+    type: "PANEL",
+    base_url: "",
+    panel_username: "",
+    panel_password: "",
+  });
+
+  const now = Date.now();
+  const isOnline = (node) => {
+    if (!node?.agent_last_seen_at) return false;
+    const ts = new Date(node.agent_last_seen_at).getTime();
+    if (!Number.isFinite(ts)) return false;
+    return now - ts < 2 * 60 * 1000;
+  };
+
+  async function loadNodes() {
+    if (!orgId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await request("GET", `/orgs/${orgId}/nodes`);
+      setNodes(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const stored = getOrgId();
+    if (stored && stored !== orgId) {
+      setOrgIdState(stored);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    loadNodes();
+  }, [orgId]);
+
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+  }, []);
+
+  function resetWizard() {
+    setWizardStep(1);
+    setInstallCommand("");
+    setCreatedNodeId("");
+    setPollState({ status: "idle", online: false });
+    setForm({
+      name: "",
+      host: "",
+      type: "PANEL",
+      base_url: "",
+      panel_username: "",
+      panel_password: "",
+    });
+  }
+
+  async function createNode() {
+    if (!orgId) return;
+    setError("");
+    const payload = {
+      name: form.name,
+      kind: form.type,
+      host: form.host,
+      ssh_host: form.host,
+      ssh_port: 22,
+      ssh_user: "root",
+      ssh_key: "",
+      ssh_enabled: false,
+    };
+    if (form.type === "PANEL") {
+      payload.base_url = form.base_url;
+      payload.panel_username = form.panel_username;
+      payload.panel_password = form.panel_password;
+    }
+    try {
+      const created = await request("POST", `/orgs/${orgId}/nodes`, payload);
+      setInstallCommand(created.install_command || "");
+      setCreatedNodeId(created.node?.id || "");
+      setWizardStep(2);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function startPolling() {
+    if (!orgId || !createdNodeId) return;
+    setPollState({ status: "waiting", online: false });
+    const start = Date.now();
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await request("GET", `/orgs/${orgId}/nodes`);
+        const node = Array.isArray(data) ? data.find((n) => n.id === createdNodeId) : null;
+        if (node && node.agent_last_seen_at) {
+          const ts = new Date(node.agent_last_seen_at).getTime();
+          if (Number.isFinite(ts) && Date.now() - ts < 2 * 60 * 1000) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+            setPollState({ status: "online", online: true });
+            setNodes(Array.isArray(data) ? data : []);
+          }
+        }
+      } catch {
+        // ignore while polling
+      }
+      if (Date.now() - start > 60000) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setPollState({ status: "timeout", online: false });
+      }
+    }, 2000);
+  }
+
+  async function revokeAgent(nodeId) {
+    if (!orgId) return;
+    setError("");
+    try {
+      await request("POST", `/orgs/${orgId}/nodes/${nodeId}/agent/revoke`, {});
+      loadNodes();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteNode(nodeId) {
+    if (!orgId) return;
+    if (!window.confirm(t("Delete node?"))) return;
+    setError("");
+    try {
+      await request("DELETE", `/orgs/${orgId}/nodes/${nodeId}`);
+      loadNodes();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="app-shell">
+      <SidebarNav active="panels" />
+      <div className="app-main">
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
+                <option value="ru">{t("Russian")}</option>
+                <option value="fa">{t("Persian")}</option>
+              </select>
+            </div>
+            <div className="header-user">
+              {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+              <button
+                onClick={async () => {
+                  try {
+                    await request("POST", "/auth/logout", {});
+                  } catch {
+                  }
+                  clearAuth();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("Logout")}
+              </button>
+            </div>
+          </div>
+        </header>
+        <div className="page">
+          <div className="page-header">
+            <div>
+              <h1>{t("3x-ui Panels")}</h1>
+              <div className="muted small">{t("Self-service panels")}</div>
+            </div>
+            <div className="page-actions">
+              <button className="primary" onClick={() => { resetWizard(); setWizardOpen(true); }}>{t("Add panel")}</button>
+              <button className="secondary" onClick={loadNodes} disabled={loading}>{t("Refresh")}</button>
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="data-table nodes-table">
+            <div className="table-head">
+              <div>{t("Name")}</div>
+              <div>{t("Host")}</div>
+              <div>{t("Created")}</div>
+              <div>{t("Agent status")}</div>
+              <div>{t("Last seen")}</div>
+              <div>{t("Actions")}</div>
+            </div>
+            {nodes.map((node) => (
+              <div key={node.id} className="table-row">
+                <div>{node.name}</div>
+                <div>{node.host || "-"}</div>
+                <div>{formatTS(node.created_at)}</div>
+                <div>
+                  <StatusBadge status={isOnline(node) ? "online" : "offline"} />
+                </div>
+                <div>{formatTS(node.agent_last_seen_at)}</div>
+                <div className="table-actions">
+                  <button className="secondary" onClick={() => revokeAgent(node.id)}>{t("Revoke agent")}</button>
+                  <button className="danger" onClick={() => deleteNode(node.id)}>{t("Delete")}</button>
+                </div>
+              </div>
+            ))}
+            {nodes.length === 0 && !loading && (
+              <div className="table-empty">{t("No data")}</div>
+            )}
+          </div>
+
+          {wizardOpen && (
+            <div className="modal-backdrop" onClick={() => setWizardOpen(false)}>
+              <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>{t("Add panel")}</h3>
+                  <button className="icon-button" onClick={() => setWizardOpen(false)}>×</button>
+                </div>
+                <div className="modal-body">
+                  {wizardStep === 1 && (
+                    <div className="form-grid">
+                      <label>
+                        {t("Name")}
+                        <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+                      </label>
+                      <label>
+                        {t("Host")}
+                        <input value={form.host} onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value, base_url: prev.base_url || `https://${e.target.value}/x-ui/` }))} />
+                      </label>
+                      <label>
+                        {t("Type")}
+                        <select value={form.type} onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value }))}>
+                          <option value="PANEL">{t("Panel")}</option>
+                          <option value="HOST">{t("Host")}</option>
+                        </select>
+                      </label>
+                      {form.type === "PANEL" && (
+                        <>
+                          <label>
+                            {t("Base URL")}
+                            <input value={form.base_url} onChange={(e) => setForm((prev) => ({ ...prev, base_url: e.target.value }))} />
+                          </label>
+                          <label>
+                            {t("Panel username")}
+                            <input value={form.panel_username} onChange={(e) => setForm((prev) => ({ ...prev, panel_username: e.target.value }))} />
+                          </label>
+                          <label>
+                            {t("Panel password")}
+                            <input type="password" value={form.panel_password} onChange={(e) => setForm((prev) => ({ ...prev, panel_password: e.target.value }))} />
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {wizardStep === 2 && (
+                    <div className="stack">
+                      <div className="muted">{t("Install command")}</div>
+                      <pre className="code-block">{installCommand}</pre>
+                      <button className="secondary" onClick={() => copyText(installCommand)}>{t("Copy")}</button>
+                    </div>
+                  )}
+                  {wizardStep === 3 && (
+                    <div className="stack">
+                      {pollState.status === "waiting" && <div className="muted">{t("Waiting for agent...")}</div>}
+                      {pollState.status === "timeout" && <div className="error">{t("Agent did not connect in time")}</div>}
+                      {pollState.online && <div className="success">{t("Ready")}</div>}
+                    </div>
+                  )}
+                </div>
+                <div className="modal-actions">
+                  {wizardStep === 1 && (
+                    <button className="primary" onClick={createNode}>{t("Create")}</button>
+                  )}
+                  {wizardStep === 2 && (
+                    <button className="primary" onClick={() => { setWizardStep(3); startPolling(); }}>{t("Next")}</button>
+                  )}
+                  {wizardStep === 3 && (
+                    <button className="primary" onClick={() => { setWizardOpen(false); loadNodes(); }}>{t("Done")}</button>
+                  )}
+                  <button className="secondary" onClick={() => setWizardOpen(false)}>{t("Close")}</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -5152,6 +5494,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/panels"
+          element={
+            <RequireAuth>
+              <PanelsSelfServicePage />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/nodes"
           element={
