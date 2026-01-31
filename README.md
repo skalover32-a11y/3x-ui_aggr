@@ -68,6 +68,24 @@ make run
 - `AGG_ALLOW_CIDR` (optional, default allow CIDR for agent deploy)
 - `AGG_REPO_PATH` (optional, default `/opt/3x-ui_aggr`, used to build vlf-agent)
 
+## Invite-only signup
+Registration is invite-only. Admin creates invites, users sign up with invite code.
+
+Create invite (admin JWT required):
+```bash
+curl -s http://localhost:8080/api/admin/invites \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"expires_in_hours":168,"org_name":"Personal","role":"owner"}'
+```
+
+Signup with invite:
+```bash
+curl -s http://localhost:8080/api/signup \
+  -H "Content-Type: application/json" \
+  -d '{"invite_code":"INV_xxx","username":"user","password":"strongpass123"}'
+```
+
 ## Node types
 - **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
 - **HOST**: SSH-only node. No panel required; use service checks for HTTP endpoints.

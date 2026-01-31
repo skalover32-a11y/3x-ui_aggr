@@ -596,6 +596,9 @@ function LoginPage() {
   const [recoveryCode, setRecoveryCode] = useState("");
   const [recoveryStatus, setRecoveryStatus] = useState("");
   const [error, setError] = useState("");
+  const [signupOpen, setSignupOpen] = useState(false);
+  const [signupError, setSignupError] = useState("");
+  const [signupForm, setSignupForm] = useState({ invite_code: "", username: "", password: "" });
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const navigate = useNavigate();
   const webAuthnSupported = typeof window !== "undefined" && Boolean(window.PublicKeyCredential);
@@ -656,6 +659,33 @@ function LoginPage() {
     }
   }
 
+  function mapSignupError(err) {
+    const code = err?.data?.error?.code;
+    if (code === "INVITE_INVALID" || code === "INVITE_EXPIRED" || code === "INVITE_USED") {
+      return t("Invite invalid or expired");
+    }
+    if (code === "USER_EXISTS") {
+      return t("User already exists");
+    }
+    if (code === "RATE_LIMIT") {
+      return t("Too many attempts, try later");
+    }
+    return err?.message || t("Request failed");
+  }
+
+  async function onSignupSubmit(e) {
+    e.preventDefault();
+    setSignupError("");
+    try {
+      const data = await request("POST", "/signup", signupForm);
+      setAuth(data.token, data.role, data.username);
+      setSignupOpen(false);
+      navigate("/panels");
+    } catch (err) {
+      setSignupError(mapSignupError(err));
+    }
+  }
+
   return (
     <div className="page center">
       <form className="card" onSubmit={onSubmit} autoComplete="on">
@@ -685,8 +715,40 @@ function LoginPage() {
         <button type="button" className="secondary" onClick={onPasskeyLogin} disabled={!webAuthnSupported || passkeyBusy}>
           {passkeyBusy ? t("Loading...") : t("Login with Passkey")}
         </button>
+        <button type="button" className="ghost" onClick={() => setSignupOpen(true)}>
+          {t("Create account by invite")}
+        </button>
         {!webAuthnSupported && <div className="hint">{t("Passkeys are not supported in this browser.")}</div>}
       </form>
+      {signupOpen && (
+        <div className="modal-backdrop" onClick={() => setSignupOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{t("Invite-only signup")}</h3>
+              <button className="icon-button" onClick={() => setSignupOpen(false)}>×</button>
+            </div>
+            <form className="modal-body" onSubmit={onSignupSubmit}>
+              <label>
+                {t("Invite code")}
+                <input value={signupForm.invite_code} onChange={(e) => setSignupForm((prev) => ({ ...prev, invite_code: e.target.value }))} />
+              </label>
+              <label>
+                {t("Username")}
+                <input value={signupForm.username} onChange={(e) => setSignupForm((prev) => ({ ...prev, username: e.target.value }))} />
+              </label>
+              <label>
+                {t("Password")}
+                <input type="password" value={signupForm.password} onChange={(e) => setSignupForm((prev) => ({ ...prev, password: e.target.value }))} />
+              </label>
+              {signupError && <div className="error">{signupError}</div>}
+              <div className="modal-actions">
+                <button type="submit" className="primary">{t("Create account")}</button>
+                <button type="button" className="secondary" onClick={() => setSignupOpen(false)}>{t("Close")}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

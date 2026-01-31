@@ -25,6 +25,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	api.POST("/auth/login", h.Login)
 	api.POST("/auth/refresh", h.Refresh)
 	api.POST("/auth/logout", h.Logout)
+	api.POST("/signup", h.Signup)
 	api.POST("/auth/2fa/recovery", h.SendRecoveryCode)
 	api.POST("/auth/webauthn/login/options", h.WebAuthnLoginOptions)
 	api.POST("/auth/webauthn/login/verify", h.WebAuthnLoginVerify)
@@ -154,6 +155,9 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/users", middleware.RequireRoles(middleware.RoleAdmin), h.CreateUser)
 	auth.PATCH("/users/:id", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateUser)
 	auth.DELETE("/users/:id", middleware.RequireRoles(middleware.RoleAdmin), h.DeleteUser)
+	auth.POST("/admin/invites", middleware.RequireRoles(middleware.RoleAdmin), h.AdminCreateInvite)
+	auth.GET("/admin/invites", middleware.RequireRoles(middleware.RoleAdmin), h.AdminListInvites)
+	auth.POST("/admin/invites/:id/revoke", middleware.RequireRoles(middleware.RoleAdmin), h.AdminRevokeInvite)
 
 	auth.GET("/auth/2fa/status", middleware.RequireRoles(readRoles...), h.GetTOTPStatus)
 	auth.POST("/auth/2fa/setup", middleware.RequireRoles(writeRoles...), h.SetupTOTP)

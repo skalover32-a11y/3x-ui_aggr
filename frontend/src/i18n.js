@@ -35,6 +35,14 @@ if (typeof window !== "undefined") {
 
 const STRINGS = {
   en: {
+    "Create account by invite": "Create account by invite",
+    "Invite-only signup": "Invite-only signup",
+    "Invite code": "Invite code",
+    "Create account": "Create account",
+    "Invite invalid or expired": "Invite code is invalid or expired",
+    "User already exists": "User already exists",
+    "Too many attempts, try later": "Too many attempts, try later",
+    "Request failed": "Request failed",
     "Self-service panels": "Self-service panels",
     "Add panel": "Add panel",
     "Agent status": "Agent status",
@@ -578,6 +586,14 @@ const STRINGS = {
     "Dest Override": "Dest Override"
   },
   ru: {
+    "Create account by invite": "Создать аккаунт по приглашению",
+    "Invite-only signup": "Регистрация по приглашению",
+    "Invite code": "Код приглашения",
+    "Create account": "Создать аккаунт",
+    "Invite invalid or expired": "Код приглашения недействителен или истёк",
+    "User already exists": "Пользователь уже существует",
+    "Too many attempts, try later": "Слишком много попыток, попробуйте позже",
+    "Request failed": "Запрос не удался",
     "Self-service panels": "Самообслуживание панелей",
     "Add panel": "Добавить панель",
     "Agent status": "Статус агента",
@@ -1045,6 +1061,14 @@ const STRINGS = {
     "Dest Override": "Dest Override"
   },
   fa: {
+    "Create account by invite": "ایجاد حساب با دعوت‌نامه",
+    "Invite-only signup": "ثبت‌نام فقط با دعوت‌نامه",
+    "Invite code": "کد دعوت",
+    "Create account": "ایجاد حساب",
+    "Invite invalid or expired": "کد دعوت نامعتبر است یا منقضی شده",
+    "User already exists": "کاربر از قبل وجود دارد",
+    "Too many attempts, try later": "تلاش‌های زیاد، بعداً امتحان کنید",
+    "Request failed": "درخواست ناموفق بود",
     "Self-service panels": "پنل‌های سلف‌سرویس",
     "Add panel": "افزودن پنل",
     "Agent status": "وضعیت عامل",

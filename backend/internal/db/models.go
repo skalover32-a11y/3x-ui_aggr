@@ -77,6 +77,18 @@ type NodeRegistrationToken struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type Invite struct {
+	ID              uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Code            string     `gorm:"type:text;unique;not null" json:"code"`
+	CreatedByUserID *uuid.UUID `gorm:"type:uuid" json:"created_by_user_id,omitempty"`
+	Role            string     `gorm:"type:text;not null;default:'owner'" json:"role"`
+	OrgName         *string    `gorm:"type:text" json:"org_name,omitempty"`
+	ExpiresAt       time.Time  `gorm:"type:timestamptz;not null" json:"expires_at"`
+	UsedAt          *time.Time `gorm:"type:timestamptz" json:"used_at,omitempty"`
+	UsedByUserID    *uuid.UUID `gorm:"type:uuid" json:"used_by_user_id,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}
+
 type Service struct {
 	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	NodeID         uuid.UUID      `gorm:"type:uuid;not null" json:"node_id"`
