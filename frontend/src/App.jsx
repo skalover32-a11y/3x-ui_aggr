@@ -4459,7 +4459,12 @@ function FilesPage() {
       }));
       setEntries(mapped);
     } catch (err) {
-      setError(err.message);
+      const code = err?.data?.error?.code;
+      if (code === "AGENT_UNSUPPORTED") {
+        setError(t("Node agent is outdated. Redeploy agent to enable full filesystem."));
+      } else {
+        setError(err.message);
+      }
     } finally {
       setBusy(false);
     }

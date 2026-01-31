@@ -418,6 +418,10 @@ func (h *Handler) agentDo(ctx context.Context, node *db.Node, method, path strin
 }
 
 func (h *Handler) proxyAgentError(c *gin.Context, resp *http.Response) {
+	if resp.StatusCode == http.StatusNotFound {
+		respondError(c, http.StatusBadGateway, "AGENT_UNSUPPORTED", "node-agent is outdated; redeploy agent to enable full filesystem")
+		return
+	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if len(raw) == 0 {
 		respondError(c, http.StatusBadGateway, "AGENT_ERROR", "agent error")

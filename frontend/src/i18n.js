@@ -395,6 +395,7 @@ const STRINGS = {
     "File is not text": "File is not text",
     "File saved": "File saved",
     "Save failed": "Save failed",
+    "Node agent is outdated. Redeploy agent to enable full filesystem.": "Node agent is outdated. Redeploy agent to enable full filesystem.",
     "Delete folder {name}? This cannot be undone.": "Delete folder {name}? This cannot be undone.",
     "Folder": "Folder",
     "Actions": "Actions",
@@ -849,6 +850,7 @@ const STRINGS = {
     "File is not text": "Файл не является текстовым",
     "File saved": "Файл сохранён",
     "Save failed": "Не удалось сохранить",
+    "Node agent is outdated. Redeploy agent to enable full filesystem.": "Node-agent устарел. Обновите агент для доступа к полной файловой системе.",
     "Delete folder {name}? This cannot be undone.": "Удалить папку {name}? Это действие необратимо.",
     "Folder": "Папка",
     "Actions": "Действия",
@@ -1310,6 +1312,7 @@ const STRINGS = {
     "File is not text": "فایل متنی نیست",
     "File saved": "فایل ذخیره شد",
     "Save failed": "ذخیره ناموفق بود",
+    "Node agent is outdated. Redeploy agent to enable full filesystem.": "عامل نود قدیمی است. برای دسترسی کامل به فایل‌سیستم، عامل را به‌روزرسانی کنید.",
     "Delete folder {name}? This cannot be undone.": "پوشه {name} حذف شود؟ این عملیات قابل بازگشت نیست."
   },
 };
