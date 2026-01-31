@@ -35,6 +35,15 @@ if (typeof window !== "undefined") {
 
 const STRINGS = {
   en: {
+    "Invites": "Invites",
+    "Org name": "Org name",
+    "Expires (hours)": "Expires (hours)",
+    "Owner": "Owner",
+    "Create invite": "Create invite",
+    "Code": "Code",
+    "Expires": "Expires",
+    "Revoke": "Revoke",
+    "No active invites": "No active invites",
     "Create account by invite": "Create account by invite",
     "Invite-only signup": "Invite-only signup",
     "Invite code": "Invite code",
@@ -586,6 +595,15 @@ const STRINGS = {
     "Dest Override": "Dest Override"
   },
   ru: {
+    "Invites": "Приглашения",
+    "Org name": "Название org",
+    "Expires (hours)": "Срок (часы)",
+    "Owner": "Владелец",
+    "Create invite": "Создать приглашение",
+    "Code": "Код",
+    "Expires": "Истекает",
+    "Revoke": "Отозвать",
+    "No active invites": "Нет активных приглашений",
     "Create account by invite": "Создать аккаунт по приглашению",
     "Invite-only signup": "Регистрация по приглашению",
     "Invite code": "Код приглашения",
@@ -1061,6 +1079,15 @@ const STRINGS = {
     "Dest Override": "Dest Override"
   },
   fa: {
+    "Invites": "دعوت‌نامه‌ها",
+    "Org name": "نام سازمان",
+    "Expires (hours)": "انقضا (ساعت)",
+    "Owner": "مالک",
+    "Create invite": "ایجاد دعوت‌نامه",
+    "Code": "کد",
+    "Expires": "انقضا",
+    "Revoke": "لغو",
+    "No active invites": "دعوت‌نامه فعالی نیست",
     "Create account by invite": "ایجاد حساب با دعوت‌نامه",
     "Invite-only signup": "ثبت‌نام فقط با دعوت‌نامه",
     "Invite code": "کد دعوت",

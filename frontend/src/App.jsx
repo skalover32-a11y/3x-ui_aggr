@@ -1108,6 +1108,10 @@ function NodesPage() {
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator", password: "" });
   const [usersList, setUsersList] = useState([]);
   const [usersBusy, setUsersBusy] = useState(false);
+  const [invitesList, setInvitesList] = useState([]);
+  const [invitesBusy, setInvitesBusy] = useState(false);
+  const [invitesError, setInvitesError] = useState("");
+  const [inviteDraft, setInviteDraft] = useState({ expires_in_hours: 168, org_name: "Personal", role: "owner" });
   const [totpOpen, setTotpOpen] = useState(false);
   const [totpStatus, setTotpStatus] = useState(null);
   const [totpSetup, setTotpSetup] = useState(null);
@@ -1429,6 +1433,7 @@ function NodesPage() {
     if (view === "settings" && isAdmin) {
       setUsersOpen(true);
       loadUsers();
+      loadInvites();
     }
     if (add === "1" && (isAdmin || isOperator)) {
       openAddForm();
@@ -2717,6 +2722,19 @@ function NodesPage() {
     }
   }
 
+  async function loadInvites() {
+    setInvitesBusy(true);
+    setInvitesError("");
+    try {
+      const data = await request("GET", "/admin/invites?active=1");
+      setInvitesList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setInvitesError(err.message);
+    } finally {
+      setInvitesBusy(false);
+    }
+  }
+
   async function openTOTP() {
     setTotpOpen(true);
     setTotpSetup(null);
@@ -3963,6 +3981,60 @@ function NodesPage() {
                 </div>
               )}
             </div>
+
+            <div className="section-divider" />
+            <h4>{t("Invites")}</h4>
+            <div className="form-grid" autoComplete="off">
+              <input
+                name="invite_org"
+                placeholder={t("Org name")}
+                value={inviteDraft.org_name}
+                onChange={(e) => setInviteDraft((prev) => ({ ...prev, org_name: e.target.value }))}
+              />
+              <input
+                name="invite_expiry"
+                type="number"
+                min="1"
+                placeholder={t("Expires (hours)")}
+                value={inviteDraft.expires_in_hours}
+                onChange={(e) => setInviteDraft((prev) => ({ ...prev, expires_in_hours: e.target.value }))}
+              />
+              <select
+                name="invite_role"
+                value={inviteDraft.role}
+                onChange={(e) => setInviteDraft((prev) => ({ ...prev, role: e.target.value }))}
+              >
+                <option value="owner">{t("Owner")}</option>
+                <option value="admin">{t("Administrator")}</option>
+              </select>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={createInvite} disabled={invitesBusy}>{t("Create invite")}</button>
+              <button type="button" className="secondary" onClick={loadInvites} disabled={invitesBusy}>{t("Refresh")}</button>
+            </div>
+            {invitesError && <div className="error">{invitesError}</div>}
+            <div className="table compact users-table">
+              <div className="table-row head">
+                <div>{t("Code")}</div>
+                <div>{t("Expires")}</div>
+                <div>{t("Actions")}</div>
+              </div>
+              {invitesList.map((invite) => (
+                <div className="table-row" key={invite.id}>
+                  <div className="mono">{invite.code}</div>
+                  <div>{formatTS(invite.expires_at)}</div>
+                  <div className="actions">
+                    <button className="secondary" type="button" onClick={() => copyText(invite.code)}>{t("Copy")}</button>
+                    <button className="danger ghost" type="button" onClick={() => revokeInvite(invite.id)} disabled={invitesBusy}>{t("Revoke")}</button>
+                  </div>
+                </div>
+              ))}
+              {invitesList.length === 0 && (
+                <div className="table-row">
+                  <div className="muted small">{t("No active invites")}</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -4120,6 +4192,40 @@ function DashboardPage() {
     return Array.from(deduped.values()).sort(
       (a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
     );
+  }
+
+  async function createInvite() {
+    setInvitesBusy(true);
+    setInvitesError("");
+    try {
+      const payload = {
+        expires_in_hours: Number(inviteDraft.expires_in_hours) || 168,
+        org_name: inviteDraft.org_name ? String(inviteDraft.org_name).trim() : "",
+        role: inviteDraft.role || "owner",
+      };
+      const created = await request("POST", "/admin/invites", payload);
+      if (created?.code) {
+        await copyText(created.code);
+      }
+      await loadInvites();
+    } catch (err) {
+      setInvitesError(err.message);
+    } finally {
+      setInvitesBusy(false);
+    }
+  }
+
+  async function revokeInvite(inviteId) {
+    setInvitesBusy(true);
+    setInvitesError("");
+    try {
+      await request("POST", `/admin/invites/${inviteId}/revoke`, {});
+      await loadInvites();
+    } catch (err) {
+      setInvitesError(err.message);
+    } finally {
+      setInvitesBusy(false);
+    }
   }
 
   async function loadSummary() {
