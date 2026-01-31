@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
@@ -548,7 +548,7 @@ function RequireAuth({ children }) {
       try {
         const data = await refreshAuth();
         if (data?.token) {
-          setAuth(data.token, data.role, data.username);
+          setAuth(data.token, data.role, data.username, data.is_global_admin);
         }
         await ensureOrg();
       } catch {
@@ -638,7 +638,7 @@ function LoginPage() {
         otp: otp.trim(),
         recovery_code: recoveryCode.trim(),
       });
-      setAuth(data.token, data.role, data.username);
+      setAuth(data.token, data.role, data.username, data.is_global_admin);
       navigate("/dashboard");
     } catch (err) {
       setError(err.message);
@@ -674,7 +674,7 @@ function LoginPage() {
         challenge_id: options.challenge_id,
         credential: payload,
       });
-      setAuth(data.token, data.role, data.username);
+      setAuth(data.token, data.role, data.username, data.is_global_admin);
       navigate("/dashboard");
     } catch (err) {
       setError(err.message);
@@ -702,7 +702,7 @@ function LoginPage() {
     setSignupError("");
     try {
       const data = await request("POST", "/signup", signupForm);
-      setAuth(data.token, data.role, data.username);
+      setAuth(data.token, data.role, data.username, data.is_global_admin);
       setSignupOpen(false);
       navigate("/panels");
     } catch (err) {
@@ -782,7 +782,7 @@ function PanelsSelfServicePage() {
   const user = getUser();
   const role = getRole();
   const orgRole = getOrgRole();
-  const isGlobalAdmin = role === "admin";
+  const isGlobalAdmin = getIsGlobalAdmin();
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [orgId, setOrgIdState] = useState(getOrgId());
   const [nodes, setNodes] = useState([]);
@@ -1104,7 +1104,8 @@ function NodesPage() {
   const role = getRole();
   const orgRole = getOrgRole();
   const user = getUser();
-  const isAdmin = role === "admin";
+  const isGlobalAdmin = getIsGlobalAdmin();
+  const isAdmin = isGlobalAdmin;
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const isOperator = role === "operator";
   const isViewer = role === "viewer";
@@ -4364,7 +4365,7 @@ function DashboardPage() {
   const user = getUser();
   const role = getRole();
   const orgRole = getOrgRole();
-  const isGlobalAdmin = role === "admin";
+  const isGlobalAdmin = getIsGlobalAdmin();
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [activeUsers, setActiveUsers] = useState([]);
@@ -5085,7 +5086,7 @@ function FilesPage() {
   const navigate = useNavigate();
   const role = getRole();
   const orgRole = getOrgRole();
-  const isGlobalAdmin = role === "admin";
+  const isGlobalAdmin = getIsGlobalAdmin();
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [nodeId, setNodeId] = useState("");
@@ -5560,7 +5561,7 @@ function DbWorkPage() {
   const { t } = useI18n();
   const role = getRole();
   const orgRole = getOrgRole();
-  const isGlobalAdmin = role === "admin";
+  const isGlobalAdmin = getIsGlobalAdmin();
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
   const [nodeId, setNodeId] = useState("");

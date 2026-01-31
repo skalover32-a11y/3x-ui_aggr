@@ -1,0 +1,2 @@
+-- No-op down migration for invites fix.
+-- Intentionally left blank to avoid dropping user data.

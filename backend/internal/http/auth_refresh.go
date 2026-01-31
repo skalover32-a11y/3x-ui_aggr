@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,9 +12,10 @@ import (
 )
 
 type refreshResponse struct {
-	Token    string `json:"token"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	Token         string `json:"token"`
+	Username      string `json:"username"`
+	Role          string `json:"role"`
+	IsGlobalAdmin bool   `json:"is_global_admin"`
 }
 
 func (h *Handler) Refresh(c *gin.Context) {
@@ -56,7 +58,12 @@ func (h *Handler) Refresh(c *gin.Context) {
 	}
 	_ = h.DB.WithContext(c.Request.Context()).Model(&db.RefreshToken{}).Where("id = ?", tokenRow.ID).Updates(updates).Error
 	h.setRefreshCookie(c, raw, h.RefreshTTL)
-	respondStatus(c, http.StatusOK, refreshResponse{Token: jwtToken, Username: tokenRow.UserID, Role: role})
+	respondStatus(c, http.StatusOK, refreshResponse{
+		Token:         jwtToken,
+		Username:      tokenRow.UserID,
+		Role:          role,
+		IsGlobalAdmin: strings.EqualFold(tokenRow.UserID, h.AdminUser),
+	})
 }
 
 func (h *Handler) Logout(c *gin.Context) {

@@ -21,9 +21,10 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Token    string `json:"token"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	Token         string `json:"token"`
+	Username      string `json:"username"`
+	Role          string `json:"role"`
+	IsGlobalAdmin bool   `json:"is_global_admin"`
 }
 
 func (h *Handler) Login(c *gin.Context) {
@@ -88,5 +89,10 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	h.setRefreshCookie(c, refreshToken, h.RefreshTTL)
-	respondStatus(c, http.StatusOK, loginResponse{Token: signed, Username: username, Role: role})
+	respondStatus(c, http.StatusOK, loginResponse{
+		Token:         signed,
+		Username:      username,
+		Role:          role,
+		IsGlobalAdmin: strings.EqualFold(username, h.AdminUser),
+	})
 }

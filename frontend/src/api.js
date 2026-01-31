@@ -12,7 +12,7 @@ export function setToken(token) {
   }
 }
 
-export function setAuth(token, role, username) {
+export function setAuth(token, role, username, isGlobalAdmin) {
   setToken(token);
   if (role) {
     localStorage.setItem("agg_role", role);
@@ -20,12 +20,16 @@ export function setAuth(token, role, username) {
   if (username) {
     localStorage.setItem("agg_user", username);
   }
+  if (isGlobalAdmin != null) {
+    localStorage.setItem("agg_is_global_admin", isGlobalAdmin ? "1" : "0");
+  }
 }
 
 export function clearAuth() {
   localStorage.removeItem("agg_token");
   localStorage.removeItem("agg_role");
   localStorage.removeItem("agg_user");
+  localStorage.removeItem("agg_is_global_admin");
 }
 
 export function getOrgId() {
@@ -54,6 +58,10 @@ export function setOrgRole(role) {
 
 export function getRole() {
   return localStorage.getItem("agg_role") || "viewer";
+}
+
+export function getIsGlobalAdmin() {
+  return localStorage.getItem("agg_is_global_admin") === "1";
 }
 
 export function getUser() {
