@@ -162,7 +162,9 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 				Available:    false,
 			}
 		}
-		_ = s.replaceActiveUsers(ctx, node.ID, usersResult.Users)
+		if usersResult.Available {
+			_ = s.replaceActiveUsers(ctx, node.ID, usersResult.Users)
+		}
 		if usersResult.Source == "agent" && usersResult.Available && node.AgentEnabled {
 			_ = s.updateAgentLastSeen(ctx, node.ID, time.Now())
 		}
@@ -571,10 +573,10 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 }
 
 type trafficPoint struct {
-	NodeID    uuid.UUID
-	TS        time.Time
-	NetRx     *int64
-	NetTx     *int64
+	NodeID uuid.UUID
+	TS     time.Time
+	NetRx  *int64
+	NetTx  *int64
 }
 
 func (s *Service) computeTrafficTotals(ctx context.Context) (*int64, *int64, error) {
