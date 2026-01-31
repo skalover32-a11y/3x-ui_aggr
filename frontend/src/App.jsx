@@ -721,13 +721,12 @@ function LoginPage() {
         {!webAuthnSupported && <div className="hint">{t("Passkeys are not supported in this browser.")}</div>}
       </form>
       {signupOpen && (
-        <div className="modal-backdrop" onClick={() => setSignupOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal overlay-modal" onClick={() => setSignupOpen(false)}>
+          <div className="modal-content auth-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>{t("Invite-only signup")}</h3>
-              <button className="icon-button" onClick={() => setSignupOpen(false)}>×</button>
             </div>
-            <form className="modal-body" onSubmit={onSignupSubmit}>
+            <form onSubmit={onSignupSubmit}>
               <label>
                 {t("Invite code")}
                 <input value={signupForm.invite_code} onChange={(e) => setSignupForm((prev) => ({ ...prev, invite_code: e.target.value }))} />
@@ -741,9 +740,9 @@ function LoginPage() {
                 <input type="password" value={signupForm.password} onChange={(e) => setSignupForm((prev) => ({ ...prev, password: e.target.value }))} />
               </label>
               {signupError && <div className="error">{signupError}</div>}
-              <div className="modal-actions">
-                <button type="submit" className="primary">{t("Create account")}</button>
+              <div className="actions">
                 <button type="button" className="secondary" onClick={() => setSignupOpen(false)}>{t("Close")}</button>
+                <button type="submit" className="primary">{t("Create account")}</button>
               </div>
             </form>
           </div>

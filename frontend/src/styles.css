@@ -841,6 +841,10 @@ button.ghost:hover {
   overflow: auto;
 }
 
+.modal-content.auth-modal {
+  width: min(520px, 92vw);
+}
+
 .node-details-content {
   width: min(860px, 92vw);
 }
