@@ -54,9 +54,13 @@ func NewRouter(h *Handler) *gin.Engine {
 	orgsRead.GET("/nodes", h.ListOrgNodes)
 	orgsRead.GET("/nodes/:nodeId", h.GetOrgNode)
 	orgsRead.GET("/invites", h.OrgListInvites)
+	orgsRead.GET("/users", h.ListOrgUsers)
 	orgsWrite.POST("/nodes", h.CreateOrgNode)
 	orgsWrite.DELETE("/nodes/:nodeId", h.DeleteOrgNode)
 	orgsWrite.POST("/nodes/:nodeId/agent/revoke", h.RevokeAgent)
+	orgsWrite.POST("/users", h.CreateOrgUser)
+	orgsWrite.PATCH("/users/:userId", h.UpdateOrgUser)
+	orgsWrite.DELETE("/users/:userId", h.DeleteOrgUser)
 	orgsWrite.POST("/invites", h.OrgCreateInvite)
 	orgsWrite.POST("/invites/:id/revoke", h.OrgRevokeInvite)
 

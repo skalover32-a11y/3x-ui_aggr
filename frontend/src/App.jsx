@@ -1208,6 +1208,9 @@ function NodesPage() {
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator", password: "" });
   const [usersList, setUsersList] = useState([]);
   const [usersBusy, setUsersBusy] = useState(false);
+  const [orgUsersList, setOrgUsersList] = useState([]);
+  const [orgUsersBusy, setOrgUsersBusy] = useState(false);
+  const [orgUsersError, setOrgUsersError] = useState("");
   const [invitesList, setInvitesList] = useState([]);
   const [invitesBusy, setInvitesBusy] = useState(false);
   const [invitesError, setInvitesError] = useState("");
@@ -1559,6 +1562,7 @@ function NodesPage() {
       }
       if (isOrgAdmin) {
         loadOrgInvites();
+        loadOrgUsers();
       }
     }
     if (add === "1" && (isAdmin || isOrgAdmin)) {
@@ -2848,6 +2852,21 @@ function NodesPage() {
     }
   }
 
+  async function loadOrgUsers() {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgUsersBusy(true);
+    setOrgUsersError("");
+    try {
+      const data = await request("GET", `/orgs/${orgId}/users`);
+      setOrgUsersList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setOrgUsersError(err.message);
+    } finally {
+      setOrgUsersBusy(false);
+    }
+  }
+
   async function loadInvites() {
     setInvitesBusy(true);
     setInvitesError("");
@@ -3020,6 +3039,27 @@ function NodesPage() {
     }
   }
 
+  async function createOrgUser() {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    if (!usersDraft.name.trim() || !usersDraft.password.trim()) return;
+    setOrgUsersBusy(true);
+    setOrgUsersError("");
+    try {
+      await request("POST", `/orgs/${orgId}/users`, {
+        username: usersDraft.name.trim(),
+        password: usersDraft.password,
+        role: usersDraft.role,
+      });
+      setUsersDraft({ name: "", role: "operator", password: "" });
+      await loadOrgUsers();
+    } catch (err) {
+      setOrgUsersError(err.message);
+    } finally {
+      setOrgUsersBusy(false);
+    }
+  }
+
   async function updateUserRole(user) {
     setUsersBusy(true);
     try {
@@ -3029,6 +3069,21 @@ function NodesPage() {
       setError(err.message);
     } finally {
       setUsersBusy(false);
+    }
+  }
+
+  async function updateOrgUserRole(user) {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgUsersBusy(true);
+    setOrgUsersError("");
+    try {
+      await request("PATCH", `/orgs/${orgId}/users/${user.user_id}`, { role: user.role });
+      await loadOrgUsers();
+    } catch (err) {
+      setOrgUsersError(err.message);
+    } finally {
+      setOrgUsersBusy(false);
     }
   }
 
@@ -3042,6 +3097,22 @@ function NodesPage() {
       setError(err.message);
     } finally {
       setUsersBusy(false);
+    }
+  }
+
+  async function deleteOrgUser(user) {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    if (!confirm(t("Delete user {name}?", { name: user.username }))) return;
+    setOrgUsersBusy(true);
+    setOrgUsersError("");
+    try {
+      await request("DELETE", `/orgs/${orgId}/users/${user.user_id}`, {});
+      await loadOrgUsers();
+    } catch (err) {
+      setOrgUsersError(err.message);
+    } finally {
+      setOrgUsersBusy(false);
     }
   }
 
@@ -4202,6 +4273,73 @@ function NodesPage() {
 
             {isOrgAdmin && (
               <>
+                <div className="section-divider" />
+                <h4>{t("Team members")}</h4>
+                <div className="form-grid" autoComplete="off">
+                  <input
+                    name="org_user_name"
+                    autoComplete="off"
+                    placeholder={t("Username or email")}
+                    value={usersDraft.name}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, name: e.target.value })}
+                  />
+                  <input
+                    name="org_user_password"
+                    autoComplete="new-password"
+                    type="password"
+                    placeholder={t("Password")}
+                    value={usersDraft.password}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, password: e.target.value })}
+                  />
+                  <select
+                    name="org_user_role"
+                    value={usersDraft.role}
+                    onChange={(e) => setUsersDraft({ ...usersDraft, role: e.target.value })}
+                  >
+                    <option value="admin">{t("Administrator")}</option>
+                    <option value="operator">{t("Operator (no node delete)")}</option>
+                    <option value="viewer">{t("Viewer (status only)")}</option>
+                  </select>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={createOrgUser} disabled={orgUsersBusy}>{t("Add user")}</button>
+                  <button type="button" className="secondary" onClick={loadOrgUsers} disabled={orgUsersBusy}>{t("Refresh")}</button>
+                </div>
+                {orgUsersError && <div className="error">{orgUsersError}</div>}
+                <div className="table compact users-table">
+                  <div className="table-row head">
+                    <div>{t("Username")}</div>
+                    <div>{t("Role")}</div>
+                    <div>{t("Actions")}</div>
+                  </div>
+                  {orgUsersList.map((user) => (
+                    <div className="table-row" key={user.user_id}>
+                      <div>{user.username}</div>
+                      <div>
+                        <select
+                          value={user.role}
+                          onChange={(e) => setOrgUsersList(orgUsersList.map((u) => u.user_id === user.user_id ? { ...u, role: e.target.value } : u))}
+                        >
+                          <option value="admin">{t("Administrator")}</option>
+                          <option value="operator">{t("Operator")}</option>
+                          <option value="viewer">{t("Viewer")}</option>
+                        </select>
+                      </div>
+                      <div className="actions">
+                        <button type="button" onClick={() => updateOrgUserRole(user)} disabled={orgUsersBusy}>{t("Save")}</button>
+                        <button className="danger ghost" type="button" onClick={() => deleteOrgUser(user)} disabled={orgUsersBusy}>
+                          {t("Remove")}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {orgUsersList.length === 0 && (
+                    <div className="table-row">
+                      <div className="muted small">{t("No users yet")}</div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="section-divider" />
                 <h4>{t("Organization invites")}</h4>
                 <div className="form-grid" autoComplete="off">
