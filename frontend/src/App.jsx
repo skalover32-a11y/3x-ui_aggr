@@ -241,6 +241,26 @@ function formatProblemMessage(problem, t) {
         return t("TLS check failed");
     }
   }
+  if (alertType === "cpu" || alertType === "memory" || alertType === "disk") {
+    const fingerprint = String(problem.fingerprint || "");
+    const parts = fingerprint.split("|");
+    const rule = parts[2] || "";
+    if (alertType === "cpu") {
+      const match = rule.match(/load1\s*>=\s*([0-9.]+)/i);
+      if (match) return t("High CPU load (load1 ≥ {thr})", { thr: match[1] });
+      return t("High CPU load");
+    }
+    if (alertType === "memory") {
+      const match = rule.match(/mem\s*>=\s*([0-9.]+)/i);
+      if (match) return t("High memory usage (≥ {thr}%)", { thr: match[1] });
+      return t("High memory usage");
+    }
+    if (alertType === "disk") {
+      const match = rule.match(/disk\s*<=\s*([0-9.]+)/i);
+      if (match) return t("Low disk free (≤ {thr}%)", { thr: match[1] });
+      return t("Low disk space");
+    }
+  }
   const fingerprint = problem.fingerprint || "";
   if (!fingerprint) return "-";
   const parts = fingerprint.split("|");
