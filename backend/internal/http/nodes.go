@@ -209,8 +209,11 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
-	orgID, err := h.firstOrgForUser(c, user.ID)
-	if err != nil {
+	var member db.OrganizationMember
+	if err := h.DB.WithContext(c.Request.Context()).
+		Where("user_id = ?", user.ID).
+		Order("created_at").
+		First(&member).Error; err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "organization required")
 		return
 	}
@@ -285,7 +288,7 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	}
 
 	node := db.Node{
-		OrgID:            &orgID,
+		OrgID:            &member.OrgID,
 		Name:             req.Name,
 		Kind:             kind,
 		Tags:             req.Tags,
