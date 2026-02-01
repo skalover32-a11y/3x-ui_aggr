@@ -36,11 +36,21 @@ func (h *Handler) scopedNodesQuery(c *gin.Context) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		return nil, err
+	}
 	return h.DB.WithContext(c.Request.Context()).
 		Model(&db.Node{}).
 		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
 		Where("om.user_id = ?", user.ID).
-		Where("nodes.org_id IS NOT NULL"), nil
+		Where("nodes.org_id IS NOT NULL").
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if orgID == nil {
+				return tx
+			}
+			return tx.Where("nodes.org_id = ?", *orgID)
+		}), nil
 }
 
 func (h *Handler) getNodeForActor(c *gin.Context, idStr string) (*db.Node, error) {
@@ -69,11 +79,21 @@ func (h *Handler) getServiceForActor(c *gin.Context, idStr string) (*db.Service,
 	if err != nil {
 		return nil, err
 	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		return nil, err
+	}
 	var service db.Service
 	if err := query.
 		Joins("JOIN nodes ON nodes.id = services.node_id").
 		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
 		Where("om.user_id = ?", user.ID).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if orgID == nil {
+				return tx
+			}
+			return tx.Where("nodes.org_id = ?", *orgID)
+		}).
 		Where("services.id = ?", serviceID).
 		First(&service).Error; err != nil {
 		return nil, err
@@ -91,11 +111,21 @@ func (h *Handler) getBotForActor(c *gin.Context, idStr string) (*db.Bot, error) 
 	if err != nil {
 		return nil, err
 	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		return nil, err
+	}
 	var bot db.Bot
 	if err := query.
 		Joins("JOIN nodes ON nodes.id = bots.node_id").
 		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
 		Where("om.user_id = ?", user.ID).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if orgID == nil {
+				return tx
+			}
+			return tx.Where("nodes.org_id = ?", *orgID)
+		}).
 		Where("bots.id = ?", botID).
 		First(&bot).Error; err != nil {
 		return nil, err
@@ -136,14 +166,21 @@ func (h *Handler) accessibleNodeIDs(c *gin.Context) (map[uuid.UUID]struct{}, err
 	if err != nil {
 		return nil, err
 	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		return nil, err
+	}
 	var ids []uuid.UUID
-	if err := h.DB.WithContext(c.Request.Context()).
+	query := h.DB.WithContext(c.Request.Context()).
 		Table("nodes").
 		Select("nodes.id").
 		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
 		Where("om.user_id = ?", user.ID).
-		Where("nodes.org_id IS NOT NULL").
-		Scan(&ids).Error; err != nil {
+		Where("nodes.org_id IS NOT NULL")
+	if orgID != nil {
+		query = query.Where("nodes.org_id = ?", *orgID)
+	}
+	if err := query.Scan(&ids).Error; err != nil {
 		return nil, err
 	}
 	out := make(map[uuid.UUID]struct{}, len(ids))
@@ -151,4 +188,36 @@ func (h *Handler) accessibleNodeIDs(c *gin.Context) (map[uuid.UUID]struct{}, err
 		out[id] = struct{}{}
 	}
 	return out, nil
+}
+
+func (h *Handler) orgIDFromRequest(c *gin.Context, userID uuid.UUID) (*uuid.UUID, error) {
+	raw := strings.TrimSpace(c.GetHeader("X-Org-ID"))
+	if raw == "" {
+		raw = strings.TrimSpace(c.Query("org_id"))
+	}
+	if raw == "" {
+		return nil, nil
+	}
+	orgID, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	var member db.OrganizationMember
+	if err := h.DB.WithContext(c.Request.Context()).
+		Where("org_id = ? AND user_id = ?", orgID, userID).
+		First(&member).Error; err != nil {
+		return nil, err
+	}
+	return &orgID, nil
+}
+
+func (h *Handler) firstOrgForUser(ctx *gin.Context, userID uuid.UUID) (uuid.UUID, error) {
+	var member db.OrganizationMember
+	if err := h.DB.WithContext(ctx.Request.Context()).
+		Where("user_id = ?", userID).
+		Order("created_at").
+		First(&member).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return member.OrgID, nil
 }

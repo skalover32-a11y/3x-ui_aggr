@@ -98,6 +98,10 @@ export async function request(method, path, body) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  const orgId = getOrgId();
+  if (orgId) {
+    headers["X-Org-ID"] = orgId;
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers,

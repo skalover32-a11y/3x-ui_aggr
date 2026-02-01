@@ -614,6 +614,63 @@ function maskSecret(value) {
   return `${value.slice(0, 4)}••••••${value.slice(-4)}`;
 }
 
+function OrgSwitcher() {
+  const { t } = useI18n();
+  const [orgs, setOrgs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const orgId = getOrgId();
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await request("GET", "/orgs");
+        if (active) {
+          setOrgs(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (active) {
+          setOrgs([]);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!orgs || orgs.length <= 1) return null;
+
+  return (
+    <div className="language-card">
+      <div className="muted small">{t("Organization")}</div>
+      <select
+        value={orgId || ""}
+        onChange={(e) => {
+          const next = e.target.value;
+          const selected = orgs.find((org) => org.id === next);
+          setOrgId(next);
+          setOrgRole(selected?.role || "");
+          window.location.reload();
+        }}
+        disabled={loading}
+      >
+        {orgs.map((org) => (
+          <option key={org.id} value={org.id}>
+            {org.name || org.id}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function LoginPage() {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
@@ -951,6 +1008,7 @@ function PanelsSelfServicePage() {
         <header className="header">
           <div className="header-left" />
           <div className="header-right">
+            <OrgSwitcher />
             <div className="language-card">
               <div className="muted small">{t("Language")}</div>
               <select value={lang} onChange={(e) => setLang(e.target.value)}>
@@ -3006,10 +3064,11 @@ function NodesPage() {
         <header className="header">
           <div className="header-left" />
           <div className="header-right">
+            <OrgSwitcher />
             <div className="language-card">
               <div className="muted small">{t("Language")}</div>
-            <select value={lang} onChange={(e) => setLang(e.target.value)}>
-              <option value="en">{t("English")}</option>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
               <option value="ru">{t("Russian")}</option>
               <option value="fa">{t("Persian")}</option>
             </select>
@@ -4712,6 +4771,7 @@ function DashboardPage() {
         <header className="header">
           <div className="header-left" />
           <div className="header-right">
+            <OrgSwitcher />
             <div className="language-card">
               <div className="muted small">{t("Language")}</div>
               <select value={lang} onChange={(e) => setLang(e.target.value)}>
@@ -5270,11 +5330,13 @@ function FilesPage() {
 
   async function downloadEntry(entry) {
     const token = getToken();
+    const orgId = getOrgId();
     const res = await fetch(`${API_BASE}/nodes/${nodeId}/fs/download?path=${encodeURIComponent(entry.path)}`, {
       method: "GET",
       headers: {
         Authorization: token ? `Bearer ${token}` : "",
         "X-Requested-With": "XMLHttpRequest",
+        ...(orgId ? { "X-Org-ID": orgId } : {}),
       },
       credentials: "include",
     });
@@ -5325,6 +5387,7 @@ function FilesPage() {
     setError("");
     try {
       const token = getToken();
+      const orgId = getOrgId();
       const form = new FormData();
       form.append("file", file);
       const res = await fetch(`${API_BASE}/nodes/${nodeId}/fs/upload?path=${encodeURIComponent(currentPath)}`, {
@@ -5332,6 +5395,7 @@ function FilesPage() {
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
           "X-Requested-With": "XMLHttpRequest",
+          ...(orgId ? { "X-Org-ID": orgId } : {}),
         },
         credentials: "include",
         body: form,
