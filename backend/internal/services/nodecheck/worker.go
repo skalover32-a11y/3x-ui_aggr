@@ -52,8 +52,8 @@ func (w *Worker) runOnce(ctx context.Context) {
 	if err := w.DB.WithContext(ctx).Where("is_enabled = true").Find(&nodes).Error; err != nil {
 		return
 	}
-	settings, _ := w.Alerts.LoadSettings(ctx)
 	for _, node := range nodes {
+		settings, _ := w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 		panelOK, latency, panelErr := true, 0, (*string)(nil)
 		var panelErrCode *string
 		var panelErrDetail *string

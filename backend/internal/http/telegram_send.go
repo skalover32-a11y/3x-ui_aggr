@@ -18,11 +18,16 @@ func (h *Handler) SendTelegramTest(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
+	orgID, err := h.resolveOrgFromRequest(c, true)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
 		msg = "3x-ui Aggregator test message"
 	}
-	settingsRow, _ := h.getTelegramSettings(c)
+	settingsRow, _ := h.getTelegramSettings(c, orgID)
 	ids := req.AdminChatIDs
 	if len(ids) == 0 {
 		ids = splitChatIDs(settingsRow.AdminChatID)

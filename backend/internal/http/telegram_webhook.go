@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/services/alerts"
@@ -52,7 +53,12 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 		return
 	}
-	row, err := h.getTelegramSettings(c)
+	orgID, err := h.orgIDForAlert(c.Request.Context(), update.CallbackQuery.Data)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
+	row, err := h.getTelegramSettings(c, orgID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 		return
@@ -123,4 +129,33 @@ func (h *Handler) lookupFingerprintByAlertID(ctx context.Context, alertID string
 		return "", err
 	}
 	return state.Fingerprint, nil
+}
+
+func (h *Handler) orgIDForAlert(ctx context.Context, data string) (uuid.UUID, error) {
+	if h == nil || h.DB == nil {
+		return uuid.Nil, gorm.ErrRecordNotFound
+	}
+	action, alertID, _ := alerts.ParseCallbackData(strings.TrimSpace(data))
+	if action == "" || alertID == "" {
+		return uuid.Nil, gorm.ErrRecordNotFound
+	}
+	id, err := uuid.Parse(alertID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var state db.AlertState
+	if err := h.DB.WithContext(ctx).Where("alert_id = ?", id).First(&state).Error; err != nil {
+		return uuid.Nil, err
+	}
+	if state.NodeID == nil {
+		return uuid.Nil, gorm.ErrRecordNotFound
+	}
+	var node db.Node
+	if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *state.NodeID).Error; err != nil {
+		return uuid.Nil, err
+	}
+	if node.OrgID == nil {
+		return uuid.Nil, gorm.ErrRecordNotFound
+	}
+	return *node.OrgID, nil
 }

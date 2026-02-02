@@ -95,7 +95,7 @@ func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
 	w.saveMetric(ctx, node.ID, loads[0], loads[1], loads[2], memTotal, memAvail, diskTotal, diskUsed, errMsg)
 
 	if w.Alerts != nil {
-		settings, _ := w.Alerts.LoadSettings(ctx)
+		settings, _ := w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 		if settings != nil {
 			if loads[0] != nil {
 				w.Alerts.NotifyCPU(ctx, settings, node, *loads[0])

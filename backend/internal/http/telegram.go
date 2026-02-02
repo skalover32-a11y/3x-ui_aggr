@@ -35,7 +35,12 @@ type telegramSettingsRequest struct {
 }
 
 func (h *Handler) GetTelegramSettings(c *gin.Context) {
-	row, err := h.getTelegramSettings(c)
+	orgID, err := h.resolveOrgFromRequest(c, false)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	row, err := h.getTelegramSettings(c, orgID)
 	if err != nil {
 		respondStatus(c, http.StatusOK, telegramSettingsResponse{
 			BotTokenSet: false,
@@ -58,13 +63,18 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
+	orgID, err := h.resolveOrgFromRequest(c, true)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	adminChatID := strings.TrimSpace(req.AdminChatID)
 	if len(req.AdminChatIDs) > 0 {
 		adminChatID = strings.Join(req.AdminChatIDs, ",")
 	}
 	botToken := strings.TrimSpace(req.BotToken)
 
-	current, err := h.getTelegramSettings(c)
+	current, err := h.getTelegramSettings(c, orgID)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		respondError(c, http.StatusInternalServerError, "TELEGRAM_LOAD", "failed to load settings")
 		return
@@ -93,6 +103,7 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	}
 
 	row := db.TelegramSettings{
+		OrgID:           &orgID,
 		BotTokenEnc:     botTokenEnc,
 		AdminChatID:     adminChatID,
 		AlertConnection: req.AlertConnection,
@@ -104,10 +115,11 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	}
 	tx := h.DB.WithContext(c.Request.Context()).Begin()
 	var existing db.TelegramSettings
-	err = tx.Order("created_at desc").First(&existing).Error
+	err = tx.Where("org_id = ?", orgID).Order("created_at desc").First(&existing).Error
 	switch {
 	case err == nil:
 		updates := map[string]any{
+			"org_id":            row.OrgID,
 			"bot_token_enc":    row.BotTokenEnc,
 			"admin_chat_id":    row.AdminChatID,
 			"alert_connection": row.AlertConnection,
@@ -134,7 +146,7 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		return
 	}
 	if row.ID != uuid.Nil {
-		_ = tx.Where("id <> ?", row.ID).Delete(&db.TelegramSettings{}).Error
+		_ = tx.Where("id <> ? AND org_id = ?", row.ID, orgID).Delete(&db.TelegramSettings{}).Error
 	}
 	if err := tx.Commit().Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
@@ -172,9 +184,37 @@ func splitChatIDs(raw string) []string {
 	return out
 }
 
-func (h *Handler) getTelegramSettings(c *gin.Context) (db.TelegramSettings, error) {
+func (h *Handler) resolveOrgFromRequest(c *gin.Context, requireAdmin bool) (uuid.UUID, error) {
+	orgIDStr := strings.TrimSpace(c.GetHeader("X-Org-ID"))
+	if orgIDStr == "" {
+		orgIDStr = strings.TrimSpace(c.Query("org_id"))
+	}
+	orgID, err := uuid.Parse(orgIDStr)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	user, err := h.actorUser(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var member db.OrganizationMember
+	if err := h.DB.WithContext(c.Request.Context()).
+		Where("org_id = ? AND user_id = ?", orgID, user.ID).
+		First(&member).Error; err != nil {
+		return uuid.Nil, err
+	}
+	if requireAdmin && member.Role != "owner" && member.Role != "admin" {
+		return uuid.Nil, gorm.ErrRecordNotFound
+	}
+	return orgID, nil
+}
+
+func (h *Handler) getTelegramSettings(c *gin.Context, orgID uuid.UUID) (db.TelegramSettings, error) {
 	var row db.TelegramSettings
-	err := h.DB.WithContext(c.Request.Context()).Order("created_at desc").First(&row).Error
+	err := h.DB.WithContext(c.Request.Context()).
+		Where("org_id = ?", orgID).
+		Order("created_at desc").
+		First(&row).Error
 	if err != nil {
 		return db.TelegramSettings{}, err
 	}

@@ -276,7 +276,7 @@ type OrgKey struct {
 	Description   *string    `gorm:"type:text" json:"description,omitempty"`
 	Fingerprint   *string    `gorm:"type:text" json:"fingerprint,omitempty"`
 	NodeID        *uuid.UUID `gorm:"type:uuid" json:"node_id,omitempty"`
-	CreatedByUser *uuid.UUID `gorm:"type:uuid" json:"created_by_user_id,omitempty"`
+	CreatedByUser *uuid.UUID `gorm:"column:created_by_user_id;type:uuid" json:"created_by_user_id,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 }
 

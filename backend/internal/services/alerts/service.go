@@ -161,6 +161,43 @@ func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node
 	s.maybeSendAlert(ctx, settings, !sshOK, sshAlert)
 }
 
+func (s *Service) LoadSettingsForOrg(ctx context.Context, orgID *uuid.UUID) (*Settings, error) {
+	if s == nil || s.db == nil || s.enc == nil || orgID == nil {
+		return nil, nil
+	}
+	var row db.TelegramSettings
+	err := s.db.WithContext(ctx).
+		Where("org_id = ?", *orgID).
+		Order("created_at desc").
+		First(&row).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	token, err := s.enc.DecryptString(row.BotTokenEnc)
+	if err != nil {
+		return nil, err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" || strings.TrimSpace(row.AdminChatID) == "" {
+		return nil, nil
+	}
+	adminIDs := splitChatIDs(row.AdminChatID)
+	if len(adminIDs) == 0 {
+		return nil, nil
+	}
+	return &Settings{
+		BotToken:        token,
+		AdminChatIDs:    adminIDs,
+		AlertConnection: row.AlertConnection,
+		AlertCPU:        row.AlertCPU,
+		AlertMemory:     row.AlertMemory,
+		AlertDisk:       row.AlertDisk,
+	}, nil
+}
+
 func (s *Service) NotifyCPU(ctx context.Context, settings *Settings, node *db.Node, load1 float64) {
 	if settings == nil || !settings.AlertCPU || node == nil {
 		return
@@ -225,8 +262,8 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 }
 
 func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *db.Node, service *db.Service, check *db.Check, status string, latency int, statusCode int, errMsg *string) {
-	if settings == nil && s != nil {
-		settings, _ = s.LoadSettings(ctx)
+	if settings == nil && s != nil && node != nil {
+		settings, _ = s.LoadSettingsForOrg(ctx, node.OrgID)
 	}
 	if settings == nil || node == nil || check == nil {
 		return
@@ -260,8 +297,8 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 }
 
 func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node *db.Node, bot *db.Bot, check *db.Check, ok bool, latency int, statusCode int, errMsg *string) {
-	if settings == nil && s != nil {
-		settings, _ = s.LoadSettings(ctx)
+	if settings == nil && s != nil && node != nil {
+		settings, _ = s.LoadSettingsForOrg(ctx, node.OrgID)
 	}
 	if settings == nil || node == nil || bot == nil || check == nil {
 		return

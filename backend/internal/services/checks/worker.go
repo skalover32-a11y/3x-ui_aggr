@@ -103,11 +103,6 @@ func (w *Worker) runOnce(ctx context.Context) {
 	}
 
 	lastMap := w.loadLastResults(ctx)
-	var settings *alerts.Settings
-	if w.Alerts != nil {
-		settings, _ = w.Alerts.LoadSettings(ctx)
-	}
-
 	now := time.Now()
 	dueCount := 0
 	runCount := 0
@@ -117,7 +112,7 @@ func (w *Worker) runOnce(ctx context.Context) {
 			continue
 		}
 		dueCount++
-		if w.runCheck(ctx, settings, &check, nodeMap, serviceMap, botMap) {
+		if w.runCheck(ctx, &check, nodeMap, serviceMap, botMap) {
 			runCount++
 		}
 	}
@@ -164,7 +159,7 @@ func retriesFor(check *db.Check) int {
 	return check.Retries + 1
 }
 
-func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service, botMap map[string]db.Bot) bool {
+func (w *Worker) runCheck(ctx context.Context, check *db.Check, nodeMap map[string]db.Node, serviceMap map[string]db.Service, botMap map[string]db.Bot) bool {
 	if check == nil {
 		return false
 	}
@@ -173,6 +168,10 @@ func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check 
 		node, ok := nodeMap[check.TargetID.String()]
 		if !ok || !node.IsEnabled {
 			return false
+		}
+		var settings *alerts.Settings
+		if w.Alerts != nil {
+			settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 		}
 		w.runNodeCheck(ctx, settings, &node, check)
 		return true
@@ -185,6 +184,10 @@ func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check 
 		if !ok || !node.IsEnabled {
 			return false
 		}
+		var settings *alerts.Settings
+		if w.Alerts != nil {
+			settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
+		}
 		w.runServiceCheck(ctx, settings, &node, &service, check)
 		return true
 	case "bot":
@@ -195,6 +198,10 @@ func (w *Worker) runCheck(ctx context.Context, settings *alerts.Settings, check 
 		node, ok := nodeMap[bot.NodeID.String()]
 		if !ok || !node.IsEnabled {
 			return false
+		}
+		var settings *alerts.Settings
+		if w.Alerts != nil {
+			settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 		}
 		w.runBotCheck(ctx, settings, &node, &bot, check)
 		return true
@@ -829,7 +836,7 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 	}
 	var settings *alerts.Settings
 	if w.Alerts != nil {
-		settings, _ = w.Alerts.LoadSettings(ctx)
+		settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 	}
 	ok, latency, statusCode, bytes, errMsg := w.executeServiceCheck(ctx, &node, &service, &check)
 	metrics := map[string]any{"status_code": statusCode, "bytes": bytes}
@@ -878,7 +885,7 @@ func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResul
 	}
 	var settings *alerts.Settings
 	if w.Alerts != nil {
-		settings, _ = w.Alerts.LoadSettings(ctx)
+		settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 	}
 	ok, latency, statusCode, bytes, errMsg := w.executeBotCheck(ctx, &node, &bot, &check)
 	metrics := map[string]any{}

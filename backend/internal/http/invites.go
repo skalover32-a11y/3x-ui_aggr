@@ -160,10 +160,14 @@ func (h *Handler) Signup(c *gin.Context) {
 	if !isOrgRole(orgRole) {
 		orgRole = "owner"
 	}
+	userRole := middleware.RoleViewer
+	if inviteMode == "create_private_stack" || orgRole == "owner" || orgRole == "admin" {
+		userRole = middleware.RoleAdmin
+	}
 	user := db.User{
 		Username:     username,
 		PasswordHash: string(hash),
-		Role:         middleware.RoleViewer,
+		Role:         userRole,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}

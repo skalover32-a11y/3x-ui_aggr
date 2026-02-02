@@ -218,7 +218,12 @@ func (h *Handler) SendRecoveryCode(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "2fa not available for this role")
 		return
 	}
-	settingsRow, _ := h.getTelegramSettings(c)
+	orgID, err := h.firstOrgForUser(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "organization not found")
+		return
+	}
+	settingsRow, _ := h.getTelegramSettings(c, orgID)
 	ids := splitChatIDs(settingsRow.AdminChatID)
 	if len(ids) == 0 {
 		respondError(c, http.StatusBadRequest, "TELEGRAM_SETTINGS", "admin chat ids missing")
