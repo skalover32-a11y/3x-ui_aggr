@@ -64,6 +64,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	orgsWrite.PATCH("/users/:userId", h.UpdateOrgUser)
 	orgsWrite.DELETE("/users/:userId", h.DeleteOrgUser)
 	orgsWrite.POST("/keys", h.UploadOrgKey)
+	orgsWrite.PATCH("/keys/:keyId", h.UpdateOrgKey)
 	orgsWrite.DELETE("/keys/:keyId", h.DeleteOrgKey)
 	orgsWrite.POST("/invites", h.OrgCreateInvite)
 	orgsWrite.POST("/invites/:id/revoke", h.OrgRevokeInvite)

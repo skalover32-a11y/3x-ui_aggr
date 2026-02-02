@@ -5790,11 +5790,14 @@ function KeyStoragePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [nodes, setNodes] = useState([]);
+  const [form, setForm] = useState({ label: "", description: "", node_id: "" });
   const fileRef = useRef(null);
 
   useEffect(() => {
     if (!canManage) return;
     loadKeys();
+    loadNodes();
   }, []);
 
   async function loadKeys() {
@@ -5812,6 +5815,16 @@ function KeyStoragePage() {
     }
   }
 
+  async function loadNodes() {
+    setError("");
+    try {
+      const data = await request("GET", "/nodes");
+      setNodes(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function uploadKey(file) {
     if (!file) return;
     setUploading(true);
@@ -5822,11 +5835,15 @@ function KeyStoragePage() {
       const token = getToken();
       const form = new FormData();
       form.append("file", file);
+      if (form.label) form.append("label", form.label);
+      if (form.description) form.append("description", form.description);
+      if (form.node_id) form.append("node_id", form.node_id);
       const res = await fetch(`${API_BASE}/orgs/${orgId}/keys`, {
         method: "POST",
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
           "X-Requested-With": "XMLHttpRequest",
+          ...(orgId ? { "X-Org-ID": orgId } : {}),
         },
         credentials: "include",
         body: form,
@@ -5876,6 +5893,22 @@ function KeyStoragePage() {
       const orgId = getOrgId();
       if (!orgId) throw new Error(t("No organization assigned"));
       await request("DELETE", `/orgs/${orgId}/keys/${key.id}`);
+      await loadKeys();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function saveKeyMeta(key) {
+    setError("");
+    try {
+      const orgId = getOrgId();
+      if (!orgId) throw new Error(t("No organization assigned"));
+      await request("PATCH", `/orgs/${orgId}/keys/${key.id}`, {
+        label: key.label || "",
+        description: key.description || "",
+        node_id: key.node_id || "",
+      });
       await loadKeys();
     } catch (err) {
       setError(err.message);
@@ -5957,6 +5990,53 @@ function KeyStoragePage() {
             <div className="data-table nodes-table">
               <div className="data-row head">
                 <div>{t("File")}</div>
+                <div>{t("Label")}</div>
+                <div>{t("Description")}</div>
+                <div>{t("Node")}</div>
+                <div>{t("Actions")}</div>
+              </div>
+              <div className="data-row">
+                <div>{t("New key")}</div>
+                <div>
+                  <input
+                    placeholder={t("Label")}
+                    value={form.label}
+                    onChange={(e) => setForm({ ...form, label: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <input
+                    placeholder={t("Description")}
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <select
+                    value={form.node_id}
+                    onChange={(e) => setForm({ ...form, node_id: e.target.value })}
+                  >
+                    <option value="">{t("Not assigned")}</option>
+                    {nodes.map((node) => (
+                      <option key={node.id} value={node.id}>{node.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                    {uploading ? t("Loading...") : t("Upload")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="table-card">
+            <div className="data-table nodes-table">
+              <div className="data-row head">
+                <div>{t("File")}</div>
+                <div>{t("Fingerprint")}</div>
+                <div>{t("Node")}</div>
                 <div>{t("Size")}</div>
                 <div>{t("Uploaded by")}</div>
                 <div>{t("Created")}</div>
@@ -5964,12 +6044,29 @@ function KeyStoragePage() {
               </div>
               {keys.map((key) => (
                 <div className="data-row" key={key.id}>
-                  <div>{key.filename}</div>
+                  <div>
+                    <div>{key.filename}</div>
+                    <div className="muted small">{key.label || "-"}</div>
+                    <div className="muted small">{key.description || "-"}</div>
+                  </div>
+                  <div className="mono small">{key.fingerprint || "-"}</div>
+                  <div>
+                    <select
+                      value={key.node_id || ""}
+                      onChange={(e) => setKeys(keys.map((k) => k.id === key.id ? { ...k, node_id: e.target.value } : k))}
+                    >
+                      <option value="">{t("Not assigned")}</option>
+                      {nodes.map((node) => (
+                        <option key={node.id} value={node.id}>{node.name}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div>{key.size_bytes ? `${key.size_bytes} B` : "-"}</div>
                   <div>{key.created_by || "-"}</div>
                   <div>{formatTS(key.created_at)}</div>
                   <div className="actions">
                     <button type="button" className="secondary" onClick={() => downloadKey(key)}>{t("Download")}</button>
+                    <button type="button" className="secondary" onClick={() => saveKeyMeta(key)}>{t("Save")}</button>
                     <button type="button" className="danger" onClick={() => deleteKey(key)}>{t("Delete")}</button>
                   </div>
                 </div>

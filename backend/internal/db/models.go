@@ -272,6 +272,10 @@ type OrgKey struct {
 	Ext           string     `gorm:"type:text;not null" json:"ext"`
 	ContentEnc    string     `gorm:"type:text;not null" json:"-"`
 	SizeBytes     int        `gorm:"not null;default:0" json:"size_bytes"`
+	Label         *string    `gorm:"type:text" json:"label,omitempty"`
+	Description   *string    `gorm:"type:text" json:"description,omitempty"`
+	Fingerprint   *string    `gorm:"type:text" json:"fingerprint,omitempty"`
+	NodeID        *uuid.UUID `gorm:"type:uuid" json:"node_id,omitempty"`
 	CreatedByUser *uuid.UUID `gorm:"type:uuid" json:"created_by_user_id,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 }
