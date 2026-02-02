@@ -294,6 +294,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const toolsItems = (isOrgAdmin || isGlobalAdmin)
     ? [
         { key: "files", label: t("File Manager"), path: "/files" },
+        { key: "keystore", label: t("Key storage"), path: "/keys" },
         { key: "dbwork", label: t("DB work"), path: "/db" },
       ]
     : [];
@@ -5778,6 +5779,214 @@ function FilesPage() {
   );
 }
 
+function KeyStoragePage() {
+  const { t, lang, setLang } = useI18n();
+  const navigate = useNavigate();
+  const orgRole = getOrgRole();
+  const isGlobalAdmin = getIsGlobalAdmin();
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
+  const canManage = isGlobalAdmin || isOrgAdmin;
+  const [keys, setKeys] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (!canManage) return;
+    loadKeys();
+  }, []);
+
+  async function loadKeys() {
+    setLoading(true);
+    setError("");
+    try {
+      const orgId = getOrgId();
+      if (!orgId) throw new Error(t("No organization assigned"));
+      const data = await request("GET", `/orgs/${orgId}/keys`);
+      setKeys(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function uploadKey(file) {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const orgId = getOrgId();
+      if (!orgId) throw new Error(t("No organization assigned"));
+      const token = getToken();
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_BASE}/orgs/${orgId}/keys`, {
+        method: "POST",
+        headers: {
+          Authorization: token ? `Bearer ${token}` : "",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        credentials: "include",
+        body: form,
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text || `Upload failed: ${res.status}`);
+      }
+      await loadKeys();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function downloadKey(key) {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/orgs/${orgId}/keys/${key.id}/download`, {
+      method: "GET",
+      headers: {
+        Authorization: token ? `Bearer ${token}` : "",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `Download failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = key.filename || "ssh-key";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function deleteKey(key) {
+    if (!confirm(t("Delete key {name}?", { name: key.filename || key.id }))) return;
+    setError("");
+    try {
+      const orgId = getOrgId();
+      if (!orgId) throw new Error(t("No organization assigned"));
+      await request("DELETE", `/orgs/${orgId}/keys/${key.id}`);
+      await loadKeys();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (!canManage) {
+    return (
+      <div className="app-shell">
+        <SidebarNav active="keystore" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+        <div className="app-main">
+          <div className="page center">
+            <div className="error">{t("Access denied")}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <SidebarNav active="keystore" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+      <div className="app-main">
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <OrgSwitcher />
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
+                <option value="ru">{t("Russian")}</option>
+                <option value="fa">{t("Persian")}</option>
+              </select>
+            </div>
+            <div className="header-user">
+              <button
+                onClick={async () => {
+                  try {
+                    await request("POST", "/auth/logout", {});
+                  } catch {
+                  }
+                  clearAuth();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("Logout")}
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div className="page">
+          <div className="page-header">
+            <div>
+              <h1>{t("Key storage")}</h1>
+              <div className="muted small">{t("Store SSH keys for your organization")}</div>
+            </div>
+            <div className="page-actions">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                {uploading ? t("Loading...") : t("Upload")}
+              </button>
+              <button type="button" className="secondary" onClick={loadKeys} disabled={loading}>
+                {t("Refresh")}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                className="hidden-file"
+                accept=".pem,.ppk,.key"
+                onChange={(e) => uploadKey(e.target.files?.[0])}
+              />
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+
+          <div className="table-card">
+            <div className="data-table nodes-table">
+              <div className="data-row head">
+                <div>{t("File")}</div>
+                <div>{t("Size")}</div>
+                <div>{t("Uploaded by")}</div>
+                <div>{t("Created")}</div>
+                <div>{t("Actions")}</div>
+              </div>
+              {keys.map((key) => (
+                <div className="data-row" key={key.id}>
+                  <div>{key.filename}</div>
+                  <div>{key.size_bytes ? `${key.size_bytes} B` : "-"}</div>
+                  <div>{key.created_by || "-"}</div>
+                  <div>{formatTS(key.created_at)}</div>
+                  <div className="actions">
+                    <button type="button" className="secondary" onClick={() => downloadKey(key)}>{t("Download")}</button>
+                    <button type="button" className="danger" onClick={() => deleteKey(key)}>{t("Delete")}</button>
+                  </div>
+                </div>
+              ))}
+              {keys.length === 0 && !loading && (
+                <div className="table-row">
+                  <div>{t("No data")}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DbWorkPage() {
   const { t } = useI18n();
   const role = getRole();
@@ -6144,6 +6353,14 @@ export default function App() {
           element={
             <RequireAuth>
               <FilesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/keys"
+          element={
+            <RequireAuth>
+              <KeyStoragePage />
             </RequireAuth>
           }
         />

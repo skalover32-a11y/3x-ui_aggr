@@ -254,6 +254,7 @@ func (ActiveUserLatest) TableName() string {
 
 type TelegramSettings struct {
 	ID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID           *uuid.UUID `gorm:"type:uuid;index" json:"org_id,omitempty"`
 	BotTokenEnc     string    `gorm:"type:text;not null" json:"-"`
 	AdminChatID     string    `gorm:"type:text;not null" json:"admin_chat_id"`
 	AlertConnection bool      `gorm:"not null;default:true" json:"alert_connection"`
@@ -262,6 +263,21 @@ type TelegramSettings struct {
 	AlertDisk       bool      `gorm:"not null;default:true" json:"alert_disk"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+type OrgKey struct {
+	ID            uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID         uuid.UUID  `gorm:"type:uuid;not null;index:idx_org_keys_org_id" json:"org_id"`
+	Filename      string     `gorm:"type:text;not null" json:"filename"`
+	Ext           string     `gorm:"type:text;not null" json:"ext"`
+	ContentEnc    string     `gorm:"type:text;not null" json:"-"`
+	SizeBytes     int        `gorm:"not null;default:0" json:"size_bytes"`
+	CreatedByUser *uuid.UUID `gorm:"type:uuid" json:"created_by_user_id,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+func (OrgKey) TableName() string {
+	return "org_keys"
 }
 
 type FSAuditLog struct {
