@@ -819,7 +819,7 @@ function LoginPage() {
           {passkeyBusy ? t("Loading...") : t("Login with Passkey")}
         </button>
         <button type="button" className="ghost" onClick={() => setSignupOpen(true)}>
-          {t("Create account by invite")}
+          {t("Sign up by invite")}
         </button>
         {!webAuthnSupported && <div className="hint">{t("Passkeys are not supported in this browser.")}</div>}
       </form>
