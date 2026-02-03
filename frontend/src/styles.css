@@ -2275,6 +2275,42 @@ body {
   grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) minmax(200px, 1.6fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(140px, 1fr) minmax(110px, 0.7fr) minmax(220px, 1fr);
 }
 
+.data-table.key-storage-table.key-storage-form .data-row {
+  grid-template-columns: minmax(180px, 1.3fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(200px, 1.2fr) minmax(220px, 1.2fr);
+  align-items: start;
+}
+
+.data-table.key-storage-table.key-storage-form .data-row.head {
+  grid-template-columns: minmax(180px, 1.3fr) minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(200px, 1.2fr) minmax(220px, 1.2fr);
+}
+
+.data-table.key-storage-table.key-storage-list .data-row {
+  grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+  align-items: start;
+}
+
+.data-table.key-storage-table.key-storage-list .data-row.head {
+  grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+}
+
+.data-table.key-storage-table .data-row input,
+.data-table.key-storage-table .data-row select {
+  width: 100%;
+  min-width: 0;
+}
+
+.data-table.key-storage-table .mono {
+  word-break: break-all;
+}
+
+.data-table.key-storage-table .actions {
+  justify-content: flex-end;
+}
+
+.data-table.key-storage-table .data-row > div {
+  min-width: 0;
+}
+
 .data-table .actions {
   display: flex;
   gap: 6px;

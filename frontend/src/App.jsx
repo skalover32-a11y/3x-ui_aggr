@@ -2246,7 +2246,7 @@ function NodesPage() {
       }
     };
     ws.onerror = () => {
-      setTaskError(`${t("Failed to get status")}: ${t("Disconnected")}`);
+      // WS is optional; polling will keep status fresh.
     };
     ws.onclose = () => {};
     return () => ws.close();
@@ -2271,6 +2271,7 @@ function NodesPage() {
           });
           setTaskLogs((prev) => ({ ...prev, ...logs }));
         }
+        setTaskError("");
         const status = job?.status;
         if (status === "success" || status === "failed") {
           stopped = true;
@@ -3263,7 +3264,7 @@ function NodesPage() {
                 {canOperate && <div />}
                 <div>{t("Status")}</div>
                 <div>{t("Node Name")}</div>
-                <div>{t("Location")}</div>
+                <div>{t("IP")}</div>
                 <div>{t("Agent Status")}</div>
                 <div>{t("Panel Status")}</div>
                 <div>{t("Uptime")}</div>
@@ -3274,7 +3275,7 @@ function NodesPage() {
                 const uptimePoints = uptimeMap[node.id] || [];
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
-                const location = formatLocation(node);
+                const hostValue = node.host || node.ssh_host || "-";
                 return (
                   <div
                     className="data-row"
@@ -3296,8 +3297,7 @@ function NodesPage() {
                       <div className="muted small">{node.kind || "PANEL"}</div>
                     </div>
                     <div className="location-cell">
-                      <span className="flag">{location.flag}</span>
-                      <span>{location.text}</span>
+                      <span>{hostValue}</span>
                     </div>
                     <div>
                       <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
@@ -5050,7 +5050,7 @@ function DashboardPage() {
             <div className="data-row head">
               <div>{t("Status")}</div>
               <div>{t("Node Name")}</div>
-              <div>{t("Location")}</div>
+              <div>{t("IP")}</div>
               <div>{t("Agent Status")}</div>
               <div>{t("Panel Status")}</div>
               <div>{t("Uptime")}</div>
@@ -5059,7 +5059,7 @@ function DashboardPage() {
             </div>
             {nodesFiltered.map((node) => {
               const status = deriveNodeStatus(node);
-              const location = formatLocation(node);
+              const hostValue = node.host || node.ssh_host || "-";
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
               return (
                 <div
@@ -5073,8 +5073,7 @@ function DashboardPage() {
                     <div className="muted small">{node.kind || "PANEL"}</div>
                   </div>
                   <div className="location-cell">
-                    <span className="flag">{location.flag}</span>
-                    <span>{location.text}</span>
+                    <span>{hostValue}</span>
                   </div>
                   <div>
                     <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
@@ -5833,11 +5832,11 @@ function KeyStoragePage() {
       const orgId = getOrgId();
       if (!orgId) throw new Error(t("No organization assigned"));
       const token = getToken();
-      const form = new FormData();
-      form.append("file", file);
-      if (form.label) form.append("label", form.label);
-      if (form.description) form.append("description", form.description);
-      if (form.node_id) form.append("node_id", form.node_id);
+      const fd = new FormData();
+      fd.append("file", file);
+      if (form.label) fd.append("label", form.label);
+      if (form.description) fd.append("description", form.description);
+      if (form.node_id) fd.append("node_id", form.node_id);
       const res = await fetch(`${API_BASE}/orgs/${orgId}/keys`, {
         method: "POST",
         headers: {
@@ -5846,13 +5845,14 @@ function KeyStoragePage() {
           ...(orgId ? { "X-Org-ID": orgId } : {}),
         },
         credentials: "include",
-        body: form,
+        body: fd,
       });
       const text = await res.text();
       if (!res.ok) {
         throw new Error(text || `Upload failed: ${res.status}`);
       }
       await loadKeys();
+      setForm({ label: "", description: "", node_id: "" });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -5987,7 +5987,7 @@ function KeyStoragePage() {
           {error && <div className="error">{error}</div>}
 
           <div className="table-card">
-            <div className="data-table nodes-table">
+            <div className="data-table key-storage-table key-storage-form">
               <div className="data-row head">
                 <div>{t("File")}</div>
                 <div>{t("Label")}</div>
@@ -6032,7 +6032,7 @@ function KeyStoragePage() {
           </div>
 
           <div className="table-card">
-            <div className="data-table nodes-table">
+            <div className="data-table key-storage-table key-storage-list">
               <div className="data-row head">
                 <div>{t("File")}</div>
                 <div>{t("Fingerprint")}</div>
@@ -6049,7 +6049,9 @@ function KeyStoragePage() {
                     <div className="muted small">{key.label || "-"}</div>
                     <div className="muted small">{key.description || "-"}</div>
                   </div>
-                  <div className="mono small">{key.fingerprint || "-"}</div>
+                  <div className="mono small" title={key.fingerprint || ""}>
+                    {key.fingerprint ? (key.fingerprint.length > 24 ? `${key.fingerprint.slice(0, 24)}…` : key.fingerprint) : "-"}
+                  </div>
                   <div>
                     <select
                       value={key.node_id || ""}
