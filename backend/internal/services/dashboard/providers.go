@@ -3,7 +3,6 @@ package dashboard
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
-	"agr_3x_ui/internal/services/panelclient"
 	"agr_3x_ui/internal/services/sshclient"
 )
 
@@ -25,6 +23,17 @@ type NodeMetricsProvider interface {
 
 type ActiveUsersProvider interface {
 	CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error)
+}
+
+type DisabledActiveUsersProvider struct{}
+
+func (p *DisabledActiveUsersProvider) CollectActiveUsers(_ context.Context, _ *db.Node) (ActiveUsersResult, error) {
+	return ActiveUsersResult{
+		Users:        nil,
+		Source:       "disabled",
+		SourceDetail: "active connection collection is disabled",
+		Available:    false,
+	}, nil
 }
 
 type SSHMetricsProvider struct {
@@ -54,7 +63,7 @@ func NewSSHMetricsProvider(ssh *sshclient.Client, enc *security.Encryptor, timeo
 
 func (p *SSHMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (NodeMetrics, error) {
 	if node == nil {
-		return NodeMetrics{}, errors.New("node missing")
+		return NodeMetrics{}, errors.New("server is missing")
 	}
 	key, err := p.Encryptor.DecryptString(node.SSHKeyEnc)
 	if err != nil {
@@ -73,12 +82,12 @@ func (p *SSHMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.No
 	metrics := NodeMetrics{
 		CollectedAt:  time.Now(),
 		FromAgent:    false,
-		PanelVersion: node.PanelVersion,
+		AgentVersion: node.AgentVersion,
 	}
 
 	cpuOut, cpuErr := run("cat /proc/stat")
-	total, idle, cpuOk := parseCPUStat(cpuOut, cpuErr)
-	if cpuOk {
+	total, idle, cpuOK := parseCPUStat(cpuOut, cpuErr)
+	if cpuOK {
 		metrics.CPUPct = p.computeCPUPercent(node.ID, total, idle)
 	}
 
@@ -111,15 +120,6 @@ func (p *SSHMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.No
 			metrics.NetTxBps = txBps
 			metrics.NetIface = &iface
 		}
-	}
-
-	if out, _ := run("systemctl is-active xray || true"); strings.TrimSpace(out) != "" {
-		val := strings.TrimSpace(out) == "active"
-		metrics.XrayRunning = &val
-	}
-	if out, _ := run("systemctl is-active x-ui || true"); strings.TrimSpace(out) != "" {
-		val := strings.TrimSpace(out) == "active"
-		metrics.PanelRunning = &val
 	}
 
 	return metrics, nil
@@ -172,494 +172,6 @@ func (p *SSHMetricsProvider) computeCPUPercent(nodeID uuid.UUID, total, idle int
 	return &usage
 }
 
-type PanelActiveUsersProvider struct {
-	Encryptor  *security.Encryptor
-	Timeout    time.Duration
-	SessionTTL time.Duration
-	mu         sync.Mutex
-	clients    map[uuid.UUID]*panelSession
-}
-
-func NewPanelActiveUsersProvider(enc *security.Encryptor, timeout time.Duration, sessionTTL time.Duration) *PanelActiveUsersProvider {
-	return &PanelActiveUsersProvider{
-		Encryptor:  enc,
-		Timeout:    timeout,
-		SessionTTL: sessionTTL,
-		clients:    make(map[uuid.UUID]*panelSession),
-	}
-}
-
-func (p *PanelActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
-	if node == nil || strings.TrimSpace(node.BaseURL) == "" || strings.TrimSpace(node.PanelUsername) == "" {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "no_source",
-			SourceDetail: "panel api not configured",
-			Available:    false,
-		}, nil
-	}
-	pass, err := p.Encryptor.DecryptString(node.PanelPasswordEnc)
-	if err != nil {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "panel",
-			SourceDetail: "decrypt failed",
-			Available:    false,
-		}, nil
-	}
-	client, err := p.getClient(node, pass)
-	if err != nil {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "panel",
-			SourceDetail: fmt.Sprintf("request failed: %v", err),
-			Available:    false,
-		}, nil
-	}
-	onlineResp, err := client.OnlineClients()
-	if err != nil && isAuthError(err) {
-		if loginErr := client.Login(); loginErr == nil {
-			p.markLogin(node.ID)
-			onlineResp, err = client.OnlineClients()
-		}
-	}
-	if err == nil {
-		users := extractOnlineUsers(onlineResp)
-		if isOnlineListOnly(onlineResp) {
-			listResp, listErr := client.ListInbounds()
-			if listErr != nil && isAuthError(listErr) {
-				if loginErr := client.Login(); loginErr == nil {
-					p.markLogin(node.ID)
-					listResp, listErr = client.ListInbounds()
-				}
-			}
-			if listErr == nil {
-				if detailed := extractActiveUsers(listResp); len(detailed) > 0 {
-					return ActiveUsersResult{
-						Users:        detailed,
-						Source:       "panel",
-						SourceDetail: "ok",
-						Available:    true,
-					}, nil
-				}
-			}
-		}
-		return ActiveUsersResult{
-			Users:        users,
-			Source:       "panel",
-			SourceDetail: "ok",
-			Available:    true,
-		}, nil
-	}
-	if err != nil && !isOnlineEndpointUnavailable(err) {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "panel",
-			SourceDetail: fmt.Sprintf("request failed: %v", err),
-			Available:    false,
-		}, nil
-	}
-	listResp, err := client.ListInbounds()
-	if err != nil && isAuthError(err) {
-		if loginErr := client.Login(); loginErr == nil {
-			p.markLogin(node.ID)
-			listResp, err = client.ListInbounds()
-		}
-	}
-	if err != nil {
-		return ActiveUsersResult{
-			Users:        nil,
-			Source:       "panel",
-			SourceDetail: fmt.Sprintf("request failed: %v", err),
-			Available:    false,
-		}, nil
-	}
-	users := extractActiveUsers(listResp)
-	return ActiveUsersResult{
-		Users:        users,
-		Source:       "panel",
-		SourceDetail: "ok",
-		Available:    true,
-	}, nil
-}
-
-type panelSession struct {
-	client    *panelclient.Client
-	key       string
-	lastLogin time.Time
-}
-
-func (p *PanelActiveUsersProvider) sessionKey(node *db.Node, pass string) string {
-	return strings.TrimSpace(node.BaseURL) + "|" + strings.TrimSpace(node.PanelUsername) + "|" + pass + "|" + strconv.FormatBool(node.VerifyTLS)
-}
-
-func (p *PanelActiveUsersProvider) getClient(node *db.Node, pass string) (*panelclient.Client, error) {
-	key := p.sessionKey(node, pass)
-	var sess *panelSession
-	now := time.Now()
-	p.mu.Lock()
-	if existing, ok := p.clients[node.ID]; ok {
-		sess = existing
-	}
-	p.mu.Unlock()
-	if sess != nil && sess.key == key && p.sessionValid(sess, now) {
-		return sess.client, nil
-	}
-	client, err := panelclient.New(node.BaseURL, node.PanelUsername, pass, node.VerifyTLS)
-	if err != nil {
-		return nil, fmt.Errorf("client init failed: %v", err)
-	}
-	if err := client.Login(); err != nil {
-		return nil, err
-	}
-	p.mu.Lock()
-	p.clients[node.ID] = &panelSession{client: client, key: key, lastLogin: now}
-	p.mu.Unlock()
-	return client, nil
-}
-
-func (p *PanelActiveUsersProvider) sessionValid(sess *panelSession, now time.Time) bool {
-	if sess == nil {
-		return false
-	}
-	if p.SessionTTL <= 0 {
-		return true
-	}
-	return now.Sub(sess.lastLogin) <= p.SessionTTL
-}
-
-func (p *PanelActiveUsersProvider) markLogin(nodeID uuid.UUID) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if sess, ok := p.clients[nodeID]; ok {
-		sess.lastLogin = time.Now()
-	}
-}
-
-func isAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "status 401") ||
-		strings.Contains(msg, "status 403") ||
-		strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "forbidden")
-}
-
-func extractActiveUsers(listResp map[string]any) []ActiveUser {
-	obj, ok := listResp["obj"]
-	if !ok {
-		return nil
-	}
-	arr, ok := obj.([]any)
-	if !ok {
-		return nil
-	}
-	now := time.Now()
-	activeWindow := 5 * time.Minute
-	var users []ActiveUser
-	for _, item := range arr {
-		inbound, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		tag := strings.TrimSpace(asString(inbound["remark"]))
-		if tag == "" {
-			tag = strings.TrimSpace(asString(inbound["tag"]))
-		}
-		stats, ok := inbound["clientStats"].([]any)
-		if !ok {
-			continue
-		}
-		for _, raw := range stats {
-			entry, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			lastSeenPtr := parseLastSeenPtr(entry)
-			if !isOnline(entry) {
-				if lastSeenPtr == nil {
-					continue
-				}
-				if now.Sub(*lastSeenPtr) > activeWindow {
-					continue
-				}
-			}
-			lastSeen := now
-			if lastSeenPtr != nil {
-				lastSeen = *lastSeenPtr
-			}
-			email := asString(entry["email"])
-			if email == "" {
-				continue
-			}
-			up := asInt64(entry["up"])
-			down := asInt64(entry["down"])
-			user := ActiveUser{
-				InboundTag:     nilifyString(tag),
-				ClientEmail:    email,
-				IP:             asString(entry["ip"]),
-				TotalUpBytes:   up,
-				TotalDownBytes: down,
-				LastSeen:       lastSeen,
-			}
-			users = append(users, user)
-		}
-	}
-	return users
-}
-
-func isOnlineListOnly(listResp map[string]any) bool {
-	obj, ok := listResp["obj"]
-	if !ok {
-		return false
-	}
-	arr, ok := obj.([]any)
-	if !ok {
-		if raw, ok := obj.([]string); ok {
-			return len(raw) > 0
-		}
-		return false
-	}
-	if len(arr) == 0 {
-		return false
-	}
-	for _, item := range arr {
-		if _, ok := item.(string); !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func parseLastSeenPtr(entry map[string]any) *time.Time {
-	keys := []string{
-		"last_seen",
-		"lastSeen",
-		"last_online",
-		"lastOnline",
-		"last_online_at",
-		"lastOnlineAt",
-	}
-	for _, key := range keys {
-		if raw, ok := entry[key]; ok {
-			if val := parseTimeValue(raw); val != nil {
-				return val
-			}
-		}
-	}
-	return nil
-}
-
-func extractOnlineUsers(listResp map[string]any) []ActiveUser {
-	obj, ok := listResp["obj"]
-	if !ok {
-		return nil
-	}
-	arr, ok := obj.([]any)
-	if !ok {
-		if raw, ok := obj.([]string); ok {
-			arr = make([]any, 0, len(raw))
-			for _, item := range raw {
-				arr = append(arr, item)
-			}
-		} else {
-			return nil
-		}
-	}
-	now := time.Now()
-	var users []ActiveUser
-	for _, item := range arr {
-		if email, ok := item.(string); ok {
-			email = strings.TrimSpace(email)
-			if email != "" {
-				users = append(users, ActiveUser{
-					ClientEmail: email,
-					LastSeen:    now,
-				})
-			}
-			continue
-		}
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if stats, ok := entry["clientStats"].([]any); ok {
-			tag := strings.TrimSpace(asString(entry["remark"]))
-			if tag == "" {
-				tag = strings.TrimSpace(asString(entry["tag"]))
-			}
-			for _, raw := range stats {
-				stat, ok := raw.(map[string]any)
-				if !ok {
-					continue
-				}
-				email := asString(stat["email"])
-				if email == "" {
-					continue
-				}
-				lastSeen := parseTimeValue(stat["lastOnline"])
-				if lastSeen == nil {
-					continue
-				}
-				up := asInt64(stat["up"])
-				down := asInt64(stat["down"])
-				users = append(users, ActiveUser{
-					InboundTag:     nilifyString(tag),
-					ClientEmail:    email,
-					IP:             asString(stat["ip"]),
-					TotalUpBytes:   up,
-					TotalDownBytes: down,
-					LastSeen:       *lastSeen,
-				})
-			}
-			continue
-		}
-		email := asString(entry["email"])
-		if email == "" {
-			email = asString(entry["client"])
-		}
-		if email == "" {
-			email = asString(entry["user"])
-		}
-		if email == "" {
-			email = asString(entry["username"])
-		}
-		if email == "" {
-			continue
-		}
-		tag := asString(entry["inboundTag"])
-		if tag == "" {
-			tag = asString(entry["inbound_tag"])
-		}
-		if tag == "" {
-			tag = asString(entry["tag"])
-		}
-		up := asInt64(entry["up"])
-		if up == nil || *up == 0 {
-			up = asInt64(entry["uplink"])
-		}
-		down := asInt64(entry["down"])
-		if down == nil || *down == 0 {
-			down = asInt64(entry["downlink"])
-		}
-		lastSeen := parseLastSeen(entry, now)
-		user := ActiveUser{
-			InboundTag:     nilifyString(tag),
-			ClientEmail:    email,
-			IP:             asString(entry["ip"]),
-			TotalUpBytes:   up,
-			TotalDownBytes: down,
-			LastSeen:       lastSeen,
-		}
-		users = append(users, user)
-	}
-	return users
-}
-
-func isOnline(entry map[string]any) bool {
-	if val, ok := entry["online"].(bool); ok {
-		return val
-	}
-	if val, ok := entry["is_online"].(bool); ok {
-		return val
-	}
-	if val, ok := entry["status"].(string); ok {
-		status := strings.ToLower(strings.TrimSpace(val))
-		if status == "offline" || status == "disabled" {
-			return false
-		}
-		if status == "online" || status == "active" {
-			return true
-		}
-	}
-	if val, ok := entry["enable"].(bool); ok && !val {
-		return false
-	}
-	if ip := asString(entry["ip"]); ip != "" {
-		return true
-	}
-	return false
-}
-
-func isOnlineEndpointUnavailable(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "status 404") ||
-		strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "not available")
-}
-
-func parseLastSeen(entry map[string]any, fallback time.Time) time.Time {
-	keys := []string{
-		"last_seen",
-		"lastSeen",
-		"last_online",
-		"lastOnline",
-		"last_online_at",
-		"lastOnlineAt",
-	}
-	for _, key := range keys {
-		if raw, ok := entry[key]; ok {
-			if val := parseTimeValue(raw); val != nil {
-				return *val
-			}
-		}
-	}
-	return fallback
-}
-
-func parseTimeValue(raw any) *time.Time {
-	switch v := raw.(type) {
-	case time.Time:
-		return &v
-	case string:
-		val := strings.TrimSpace(v)
-		if val == "" {
-			return nil
-		}
-		if t, err := time.Parse(time.RFC3339, val); err == nil {
-			return &t
-		}
-		if t, err := time.Parse("2006-01-02 15:04:05", val); err == nil {
-			return &t
-		}
-	case float64:
-		iv := int64(v)
-		if iv <= 0 {
-			return nil
-		}
-		return unixToTime(iv)
-	case int64:
-		if v <= 0 {
-			return nil
-		}
-		return unixToTime(v)
-	case int:
-		if v <= 0 {
-			return nil
-		}
-		return unixToTime(int64(v))
-	case json.Number:
-		if iv, err := v.Int64(); err == nil && iv > 0 {
-			return unixToTime(iv)
-		}
-	}
-	return nil
-}
-
-func unixToTime(val int64) *time.Time {
-	if val > 1_000_000_000_000 {
-		t := time.UnixMilli(val).UTC()
-		return &t
-	}
-	t := time.Unix(val, 0).UTC()
-	return &t
-}
-
 func parseCPUStat(out string, err error) (int64, int64, bool) {
 	if err != nil {
 		return 0, 0, false
@@ -674,8 +186,8 @@ func parseCPUStat(out string, err error) (int64, int64, bool) {
 	}
 	var total int64
 	for i := 1; i < len(fields); i++ {
-		v, err := strconv.ParseInt(fields[i], 10, 64)
-		if err == nil {
+		v, parseErr := strconv.ParseInt(fields[i], 10, 64)
+		if parseErr == nil {
 			total += v
 		}
 	}
@@ -788,42 +300,4 @@ func readNetBytes(run func(cmd string) (string, error), iface string) (int64, in
 		return 0, 0, fmt.Errorf("invalid net bytes")
 	}
 	return rx, tx, nil
-}
-
-func asString(value any) string {
-	if value == nil {
-		return ""
-	}
-	switch v := value.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-func asInt64(value any) *int64 {
-	switch v := value.(type) {
-	case int64:
-		return &v
-	case int:
-		val := int64(v)
-		return &val
-	case float64:
-		val := int64(v)
-		return &val
-	case json.Number:
-		if num, err := v.Int64(); err == nil {
-			return &num
-		}
-	}
-	return nil
-}
-
-func nilifyString(val string) *string {
-	if strings.TrimSpace(val) == "" {
-		return nil
-	}
-	v := strings.TrimSpace(val)
-	return &v
 }

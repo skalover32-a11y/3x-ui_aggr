@@ -55,9 +55,6 @@ func (p *AgentProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (
 		NetIface:       resp.NetIface,
 		UptimeSec:      resp.UptimeSec,
 		AgentVersion:   resp.AgentVersion,
-		PanelVersion:   resp.PanelVersion,
-		XrayRunning:    resp.XrayRunning,
-		PanelRunning:   resp.PanelRunning,
 		PingMs:         resp.PingMs,
 		TCPConnections: resp.TCPConnections,
 		UDPConnections: resp.UDPConnections,
@@ -144,9 +141,6 @@ type agentStatsResponse struct {
 	NetIface       *string   `json:"net_iface"`
 	UptimeSec      *int64    `json:"uptime_sec"`
 	AgentVersion   *string   `json:"agent_version"`
-	PanelVersion   *string   `json:"panel_version"`
-	XrayRunning    *bool     `json:"xray_running"`
-	PanelRunning   *bool     `json:"panel_running"`
 	PingMs         *int64    `json:"ping_ms"`
 	TCPConnections *int64    `json:"tcp_connections"`
 	UDPConnections *int64    `json:"udp_connections"`
@@ -174,10 +168,7 @@ func (p *CompositeMetricsProvider) CollectNodeMetrics(ctx context.Context, node 
 }
 
 type CompositeActiveUsersProvider struct {
-	Agent        ActiveUsersProvider
-	Panel        ActiveUsersProvider
-	PreferAgent  bool
-	PanelEnabled bool
+	Agent ActiveUsersProvider
 }
 
 func (p *CompositeActiveUsersProvider) CollectActiveUsers(ctx context.Context, node *db.Node) (ActiveUsersResult, error) {
@@ -190,21 +181,7 @@ func (p *CompositeActiveUsersProvider) CollectActiveUsers(ctx context.Context, n
 		}, nil
 	}
 	if p.Agent != nil && node.AgentEnabled {
-		result, err := p.Agent.CollectActiveUsers(ctx, node)
-		if err == nil && result.Available {
-			return result, nil
-		}
-		if !p.PanelEnabled || p.Panel == nil {
-			return result, nil
-		}
-		panelResult, panelErr := p.Panel.CollectActiveUsers(ctx, node)
-		if panelErr == nil {
-			return panelResult, nil
-		}
-		return result, nil
-	}
-	if p.PanelEnabled && p.Panel != nil {
-		return p.Panel.CollectActiveUsers(ctx, node)
+		return p.Agent.CollectActiveUsers(ctx, node)
 	}
 	return ActiveUsersResult{
 		Users:        nil,

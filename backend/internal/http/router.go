@@ -134,12 +134,6 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.DELETE("/nodes/:id", middleware.RequireRoles(middleware.RoleAdmin), h.DeleteNode)
 
-	auth.GET("/nodes/:id/inbounds", middleware.RequireRoles(writeRoles...), h.ListInbounds)
-	auth.POST("/nodes/:id/inbounds", middleware.RequireRoles(writeRoles...), h.AddInbound)
-	auth.PATCH("/nodes/:id/inbounds/:inboundId", middleware.RequireRoles(writeRoles...), h.UpdateInbound)
-	auth.DELETE("/nodes/:id/inbounds/:inboundId", middleware.RequireRoles(writeRoles...), h.DeleteInbound)
-
-	auth.POST("/nodes/:id/actions/restart-xray", middleware.RequireRoles(writeRoles...), h.RestartXray)
 	auth.POST("/nodes/:id/actions/reboot", middleware.RequireRoles(writeRoles...), h.RebootServer)
 	auth.POST("/nodes/:id/actions/:action/plan", middleware.RequireRoles(writeRoles...), h.PlanNodeAction)
 	auth.POST("/nodes/:id/actions/:action/run", middleware.RequireRoles(writeRoles...), h.RunNodeAction)

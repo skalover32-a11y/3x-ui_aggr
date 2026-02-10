@@ -18,7 +18,6 @@ import (
 	"agr_3x_ui/internal/services/checks"
 	"agr_3x_ui/internal/services/dashboard"
 	"agr_3x_ui/internal/services/ops"
-	"agr_3x_ui/internal/services/panelclient"
 	"agr_3x_ui/internal/services/sshclient"
 	"agr_3x_ui/internal/services/sshws"
 )
@@ -61,14 +60,6 @@ func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {
 		return nil, err
 	}
 	return &node, nil
-}
-
-func (h *Handler) newPanelClient(node *db.Node) (*panelclient.Client, error) {
-	pass, err := h.Encryptor.DecryptString(node.PanelPasswordEnc)
-	if err != nil {
-		return nil, err
-	}
-	return panelclient.New(node.BaseURL, node.PanelUsername, pass, node.VerifyTLS)
 }
 
 func (h *Handler) decryptSSHKey(node *db.Node) (string, error) {

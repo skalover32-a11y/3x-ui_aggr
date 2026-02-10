@@ -17,16 +17,12 @@ type NodeMetrics struct {
 	NetIface       *string
 	UptimeSec      *int64
 	AgentVersion   *string
-	PanelVersion   *string
-	XrayRunning    *bool
-	PanelRunning   *bool
 	PingMs         *int64
 	TCPConnections *int64
 	UDPConnections *int64
 }
 
 type ActiveUser struct {
-	InboundTag     *string   `json:"inbound_tag"`
 	ClientEmail    string    `json:"client_email"`
 	IP             string    `json:"ip"`
 	RxBps          *int64    `json:"rx_bps"`

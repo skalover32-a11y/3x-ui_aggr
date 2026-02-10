@@ -178,8 +178,8 @@ func computeAggregateScoped(nodes []dashboard.DashboardNode) dashboard.Aggregate
 			agg.NodesOnline++
 			agg.AgentsActive++
 		}
-		if node.PanelRunning != nil && *node.PanelRunning {
-			agg.PanelsAvailable++
+		if node.AgentOnline {
+			agg.ServicesOnline++
 		}
 		if node.CPUPct != nil {
 			cpuSum += *node.CPUPct

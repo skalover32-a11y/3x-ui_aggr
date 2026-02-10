@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"agr_3x_ui/internal/services/ops"
 )
 
 type rebootRequest struct {
@@ -21,36 +23,7 @@ type actionPlanResponse struct {
 
 type actionRunRequest struct {
 	Confirm string `json:"confirm"`
-}
-
-func (h *Handler) RestartXray(c *gin.Context) {
-	node, err := h.getNodeForActor(c, c.Param("id"))
-	if err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
-		return
-	}
-	panel, err := h.newPanelClient(node)
-	if err != nil {
-		msg := "failed to init panel client"
-		h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, errString(err))
-		respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
-		return
-	}
-	if err := panel.Login(); err != nil {
-		msg := "panel login failed"
-		h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, errString(err))
-		respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
-		return
-	}
-	resp, err := panel.RestartXray()
-	if err != nil {
-		msg := "failed to restart xray"
-		h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, nil)
-		respondError(c, http.StatusBadGateway, "XRAY_RESTART", msg)
-		return
-	}
-	h.auditEvent(c, &node.ID, "XRAY_RESTART", "ok", nil, gin.H{}, nil)
-	respondStatus(c, http.StatusOK, resp)
+	Service string `json:"service"`
 }
 
 func (h *Handler) RebootServer(c *gin.Context) {
@@ -101,9 +74,9 @@ func (h *Handler) PlanNodeAction(c *gin.Context) {
 	action := normalizeAction(c.Param("action"))
 	var steps []string
 	switch action {
-	case "restart_xray":
+	case "restart_service":
 		steps = []string{
-			"Will call 3x-ui panel API: restartXrayService",
+			"Will run service restart task on selected server",
 		}
 	case "reboot":
 		steps = []string{
@@ -135,29 +108,29 @@ func (h *Handler) RunNodeAction(c *gin.Context) {
 	var req actionRunRequest
 	_ = c.ShouldBindJSON(&req)
 	switch action {
-	case "restart_xray":
-		panel, err := h.newPanelClient(node)
-		if err != nil {
-			msg := "failed to init panel client"
-			h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, errString(err))
-			respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", msg)
+	case "restart_service":
+		service := strings.TrimSpace(req.Service)
+		if service == "" {
+			respondError(c, http.StatusBadRequest, "INVALID_ACTION", "service required")
 			return
 		}
-		if err := panel.Login(); err != nil {
-			msg := "panel login failed"
-			h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, errString(err))
-			respondError(c, http.StatusBadGateway, "PANEL_LOGIN", msg)
+		if h.Ops == nil {
+			respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
 			return
 		}
-		resp, err := panel.RestartXray()
-		if err != nil {
-			msg := "failed to restart xray"
-			h.auditEvent(c, &node.ID, "XRAY_RESTART", "error", &msg, gin.H{}, errString(err))
-			respondError(c, http.StatusBadGateway, "XRAY_RESTART", msg)
+		job, createErr := h.Ops.CreateJob(c.Request.Context(), ops.CreateJobRequest{
+			Type:        "restart_service",
+			NodeIDs:     []string{node.ID.String()},
+			Parallelism: 1,
+			Params:      map[string]any{"restart_service": service},
+			Actor:       getActor(c),
+		})
+		if createErr != nil {
+			respondError(c, http.StatusBadRequest, "JOB_CREATE", createErr.Error())
 			return
 		}
-		h.auditEvent(c, &node.ID, "XRAY_RESTART", "ok", nil, gin.H{}, nil)
-		respondStatus(c, http.StatusOK, resp)
+		respondStatus(c, http.StatusCreated, job)
+		return
 	case "reboot":
 		if !validateConfirm(req.Confirm) {
 			msg := "confirm must be REBOOT"

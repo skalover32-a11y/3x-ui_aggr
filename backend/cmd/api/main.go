@@ -62,7 +62,7 @@ func main() {
 		rpOrigin = "http://localhost"
 	}
 	webAuthn, err := webauthn.New(&webauthn.Config{
-		RPDisplayName: "3x-ui Aggregator",
+		RPDisplayName: "Server Monitoring Aggregator",
 		RPID:          rpID,
 		RPOrigins:     []string{rpOrigin},
 	})
@@ -113,16 +113,12 @@ func main() {
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
 	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)
-	panelProvider := dashboard.NewPanelActiveUsersProvider(enc, cfg.DashboardCollectTimeout, cfg.DashboardPanelSessionTTL)
 	metricsProvider := &dashboard.CompositeMetricsProvider{
 		Agent:       agentProvider,
 		PreferAgent: cfg.DashboardAgentPrefer,
 	}
 	usersProvider := &dashboard.CompositeActiveUsersProvider{
-		Agent:        agentProvider,
-		Panel:        panelProvider,
-		PreferAgent:  cfg.DashboardAgentPrefer,
-		PanelEnabled: cfg.DashboardPanelActiveUsers,
+		Agent: agentProvider,
 	}
 	dashboardSvc := dashboard.New(dbConn, metricsProvider, usersProvider, cfg.DashboardCollectInterval, cfg.DashboardCollectParallelism)
 	handler.Dashboard = dashboardSvc

@@ -442,7 +442,7 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 	}
 	kind := node.Kind
 	if strings.TrimSpace(kind) == "" {
-		kind = "PANEL"
+		kind = "SERVER"
 	}
 	if req.Kind != nil {
 		val, err := normalizeNodeKind(*req.Kind)
@@ -462,9 +462,9 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 		node.PanelUsername = ""
 		encPass, err := h.Encryptor.EncryptString("")
 		if err != nil {
-			msg := "failed to encrypt panel password"
+			msg := "failed to encrypt service auth"
 			h.auditEvent(c, &node.ID, "NODE_UPDATE", "error", &msg, gin.H{"name": node.Name}, errString(err))
-			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")
+			respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt service auth")
 			return
 		}
 		node.PanelPasswordEnc = encPass
@@ -618,21 +618,6 @@ func (h *Handler) TestNode(c *gin.Context) {
 	}
 	ctx, cancel := h.withTimeout(context.Background())
 	defer cancel()
-	if isPanelNode(node) {
-		panel, err := h.newPanelClient(node)
-		if err != nil {
-			msg := "failed to init panel client"
-			h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
-			respondError(c, http.StatusInternalServerError, "PANEL_CLIENT", "failed to init panel client")
-			return
-		}
-		if err := panel.Login(); err != nil {
-			msg := "panel login failed"
-			h.auditEvent(c, &node.ID, "NODE_TEST", "error", &msg, gin.H{}, errString(err))
-			respondError(c, http.StatusBadGateway, "PANEL_LOGIN", "panel login failed")
-			return
-		}
-	}
 	key, err := h.decryptSSHKey(node)
 	if err != nil {
 		msg := "failed to decrypt ssh key"
@@ -665,59 +650,26 @@ func (h *Handler) TestNode(c *gin.Context) {
 func normalizeNodeKind(raw string) (string, error) {
 	val := strings.ToUpper(strings.TrimSpace(raw))
 	if val == "" {
-		return "PANEL", nil
+		return "SERVER", nil
 	}
-	if val != "PANEL" && val != "HOST" {
-		return "", errors.New("kind must be PANEL or HOST")
+	if val == "PANEL" {
+		return "SERVER", nil
+	}
+	if val != "SERVER" && val != "HOST" {
+		return "", errors.New("kind must be SERVER or HOST")
 	}
 	return val, nil
 }
 
 func validateNodeCreate(kind string, req *nodeCreateRequest) error {
-	if kind == "PANEL" {
-		if strings.TrimSpace(req.BaseURL) == "" {
-			return errors.New("base_url required for PANEL node")
-		}
-		if strings.TrimSpace(req.PanelUsername) == "" {
-			return errors.New("panel_username required for PANEL node")
-		}
-		if strings.TrimSpace(req.PanelPassword) == "" {
-			return errors.New("panel_password required for PANEL node")
-		}
-	}
+	_ = kind
+	_ = req
 	return nil
 }
 
 func validateNodeUpdate(kind string, node *db.Node, req *nodeUpdateRequest) error {
-	if kind != "PANEL" {
-		return nil
-	}
-	baseURL := node.BaseURL
-	if req.BaseURL != nil {
-		baseURL = strings.TrimSpace(*req.BaseURL)
-	}
-	panelUser := node.PanelUsername
-	if req.PanelUsername != nil {
-		panelUser = strings.TrimSpace(*req.PanelUsername)
-	}
-	if strings.TrimSpace(baseURL) == "" {
-		return errors.New("base_url required for PANEL node")
-	}
-	if strings.TrimSpace(panelUser) == "" {
-		return errors.New("panel_username required for PANEL node")
-	}
-	if req.PanelPassword != nil && strings.TrimSpace(*req.PanelPassword) == "" {
-		return errors.New("panel_password required for PANEL node")
-	}
+	_ = kind
+	_ = node
+	_ = req
 	return nil
-}
-
-func isPanelNode(node *db.Node) bool {
-	if node == nil {
-		return false
-	}
-	if strings.TrimSpace(node.Kind) == "" {
-		return strings.TrimSpace(node.BaseURL) != ""
-	}
-	return strings.EqualFold(node.Kind, "PANEL") && strings.TrimSpace(node.BaseURL) != ""
 }

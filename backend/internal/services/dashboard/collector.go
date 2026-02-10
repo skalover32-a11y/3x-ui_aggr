@@ -136,9 +136,6 @@ func (s *Service) collectForNode(ctx context.Context, node *db.Node) {
 			if metrics.AgentVersion != nil {
 				_ = s.updateAgentVersion(ctx, node.ID, *metrics.AgentVersion)
 			}
-			if metrics.PanelVersion != nil {
-				_ = s.updateNodePanelVersion(ctx, node.ID, *metrics.PanelVersion)
-			}
 		}
 		payload := toMetricsPayload(metrics)
 		if metrics.FromAgent {
@@ -201,17 +198,6 @@ func (s *Service) updateAgentVersion(ctx context.Context, nodeID uuid.UUID, vers
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Update("agent_version", version).Error
 }
 
-func (s *Service) updateNodePanelVersion(ctx context.Context, nodeID uuid.UUID, version string) error {
-	if s == nil || s.DB == nil || strings.TrimSpace(version) == "" {
-		return nil
-	}
-	updates := map[string]any{
-		"panel_version":       version,
-		"versions_checked_at": time.Now().UTC(),
-	}
-	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error
-}
-
 func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics NodeMetrics) error {
 	row := db.NodeMetricsLatest{
 		NodeID:         nodeID,
@@ -227,8 +213,6 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		NetTxBytes:     metrics.NetTxBytes,
 		NetIface:       metrics.NetIface,
 		UptimeSec:      metrics.UptimeSec,
-		XrayRunning:    metrics.XrayRunning,
-		PanelRunning:   metrics.PanelRunning,
 		PingMs:         metrics.PingMs,
 		TCPConnections: metrics.TCPConnections,
 		UDPConnections: metrics.UDPConnections,
@@ -246,16 +230,9 @@ func (s *Service) upsertMetrics(ctx context.Context, nodeID uuid.UUID, metrics N
 		"net_tx_bytes":     row.NetTxBytes,
 		"net_iface":        row.NetIface,
 		"uptime_sec":       row.UptimeSec,
-		"xray_running":     row.XrayRunning,
-		"panel_running":    row.PanelRunning,
 		"ping_ms":          row.PingMs,
 		"tcp_connections":  row.TCPConnections,
 		"udp_connections":  row.UDPConnections,
-	}
-	if metrics.PanelVersion != nil {
-		assignments["panel_version"] = metrics.PanelVersion
-	} else {
-		assignments["panel_version"] = gorm.Expr("node_metrics_latest.panel_version")
 	}
 	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "node_id"}},
@@ -299,7 +276,6 @@ func (s *Service) replaceActiveUsers(ctx context.Context, nodeID uuid.UUID, user
 		ip := strings.TrimSpace(user.IP)
 		rows = append(rows, db.ActiveUserLatest{
 			NodeID:         nodeID,
-			InboundTag:     user.InboundTag,
 			ClientEmail:    email,
 			IP:             ip,
 			RxBps:          user.RxBps,
@@ -312,7 +288,7 @@ func (s *Service) replaceActiveUsers(ctx context.Context, nodeID uuid.UUID, user
 	}
 	if len(rows) > 0 {
 		if err := s.DB.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "node_id"}, {Name: "inbound_tag"}, {Name: "client_email"}, {Name: "ip"}},
+			Columns:   []clause.Column{{Name: "node_id"}, {Name: "client_email"}, {Name: "ip"}},
 			UpdateAll: true,
 		}).Create(&rows).Error; err != nil {
 			return err
@@ -351,8 +327,8 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 			n.agent_installed, n.agent_last_seen_at, n.agent_version,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
-			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec, m.panel_version,
-			m.xray_running, m.panel_running, m.ping_ms, m.tcp_connections, m.udp_connections,
+			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec,
+			m.ping_ms, m.tcp_connections, m.udp_connections,
 			NULL::text as last_error`).
 		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id").
 		Scan(&rows).Error
@@ -370,7 +346,7 @@ func (s *Service) listActiveUsers(ctx context.Context, limit int, search string)
 		limit = 200
 	}
 	query := s.DB.WithContext(ctx).Table("active_users_latest a").
-		Select(`a.id, a.node_id, n.name as node_name, a.inbound_tag, a.client_email, a.ip,
+		Select(`a.id, a.node_id, n.name as node_name, a.client_email, a.ip,
 			a.rx_bps, a.tx_bps, a.total_up_bytes, a.total_down_bytes, a.last_seen, a.collected_at`).
 		Joins("JOIN nodes n ON n.id = a.node_id").
 		Order("a.last_seen DESC").
@@ -447,9 +423,6 @@ type DashboardNode struct {
 	NetRxBytes      *int64     `json:"net_rx_bytes"`
 	NetTxBytes      *int64     `json:"net_tx_bytes"`
 	UptimeSec       *int64     `json:"uptime_sec"`
-	PanelVersion    *string    `json:"panel_version"`
-	XrayRunning     *bool      `json:"xray_running"`
-	PanelRunning    *bool      `json:"panel_running"`
 	NetIface        *string    `json:"net_iface"`
 	PingMs          *int64     `json:"ping_ms"`
 	TCPConnections  *int64     `json:"tcp_connections"`
@@ -464,7 +437,6 @@ type DashboardActiveUser struct {
 	ID             uuid.UUID `json:"id"`
 	NodeID         uuid.UUID `json:"node_id"`
 	NodeName       string    `json:"node_name"`
-	InboundTag     *string   `json:"inbound_tag"`
 	ClientEmail    string    `json:"client_email"`
 	IP             string    `json:"ip"`
 	RxBps          *int64    `json:"rx_bps"`
@@ -506,7 +478,7 @@ type AggregateSummary struct {
 	NodesOffline      int      `json:"nodes_offline"`
 	AgentsActive      int      `json:"agents_active"`
 	AgentsTotal       int      `json:"agents_total"`
-	PanelsAvailable   int      `json:"panels_available"`
+	ServicesOnline    int      `json:"services_online"`
 	AvgCPU            float64  `json:"avg_cpu"`
 	AvgPingMs         *float64 `json:"avg_ping_ms"`
 	TotalRxBps        int64    `json:"total_rx_bps"`
@@ -534,8 +506,8 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 			agg.NodesOnline++
 			agg.AgentsActive++
 		}
-		if node.PanelRunning != nil && *node.PanelRunning {
-			agg.PanelsAvailable++
+		if node.AgentOnline {
+			agg.ServicesOnline++
 		}
 		if node.CPUPct != nil {
 			cpuCount++
@@ -679,9 +651,6 @@ func toMetricsPayload(metrics NodeMetrics) map[string]any {
 		"net_iface":        metrics.NetIface,
 		"uptime_sec":       metrics.UptimeSec,
 		"agent_version":    metrics.AgentVersion,
-		"panel_version":    metrics.PanelVersion,
-		"xray_running":     metrics.XrayRunning,
-		"panel_running":    metrics.PanelRunning,
 		"ping_ms":          metrics.PingMs,
 		"tcp_connections":  metrics.TCPConnections,
 		"udp_connections":  metrics.UDPConnections,
