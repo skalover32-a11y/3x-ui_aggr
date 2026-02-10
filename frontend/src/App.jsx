@@ -635,6 +635,31 @@ function maskSecret(value) {
   return `${value.slice(0, 4)}••••••${value.slice(-4)}`;
 }
 
+function shortToken(value, left = 8, right = 6) {
+  const raw = `${value || ""}`.trim();
+  if (!raw) return "-";
+  if (raw.length <= left + right + 1) return raw;
+  return `${raw.slice(0, left)}…${raw.slice(-right)}`;
+}
+
+function looksLikeUUID(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(`${value || ""}`.trim());
+}
+
+function extractHostFromURL(value) {
+  const raw = `${value || ""}`.trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw).hostname || "";
+  } catch {
+    return "";
+  }
+}
+
+function formatNodeIP(node) {
+  return (node?.host || node?.ssh_host || extractHostFromURL(node?.base_url) || "-").trim() || "-";
+}
+
 function OrgSwitcher() {
   const { t } = useI18n();
   const [orgs, setOrgs] = useState([]);
@@ -1206,6 +1231,8 @@ function NodesPage() {
   const [editValidating, setEditValidating] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const deployWsRef = useRef(null);
+  const deployPollFailRef = useRef(0);
+  const taskPollFailRef = useRef(0);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditNodeID, setAuditNodeID] = useState("");
@@ -1926,6 +1953,8 @@ function NodesPage() {
     setTaskProgress({ open: false, jobId: "", status: null, title: "" });
     setTaskItems([]);
     setTaskLogs({});
+    setTaskError("");
+    taskPollFailRef.current = 0;
   }
 
   function closeDeployProgress() {
@@ -1936,6 +1965,8 @@ function NodesPage() {
     setDeployProgress({ open: false, jobId: "", status: null });
     setDeployItems([]);
     setDeployLogs({});
+    setDeployError("");
+    deployPollFailRef.current = 0;
   }
 
   function updateDeployItem(itemId, patch) {
@@ -2193,6 +2224,7 @@ function NodesPage() {
           });
           setDeployLogs((prev) => ({ ...prev, ...logs }));
         }
+        deployPollFailRef.current = 0;
         setDeployError("");
         const status = job?.status;
         if (status === "success" || status === "failed") {
@@ -2200,7 +2232,10 @@ function NodesPage() {
           return;
         }
       } catch (err) {
-        setDeployError(`${t("Failed to get status")}: ${err.message}`);
+        deployPollFailRef.current += 1;
+        if (deployPollFailRef.current >= 3) {
+          setDeployError(`${t("Failed to get status")}: ${err.message}`);
+        }
       }
     };
     const interval = setInterval(poll, 5000);
@@ -2271,6 +2306,7 @@ function NodesPage() {
           });
           setTaskLogs((prev) => ({ ...prev, ...logs }));
         }
+        taskPollFailRef.current = 0;
         setTaskError("");
         const status = job?.status;
         if (status === "success" || status === "failed") {
@@ -2278,7 +2314,10 @@ function NodesPage() {
           return;
         }
       } catch (err) {
-        setTaskError(`${t("Failed to get status")}: ${err.message}`);
+        taskPollFailRef.current += 1;
+        if (taskPollFailRef.current >= 3) {
+          setTaskError(`${t("Failed to get status")}: ${err.message}`);
+        }
       }
     };
     const interval = setInterval(poll, 5000);
@@ -3264,7 +3303,7 @@ function NodesPage() {
                 {canOperate && <div />}
                 <div>{t("Status")}</div>
                 <div>{t("Node Name")}</div>
-                <div>{t("IP")}</div>
+                <div>{t("Node IP")}</div>
                 <div>{t("Agent Status")}</div>
                 <div>{t("Panel Status")}</div>
                 <div>{t("Uptime")}</div>
@@ -3275,7 +3314,7 @@ function NodesPage() {
                 const uptimePoints = uptimeMap[node.id] || [];
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
-                const hostValue = node.host || node.ssh_host || "-";
+                const hostValue = formatNodeIP(node);
                 return (
                   <div
                     className="data-row"
@@ -5050,7 +5089,7 @@ function DashboardPage() {
             <div className="data-row head">
               <div>{t("Status")}</div>
               <div>{t("Node Name")}</div>
-              <div>{t("IP")}</div>
+              <div>{t("Node IP")}</div>
               <div>{t("Agent Status")}</div>
               <div>{t("Panel Status")}</div>
               <div>{t("Uptime")}</div>
@@ -5059,7 +5098,7 @@ function DashboardPage() {
             </div>
             {nodesFiltered.map((node) => {
               const status = deriveNodeStatus(node);
-              const hostValue = node.host || node.ssh_host || "-";
+              const hostValue = formatNodeIP(node);
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
               return (
                 <div
@@ -5986,7 +6025,7 @@ function KeyStoragePage() {
 
           {error && <div className="error">{error}</div>}
 
-          <div className="table-card">
+          <div className="table-card key-storage-card">
             <div className="data-table key-storage-table key-storage-form">
               <div className="data-row head">
                 <div>{t("File")}</div>
@@ -6018,7 +6057,7 @@ function KeyStoragePage() {
                   >
                     <option value="">{t("Not assigned")}</option>
                     {nodes.map((node) => (
-                      <option key={node.id} value={node.id}>{node.name}</option>
+                      <option key={node.id} value={node.id}>{node.name} ({formatNodeIP(node)})</option>
                     ))}
                   </select>
                 </div>
@@ -6031,7 +6070,7 @@ function KeyStoragePage() {
             </div>
           </div>
 
-          <div className="table-card">
+          <div className="table-card key-storage-card key-storage-list-card">
             <div className="data-table key-storage-table key-storage-list">
               <div className="data-row head">
                 <div>{t("File")}</div>
@@ -6044,27 +6083,32 @@ function KeyStoragePage() {
               </div>
               {keys.map((key) => (
                 <div className="data-row" key={key.id}>
-                  <div>
-                    <div>{key.filename}</div>
-                    <div className="muted small">{key.label || "-"}</div>
-                    <div className="muted small">{key.description || "-"}</div>
+                  <div className="key-cell-file">
+                    <div className="key-primary" title={key.filename || ""}>{key.filename || "-"}</div>
+                    <div className="muted small key-secondary" title={key.label || "-"}>{key.label || "-"}</div>
+                    <div className="muted small key-secondary" title={key.description || "-"}>{key.description || "-"}</div>
                   </div>
-                  <div className="mono small" title={key.fingerprint || ""}>
-                    {key.fingerprint ? (key.fingerprint.length > 24 ? `${key.fingerprint.slice(0, 24)}…` : key.fingerprint) : "-"}
+                  <div className="mono small key-cell-fingerprint" title={key.fingerprint || ""}>
+                    {key.fingerprint ? shortToken(key.fingerprint, 22, 12) : "-"}
                   </div>
-                  <div>
+                  <div className="key-cell-node">
                     <select
                       value={key.node_id || ""}
                       onChange={(e) => setKeys(keys.map((k) => k.id === key.id ? { ...k, node_id: e.target.value } : k))}
                     >
                       <option value="">{t("Not assigned")}</option>
                       {nodes.map((node) => (
-                        <option key={node.id} value={node.id}>{node.name}</option>
+                        <option key={node.id} value={node.id}>{node.name} ({formatNodeIP(node)})</option>
                       ))}
                     </select>
                   </div>
-                  <div>{key.size_bytes ? `${key.size_bytes} B` : "-"}</div>
-                  <div>{key.created_by || "-"}</div>
+                  <div className="key-cell-size">{key.size_bytes ? formatBytes(key.size_bytes) : "-"}</div>
+                  <div
+                    className="key-cell-uploader mono small"
+                    title={key.created_by || "-"}
+                  >
+                    {looksLikeUUID(key.created_by) ? shortToken(key.created_by, 8, 6) : (key.created_by || "-")}
+                  </div>
                   <div>{formatTS(key.created_at)}</div>
                   <div className="actions">
                     <button type="button" className="secondary" onClick={() => downloadKey(key)}>{t("Download")}</button>

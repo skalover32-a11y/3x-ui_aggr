@@ -2285,12 +2285,12 @@ body {
 }
 
 .data-table.key-storage-table.key-storage-list .data-row {
-  grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.35fr) minmax(220px, 1.5fr) minmax(190px, 1.15fr) minmax(110px, 0.65fr) minmax(150px, 0.9fr) minmax(170px, 0.9fr) minmax(220px, 1.05fr);
   align-items: start;
 }
 
 .data-table.key-storage-table.key-storage-list .data-row.head {
-  grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(160px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: minmax(180px, 1.35fr) minmax(220px, 1.5fr) minmax(190px, 1.15fr) minmax(110px, 0.65fr) minmax(150px, 0.9fr) minmax(170px, 0.9fr) minmax(220px, 1.05fr);
 }
 
 .data-table.key-storage-table .data-row input,
@@ -2301,6 +2301,42 @@ body {
 
 .data-table.key-storage-table .mono {
   word-break: break-all;
+}
+
+.key-storage-card {
+  overflow-x: auto;
+}
+
+.key-storage-card .data-table {
+  min-width: 980px;
+}
+
+.key-storage-list-card .data-table {
+  min-width: 1280px;
+}
+
+.key-storage-table .key-primary {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-storage-table .key-secondary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-storage-table .key-cell-fingerprint,
+.key-storage-table .key-cell-uploader {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-storage-table .key-cell-size {
+  white-space: nowrap;
 }
 
 .data-table.key-storage-table .actions {
