@@ -323,8 +323,9 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 	var rows []DashboardNode
 	err := s.DB.WithContext(ctx).
 		Table("nodes n").
-		Select(`n.id as node_id, n.name, n.kind, n.region, n.provider, n.is_enabled, n.is_sandbox,
+		Select(`n.id as node_id, n.name, n.kind, n.host, n.ssh_host, n.base_url, n.region, n.provider, n.is_enabled, n.is_sandbox,
 			n.agent_installed, n.agent_last_seen_at, n.agent_version,
+			n.panel_version as service_version, n.panel_running as service_running,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec,
@@ -404,6 +405,9 @@ type DashboardNode struct {
 	NodeID          uuid.UUID  `json:"node_id"`
 	Name            string     `json:"name"`
 	Kind            string     `json:"kind"`
+	Host            string     `json:"host"`
+	SSHHost         string     `json:"ssh_host"`
+	BaseURL         string     `json:"base_url"`
 	Region          string     `json:"region"`
 	Provider        string     `json:"provider"`
 	IsEnabled       bool       `json:"is_enabled"`
@@ -412,6 +416,8 @@ type DashboardNode struct {
 	AgentLastSeenAt *time.Time `json:"agent_last_seen_at"`
 	AgentOnline     bool       `json:"agent_online"`
 	AgentVersion    *string    `json:"agent_version"`
+	ServiceVersion  *string    `json:"service_version"`
+	ServiceRunning  *bool      `json:"service_running"`
 	CollectedAt     *time.Time `json:"collected_at"`
 	CPUPct          *float64   `json:"cpu_pct"`
 	RAMUsedBytes    *int64     `json:"ram_used_bytes"`
@@ -506,7 +512,11 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 			agg.NodesOnline++
 			agg.AgentsActive++
 		}
-		if node.AgentOnline {
+		if node.ServiceRunning != nil {
+			if *node.ServiceRunning {
+				agg.ServicesOnline++
+			}
+		} else if node.AgentOnline {
 			agg.ServicesOnline++
 		}
 		if node.CPUPct != nil {

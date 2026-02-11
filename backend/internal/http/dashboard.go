@@ -92,6 +92,11 @@ func (h *Handler) DashboardStream(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	ws, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
@@ -114,6 +119,7 @@ func (h *Handler) DashboardStream(c *gin.Context) {
 	}
 
 	if snapshot, err := h.Dashboard.LoadSnapshot(c.Request.Context()); err == nil {
+		snapshot = filterDashboardSnapshot(snapshot, nodeIDs)
 		_ = writeEvent(map[string]any{
 			"type": "snapshot",
 			"ts":   time.Now().UTC().Format(time.RFC3339),
@@ -141,6 +147,9 @@ func (h *Handler) DashboardStream(c *gin.Context) {
 		case event, ok := <-events:
 			if !ok {
 				return
+			}
+			if !dashboardEventAllowed(event, nodeIDs) {
+				continue
 			}
 			if err := writeEvent(event); err != nil {
 				return
@@ -178,7 +187,11 @@ func computeAggregateScoped(nodes []dashboard.DashboardNode) dashboard.Aggregate
 			agg.NodesOnline++
 			agg.AgentsActive++
 		}
-		if node.AgentOnline {
+		if node.ServiceRunning != nil {
+			if *node.ServiceRunning {
+				agg.ServicesOnline++
+			}
+		} else if node.AgentOnline {
 			agg.ServicesOnline++
 		}
 		if node.CPUPct != nil {
@@ -212,6 +225,74 @@ func computeAggregateScoped(nodes []dashboard.DashboardNode) dashboard.Aggregate
 	agg.TotalConnections = &totalConnections
 	agg.NodesOffline = agg.NodesTotal - agg.NodesOnline
 	return agg
+}
+
+func filterDashboardSnapshot(snapshot map[string]any, nodeIDs map[uuid.UUID]struct{}) map[string]any {
+	if len(nodeIDs) == 0 {
+		snapshot["nodes"] = []dashboard.DashboardNode{}
+		snapshot["active_users"] = []dashboard.DashboardActiveUser{}
+		return snapshot
+	}
+	if rawNodes, ok := snapshot["nodes"]; ok {
+		if nodes, ok := rawNodes.([]dashboard.DashboardNode); ok {
+			filtered := make([]dashboard.DashboardNode, 0, len(nodes))
+			for _, node := range nodes {
+				if _, allowed := nodeIDs[node.NodeID]; allowed {
+					filtered = append(filtered, node)
+				}
+			}
+			snapshot["nodes"] = filtered
+		}
+	}
+	if rawUsers, ok := snapshot["active_users"]; ok {
+		if users, ok := rawUsers.([]dashboard.DashboardActiveUser); ok {
+			filtered := make([]dashboard.DashboardActiveUser, 0, len(users))
+			for _, user := range users {
+				if _, allowed := nodeIDs[user.NodeID]; allowed {
+					filtered = append(filtered, user)
+				}
+			}
+			snapshot["active_users"] = filtered
+		}
+	}
+	return snapshot
+}
+
+func dashboardEventAllowed(event dashboard.Event, nodeIDs map[uuid.UUID]struct{}) bool {
+	switch event.Type {
+	case dashboard.EventNodeMetricsUpdate, dashboard.EventActiveUsersUpdate:
+		data, ok := event.Data.(map[string]any)
+		if !ok {
+			return false
+		}
+		idRaw, ok := data["node_id"]
+		if !ok {
+			return false
+		}
+		nodeID, ok := parseUUIDAny(idRaw)
+		if !ok {
+			return false
+		}
+		_, allowed := nodeIDs[nodeID]
+		return allowed
+	default:
+		return true
+	}
+}
+
+func parseUUIDAny(value any) (uuid.UUID, bool) {
+	switch v := value.(type) {
+	case string:
+		id, err := uuid.Parse(strings.TrimSpace(v))
+		if err != nil {
+			return uuid.Nil, false
+		}
+		return id, true
+	case uuid.UUID:
+		return v, true
+	default:
+		return uuid.Nil, false
+	}
 }
 
 func countActiveAlertsScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) int {

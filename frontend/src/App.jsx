@@ -4757,7 +4757,12 @@ function DashboardPage() {
       if (!token) return;
       setWsStatus("connecting");
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const wsUrl = `${protocol}://${window.location.host}${API_BASE}/dashboard/stream?token=${encodeURIComponent(token)}`;
+      const orgId = getOrgId();
+      const params = new URLSearchParams({ token });
+      if (orgId) {
+        params.set("org_id", orgId);
+      }
+      const wsUrl = `${protocol}://${window.location.host}${API_BASE}/dashboard/stream?${params.toString()}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = () => {
@@ -4909,12 +4914,18 @@ function DashboardPage() {
   const aggregateSafe = useMemo(() => {
     const fallbackTotal = nodesFiltered.length;
     const fallbackOnline = nodesFiltered.filter((n) => n.agent_online).length;
+    const fallbackAgentsTotal = nodesFiltered.filter((n) => n.agent_installed).length;
+    const fallbackAgentsActive = nodesFiltered.filter((n) => n.agent_online).length;
+    const aggregateHasNodes = (aggregate.nodes_total ?? 0) > 0;
     return {
-      nodesOnline: aggregate.nodes_online ?? fallbackOnline,
-      nodesTotal: aggregate.nodes_total ?? fallbackTotal,
-      agentsActive: aggregate.agents_active ?? 0,
-      agentsTotal: aggregate.agents_total ?? 0,
-      panelsAvailable: aggregate.panels_available ?? 0,
+      nodesOnline: aggregateHasNodes ? (aggregate.nodes_online ?? fallbackOnline) : fallbackOnline,
+      nodesTotal: aggregateHasNodes ? (aggregate.nodes_total ?? fallbackTotal) : fallbackTotal,
+      agentsActive: aggregateHasNodes ? (aggregate.agents_active ?? fallbackAgentsActive) : fallbackAgentsActive,
+      agentsTotal: aggregateHasNodes ? (aggregate.agents_total ?? fallbackAgentsTotal) : fallbackAgentsTotal,
+      servicesAvailable:
+        aggregate.services_online ??
+        aggregate.panels_available ??
+        nodesFiltered.filter((n) => (n.service_running != null ? n.service_running : n.agent_online)).length,
         avgCPU: aggregate.avg_cpu ?? 0,
         avgPingMs: aggregate.avg_ping_ms,
         totalTraffic24h: aggregate.total_traffic_24h,
@@ -4944,7 +4955,7 @@ function DashboardPage() {
     return nodesFiltered.filter((node) => {
       const status = deriveNodeStatus(node);
       if (status !== "online") return true;
-      if (node.kind !== "HOST" && !node.service_version) return true;
+      if (node.kind !== "HOST" && node.service_running === false) return true;
       return false;
     }).length;
   }, [nodesFiltered, nowTs]);
@@ -4953,7 +4964,7 @@ function DashboardPage() {
   const nodesOnline = aggregateSafe.nodesOnline || 0;
   const agentsActive = aggregateSafe.agentsActive || 0;
   const agentsTotal = aggregateSafe.agentsTotal || 0;
-    const panelsAvailable = aggregateSafe.panelsAvailable || 0;
+    const servicesAvailable = aggregateSafe.servicesAvailable || 0;
     const avgPing = aggregateSafe.avgPingMs;
     const traffic24h = aggregateSafe.totalTraffic24h;
     const traffic7d = aggregateSafe.totalTraffic7d;
@@ -5023,10 +5034,10 @@ function DashboardPage() {
               accent="ok"
             />
             <MiniStatCard
-              label={t("Panels Available")}
-              value={`${panelsAvailable}`}
-              subvalue={t("Panels healthy")}
-              progress={totalNodes > 0 ? panelsAvailable / totalNodes : 0}
+              label={t("Services Available")}
+              value={`${servicesAvailable}`}
+              subvalue={t("Services healthy")}
+              progress={totalNodes > 0 ? servicesAvailable / totalNodes : 0}
               accent="ok"
             />
             <MiniStatCard
@@ -5098,6 +5109,7 @@ function DashboardPage() {
               const status = deriveNodeStatus(node);
               const hostValue = formatNodeIP(node);
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
+              const serviceRunning = node.service_running != null ? node.service_running : node.agent_online;
               return (
                 <div
                   className="data-row"
@@ -5119,8 +5131,8 @@ function DashboardPage() {
                     <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
                   </div>
                   <div>
-                    <span className={`badge ${node.service_running ? "online" : "offline"}`}>
-                      {node.service_running ? t("Online") : t("Offline")}
+                    <span className={`badge ${serviceRunning ? "online" : "offline"}`}>
+                      {serviceRunning ? t("Online") : t("Offline")}
                     </span>
                     <span className="muted small">{node.service_version || "-"}</span>
                   </div>
