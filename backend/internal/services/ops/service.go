@@ -38,9 +38,9 @@ const (
 
 const (
 	JobTypeReboot      = "reboot_nodes"
-	JobTypeUpdate      = "update_xui_nodes"
+	JobTypeUpdate      = "update_nodes"
 	JobTypeDeploy      = "deploy_agent"
-	JobTypeUpdatePanel = "update_panel"
+	JobTypeUpdateSvc   = "update_services"
 	JobTypeRebootAgent = "reboot_node"
 	JobTypeRestartSvc  = "restart_service"
 )
@@ -84,7 +84,7 @@ type JobParams struct {
 	SharedAgentToken string `json:"shared_agent_token"`
 	AllowCIDR        string `json:"allow_cidr"`
 	StatsMode        string `json:"stats_mode"`
-	XrayAccessLog    string `json:"xray_access_log_path"`
+	ActivityLogPath  string `json:"activity_log_path"`
 	RateLimitRPS     int    `json:"rate_limit_rps"`
 	EnableUFW        bool   `json:"enable_ufw"`
 	HealthCheck      bool   `json:"health_check"`
@@ -94,7 +94,7 @@ type JobParams struct {
 
 func New(dbConn *gorm.DB, exec NodeExecutor, agentExec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
 	if repoPath == "" {
-		repoPath = "/opt/3x-ui_aggr"
+		repoPath = "/opt/vlf_aggregator"
 	}
 	return &Service{
 		DB:            dbConn,
@@ -153,7 +153,7 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 		parallelism = maxParallelism
 	}
 	if req.AllNodes && !jobParams.DryRun {
-		if typ == JobTypeReboot || typ == JobTypeUpdate || typ == JobTypeUpdatePanel || typ == JobTypeRebootAgent {
+		if typ == JobTypeReboot || typ == JobTypeUpdate || typ == JobTypeUpdateSvc || typ == JobTypeRebootAgent {
 			if strings.TrimSpace(jobParams.Confirm) != "REALLY_DO_IT" {
 				return nil, errors.New("confirmation required")
 			}
@@ -410,7 +410,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobFailed, "", 1, &started, err)
 		return err
 	}
-	if job.Type == JobTypeUpdatePanel {
+	if job.Type == JobTypeUpdateSvc {
 		if !node.AgentEnabled || !node.AgentInstalled {
 			logText := "SKIPPED: agent not installed"
 			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
@@ -437,7 +437,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		}
 	}
 	timeout := 2 * time.Minute
-	if job.Type == JobTypeUpdate || job.Type == JobTypeUpdatePanel {
+	if job.Type == JobTypeUpdate || job.Type == JobTypeUpdateSvc {
 		timeout = 15 * time.Minute
 	}
 	if job.Type == JobTypeRebootAgent {
@@ -455,7 +455,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	case JobTypeUpdate:
 		params := parseUpdateParams(job.Params)
 		output, exitCode, runErr = s.Executor.Update(cctx, node, params)
-	case JobTypeUpdatePanel:
+	case JobTypeUpdateSvc:
 		output, exitCode, runErr = s.AgentExecutor.Update(cctx, node, UpdateParams{})
 	case JobTypeRebootAgent:
 		jobParams := parseJobParams(job.Params)
@@ -504,19 +504,19 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		exitCode = 1
 	}
 	panelVersion := ""
-	if job.Type == JobTypeUpdatePanel {
+	if job.Type == JobTypeUpdateSvc {
 		panelVersion = parsePanelVersionFromLog(output)
 		if runErr == nil && panelVersion != "" {
 			if err := s.persistPanelVersion(ctx, node.ID, panelVersion); err != nil {
-				output = appendPreLog(output, fmt.Sprintf("panel_version update failed: %v", err))
+				output = appendPreLog(output, fmt.Sprintf("service_version update failed: %v", err))
 			} else {
-				output = appendPreLog(output, fmt.Sprintf("panel_version stored: %s", panelVersion))
+				output = appendPreLog(output, fmt.Sprintf("service_version stored: %s", panelVersion))
 			}
 		}
 		if runErr != nil {
-			log.Printf("update_panel job=%s node=%s status=failed err=%v", job.ID, item.NodeID, runErr)
+			log.Printf("update_services job=%s node=%s status=failed err=%v", job.ID, item.NodeID, runErr)
 		} else {
-			log.Printf("update_panel job=%s node=%s status=success version=%s", job.ID, item.NodeID, panelVersion)
+			log.Printf("update_services job=%s node=%s status=success version=%s", job.ID, item.NodeID, panelVersion)
 		}
 	}
 	output = trimLog(output, 4096, 16384)
@@ -615,11 +615,11 @@ func parsePanelVersionFromLog(logText string) string {
 	lines := strings.Split(logText, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(line, "panel_version:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "panel_version:"))
+		if strings.HasPrefix(line, "service_version:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "service_version:"))
 		}
-		if strings.HasPrefix(line, "panel_version=") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "panel_version="))
+		if strings.HasPrefix(line, "service_version=") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "service_version="))
 		}
 	}
 	return ""
@@ -648,11 +648,11 @@ func describeJobAction(jobType string, params JobParams) string {
 		return "reboot (sudo /sbin/reboot)"
 	case JobTypeUpdate:
 		if params.PrecheckOnly {
-			return "update_xui_nodes precheck"
+			return "update_nodes precheck"
 		}
-		return "update_xui_nodes (expect x-ui)"
-	case JobTypeUpdatePanel:
-		return "update panel (agent)"
+		return "update_nodes (ssh executor)"
+	case JobTypeUpdateSvc:
+		return "update_services (agent)"
 	case JobTypeRebootAgent:
 		return "reboot (agent)"
 	case JobTypeRestartSvc:
@@ -699,9 +699,9 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 	if statsMode == "" {
 		statsMode = "log"
 	}
-	xrayPath := strings.TrimSpace(params.XrayAccessLog)
-	if xrayPath == "" {
-		xrayPath = "/var/log/xray/access.log"
+	activityLogPath := strings.TrimSpace(params.ActivityLogPath)
+	if activityLogPath == "" {
+		activityLogPath = "/var/log/vlf-agent/activity.log"
 	}
 	rateLimit := params.RateLimitRPS
 	if rateLimit <= 0 {
@@ -756,7 +756,7 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 		}
 	}
 
-	configContent := buildAgentConfig(agentPort, token, allowCIDRs, statsMode, xrayPath, rateLimit)
+	configContent := buildAgentConfig(agentPort, token, allowCIDRs, statsMode, activityLogPath, rateLimit)
 	preLog = appendPreLog(preLog, fmt.Sprintf("service template: %s", servicePath))
 	preLog = appendPreLog(preLog, fmt.Sprintf("allow_cidrs: %s", strings.Join(allowCIDRs, ", ")))
 
@@ -837,7 +837,7 @@ func (s *Service) persistPanelVersion(ctx context.Context, nodeID uuid.UUID, ver
 	}
 	now := time.Now().UTC()
 	updates := map[string]any{
-		"panel_version":       version,
+		"service_version":       version,
 		"versions_checked_at": now,
 	}
 	if err := s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
@@ -851,7 +851,7 @@ func (s *Service) persistPanelVersion(ctx context.Context, nodeID uuid.UUID, ver
 	return s.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "node_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"panel_version": version,
+			"service_version": version,
 			"collected_at":  now,
 		}),
 	}).Create(&row).Error
@@ -883,7 +883,7 @@ func (s *Service) ensureAgentBinary() (string, string, error) {
 func (s *Service) loadAgentServiceTemplate() ([]byte, string, error) {
 	repoPath := strings.TrimSpace(s.RepoPath)
 	if repoPath == "" {
-		repoPath = "/opt/3x-ui_aggr"
+		repoPath = "/opt/vlf_aggregator"
 	}
 	paths := []string{
 		filepath.Join("/app", "deploy", "agent", "vlf-agent.service"),
@@ -915,7 +915,7 @@ func buildAgentConfig(port int, token string, allowCIDRs []string, statsMode str
 		lines = append(lines, fmt.Sprintf("  - %q", escapeYAMLString(cidr)))
 	}
 	lines = append(lines,
-		fmt.Sprintf("xray_access_log_path: %q", escapeYAMLString(accessLog)),
+		fmt.Sprintf("activity_log_path: %q", escapeYAMLString(accessLog)),
 		fmt.Sprintf("poll_window_seconds: %d", 60),
 		fmt.Sprintf("stats_mode: %q", escapeYAMLString(statsMode)),
 		fmt.Sprintf("rate_limit_rps: %d", rateLimit),
@@ -1121,7 +1121,7 @@ func (s *Service) ensureAgentTargets(ctx context.Context, ids []uuid.UUID) error
 
 func isSupportedJobType(typ string) bool {
 	switch typ {
-	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeUpdatePanel, JobTypeRebootAgent, JobTypeRestartSvc:
+	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeUpdateSvc, JobTypeRebootAgent, JobTypeRestartSvc:
 		return true
 	default:
 		return false
@@ -1129,12 +1129,12 @@ func isSupportedJobType(typ string) bool {
 }
 
 func isAgentJobType(typ string) bool {
-	return typ == JobTypeUpdatePanel || typ == JobTypeRebootAgent || typ == JobTypeRestartSvc
+	return typ == JobTypeUpdateSvc || typ == JobTypeRebootAgent || typ == JobTypeRestartSvc
 }
 
 func validateRestartService(service string) error {
 	switch strings.ToLower(strings.TrimSpace(service)) {
-	case "3x-ui", "x-ui", "xray", "sing-box", "docker", "adguard", "agent":
+	case "service-manager", "docker", "adguard", "agent", "nginx", "postgresql":
 		return nil
 	default:
 		return fmt.Errorf("unsupported service: %s", service)
@@ -1224,3 +1224,4 @@ func jobStatusFromFailures(failed int) (string, *string) {
 	}
 	return JobSuccess, nil
 }
+

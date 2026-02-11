@@ -34,8 +34,8 @@ type Config struct {
 	Listen            string   `yaml:"listen"`
 	Token             string   `yaml:"token"`
 	AllowCIDRs        []string `yaml:"allow_cidrs"`
-	AccessLogPath     string   `yaml:"xray_access_log_path"`
-	ErrorLogPath      string   `yaml:"xray_error_log_path"`
+	AccessLogPath     string   `yaml:"activity_log_path"`
+	ErrorLogPath      string   `yaml:"error_log_path"`
 	PollWindowSeconds int      `yaml:"poll_window_seconds"`
 	StatsMode         string   `yaml:"stats_mode"`
 	RateLimitRPS      int      `yaml:"rate_limit_rps"`
@@ -350,13 +350,13 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	osName := strings.TrimSpace(runtimeGOOS())
 	uptimeSec := readUptime()
 	panelVersion := readPanelVersion()
-	xrayVersion := readXrayVersion()
+	RuntimeVersion := readRuntimeVersion()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"agent_version": agentVersion,
 		"os":            osName,
 		"uptime_sec":    uptimeSec,
-		"panel_version": panelVersion,
-		"xray_version":  xrayVersion,
+		"service_version": panelVersion,
+		"runtime_version":  RuntimeVersion,
 	})
 }
 
@@ -366,11 +366,11 @@ func (s *state) statsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *state) activeUsersHandler(w http.ResponseWriter, r *http.Request) {
-	if strings.EqualFold(s.cfg.StatsMode, "xray_api") {
+	if strings.EqualFold(s.cfg.StatsMode, "api") {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"collected_at":  time.Now().UTC().Format(time.RFC3339),
 			"source":        "agent",
-			"source_detail": "xray api not configured",
+			"source_detail": "Runtime api not configured",
 			"available":     false,
 			"users":         []any{},
 		})
@@ -611,15 +611,15 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			"status":        "success",
 			"log":           logs.String(),
 			"exit_code":     0,
-			"panel_version": panelVersion,
+			"service_version": panelVersion,
 		})
 		return
 	case "systemd", "binary":
-		if !commandExists("x-ui") && !fileExists("/usr/local/x-ui/x-ui") {
+		if !commandExists("service-manager") && !fileExists("/usr/local/service-manager/service-manager") {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
 				"ok":        false,
 				"status":    "failed",
-				"message":   "x-ui not installed",
+				"message":   "service-manager not installed",
 				"exit_code": 12,
 			})
 			return
@@ -637,7 +637,7 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		out, code, err := runShell(r.Context(), buildXUIUpdateCommand())
+		out, code, err := runShell(r.Context(), buildservicemgrUpdateCommand())
 		writeLog(logs, out)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -676,7 +676,7 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			"status":        "success",
 			"log":           logs.String(),
 			"exit_code":     0,
-			"panel_version": panelVersion,
+			"service_version": panelVersion,
 		})
 		return
 	default:
@@ -1090,8 +1090,8 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 	rxBps, txBps := s.computeNetBps(rxBytes, txBytes)
 	tcpConn, udpConn := readSockstat()
 	uptime := readUptime()
-	panelRunning := checkSystemctl("x-ui")
-	xrayRunning := checkSystemctl("xray")
+	panelRunning := checkSystemctl("service-manager")
+	RuntimeRunning := checkSystemctl("Runtime")
 	panelVersion := readPanelVersion()
 	pingMs := measureLatency(ctx)
 
@@ -1111,9 +1111,9 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 		"tcp_connections":  tcpConn,
 		"udp_connections":  udpConn,
 		"uptime_sec":       uptime,
-		"panel_version":    panelVersion,
-		"panel_running":    panelRunning,
-		"xray_running":     xrayRunning,
+		"service_version":    panelVersion,
+		"service_running":    panelRunning,
+		"runtime_running":     RuntimeRunning,
 		"ping_ms":          pingMs,
 	}
 }
@@ -1346,7 +1346,7 @@ func checkSystemctl(unit string) *bool {
 }
 
 func readPanelVersion() *string {
-	out := runCommand("sh", "-lc", "if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true")
+	out := runCommand("sh", "-lc", "if [ -x /usr/local/service-manager/service-manager ]; then /usr/local/service-manager/service-manager -v; elif command -v service-manager >/dev/null 2>&1; then service-manager -v 2>/dev/null || service-manager version; elif [ -f /usr/local/service-manager/version ]; then cat /usr/local/service-manager/version; fi; true")
 	return nilifyString(out)
 }
 
@@ -1355,15 +1355,15 @@ func readPanelVersionForInstall(install *panelInstall) *string {
 		return readPanelVersion()
 	}
 	if install.Kind == "docker" && install.Container != "" && commandExists("docker") {
-		cmd := fmt.Sprintf("docker exec %s sh -lc \"x-ui -v 2>/dev/null || x-ui version 2>/dev/null || /usr/local/x-ui/x-ui -v 2>/dev/null || true\"",
+		cmd := fmt.Sprintf("docker exec %s sh -lc \"service-manager -v 2>/dev/null || service-manager version 2>/dev/null || /usr/local/service-manager/service-manager -v 2>/dev/null || true\"",
 			shellEscape(install.Container))
 		return nilifyString(runCommand("sh", "-lc", cmd))
 	}
 	return readPanelVersion()
 }
 
-func readXrayVersion() *string {
-	out := runCommand("sh", "-lc", "if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true")
+func readRuntimeVersion() *string {
+	out := runCommand("sh", "-lc", "if command -v Runtime >/dev/null 2>&1; then Runtime version || Runtime -version; elif [ -x /usr/local/bin/Runtime ]; then /usr/local/bin/Runtime version || /usr/local/bin/Runtime -version; elif [ -x /usr/local/service-manager/bin/Runtime-linux-amd64 ]; then /usr/local/service-manager/bin/Runtime-linux-amd64 -version; fi; true")
 	return nilifyString(out)
 }
 
@@ -1445,7 +1445,7 @@ func detectPanelInstall() *panelInstall {
 	if unit := detectSystemdPanel(); unit != "" {
 		return &panelInstall{Kind: "systemd", Unit: unit}
 	}
-	if commandExists("x-ui") || fileExists("/usr/local/x-ui/x-ui") {
+	if commandExists("service-manager") || fileExists("/usr/local/service-manager/service-manager") {
 		return &panelInstall{Kind: "binary"}
 	}
 	return nil
@@ -1464,7 +1464,7 @@ func detectDockerPanel() (string, string) {
 		if name == "" {
 			continue
 		}
-		if name == "x-ui" || name == "3x-ui" {
+		if name == "service-manager" || name == "server monitoring" {
 			image := strings.TrimSpace(runCommand("sh", "-lc", "docker inspect -f '{{.Config.Image}}' "+shellEscape(name)))
 			return name, image
 		}
@@ -1474,11 +1474,11 @@ func detectDockerPanel() (string, string) {
 
 func detectSystemdPanel() string {
 	units := listSystemdUnits()
-	if _, ok := units["x-ui.service"]; ok {
-		return "x-ui"
+	if _, ok := units["service-manager.service"]; ok {
+		return "service-manager"
 	}
-	if _, ok := units["3x-ui.service"]; ok {
-		return "3x-ui"
+	if _, ok := units["server monitoring.service"]; ok {
+		return "server monitoring"
 	}
 	return ""
 }
@@ -1498,9 +1498,9 @@ func listSystemdUnits() map[string]struct{} {
 
 func resolveServiceUnit(service string) string {
 	candidates := map[string][]string{
-		"3x-ui":    {"x-ui", "3x-ui"},
-		"x-ui":     {"x-ui", "3x-ui"},
-		"xray":     {"xray"},
+		"server monitoring":    {"service-manager", "server monitoring"},
+		"service-manager":     {"service-manager", "server monitoring"},
+		"Runtime":     {"Runtime"},
 		"sing-box": {"sing-box"},
 		"docker":   {"docker"},
 		"adguard":  {"adguardhome", "adguard"},
@@ -1519,13 +1519,13 @@ func resolveServiceUnit(service string) string {
 	return names[0]
 }
 
-func buildXUIUpdateCommand() string {
-	return `flock -n /var/lock/x-ui-update.lock -c "expect <<'EOF'
+func buildservicemgrUpdateCommand() string {
+	return `flock -n /var/lock/service-manager-update.lock -c "expect <<'EOF'
 set timeout 60
 set env(TERM) \"dumb\"
 log_user 1
 match_max 200000
-spawn x-ui
+spawn service-manager
 expect {
   -re {Please enter your selection.*} { send \"2\r\" }
   -re {Enter.*selection.*} { send \"2\r\" }
@@ -1541,7 +1541,7 @@ expect {
   -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
   -re {Update.*(completed|success|finished)} { puts \"INFO: update completed\"; exit 0 }
   -re {Please enter your selection.*} { puts \"INFO: update finished, returned to menu\"; exit 0 }
-  eof { puts \"INFO: x-ui exited after update\"; exit 0 }
+  eof { puts \"INFO: service-manager exited after update\"; exit 0 }
   timeout { puts \"ERROR: update timeout\"; exit 3 }
 }
 EOF"
@@ -1586,7 +1586,7 @@ func (s *state) collectUsersFromLog() ([]map[string]any, string, bool) {
 		if _, ok := users[email]; !ok {
 			users[email] = map[string]any{
 				"client_email": email,
-				"inbound_tag":  nil,
+				"source_tag":  nil,
 				"ip":           ip,
 				"last_seen":    now.UTC().Format(time.RFC3339),
 			}
@@ -1999,3 +1999,4 @@ func writeJSON(w http.ResponseWriter, status int, payload map[string]any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
+

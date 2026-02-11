@@ -46,8 +46,8 @@ type validateURLResult struct {
 type validateNodeResponse struct {
 	SSH          validateSSHResult `json:"ssh"`
 	BaseURL      validateURLResult `json:"base_url"`
-	PanelVersion string            `json:"panel_version"`
-	XrayVersion  string            `json:"xray_version"`
+	PanelVersion string            `json:"service_version"`
+	RuntimeVersion  string            `json:"runtime_version"`
 }
 
 func (h *Handler) ValidateNode(c *gin.Context) {
@@ -104,7 +104,7 @@ func (h *Handler) ValidateNode(c *gin.Context) {
 	if strings.ToUpper(strings.TrimSpace(req.Kind)) != "HOST" {
 		baseURLRes = checkBaseURL(c.Request.Context(), req.BaseURL, verifyTLS)
 	}
-	sshRes, panelVersion, xrayVersion := h.checkSSHAndVersion(c.Request.Context(), &req, keyBytes, passphrase)
+	sshRes, panelVersion, RuntimeVersion := h.checkSSHAndVersion(c.Request.Context(), &req, keyBytes, passphrase)
 
 	status := "ok"
 	msg := (*string)(nil)
@@ -126,7 +126,7 @@ func (h *Handler) ValidateNode(c *gin.Context) {
 		SSH:          sshRes,
 		BaseURL:      baseURLRes,
 		PanelVersion: panelVersion,
-		XrayVersion:  xrayVersion,
+		RuntimeVersion:  RuntimeVersion,
 	})
 }
 
@@ -218,22 +218,22 @@ func (h *Handler) checkSSHAndVersion(ctx context.Context, req *validateNodeReque
 	}
 	result.OK = true
 
-	xrayVersion := detectVersion(func(cmd string) (string, error) {
+	RuntimeVersion := detectVersion(func(cmd string) (string, error) {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return h.SSHClient.RunWithOutput(cctx, req.SSHHost, req.SSHPort, req.SSHUser, normalized, cmd)
 	}, []string{
-		"sh -lc 'if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true'",
+		"sh -lc 'if command -v Runtime >/dev/null 2>&1; then Runtime version || Runtime -version; elif [ -x /usr/local/bin/Runtime ]; then /usr/local/bin/Runtime version || /usr/local/bin/Runtime -version; elif [ -x /usr/local/service-manager/bin/Runtime-linux-amd64 ]; then /usr/local/service-manager/bin/Runtime-linux-amd64 -version; fi; true'",
 	})
 	panelVersion := detectVersion(func(cmd string) (string, error) {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return h.SSHClient.RunWithOutput(cctx, req.SSHHost, req.SSHPort, req.SSHUser, normalized, cmd)
 	}, []string{
-		"sh -lc 'if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
+		"sh -lc 'if [ -x /usr/local/service-manager/service-manager ]; then /usr/local/service-manager/service-manager -v; elif command -v service-manager >/dev/null 2>&1; then service-manager -v 2>/dev/null || service-manager version; elif [ -f /usr/local/service-manager/version ]; then cat /usr/local/service-manager/version; fi; true'",
 	})
 
-	return result, panelVersion, xrayVersion
+	return result, panelVersion, RuntimeVersion
 }
 
 func detectVersion(run func(cmd string) (string, error), commands []string) string {
@@ -255,3 +255,4 @@ func stripANSI(value string) string {
 	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return re.ReplaceAllString(value, "")
 }
+

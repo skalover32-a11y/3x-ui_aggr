@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-/opt/3x-ui_aggr}"
+ROOT_DIR="${ROOT_DIR:-/opt/vlf_aggregator}"
 ENV_FILE="${ENV_FILE:-${ROOT_DIR}/.env}"
 
 AGENT_PORT=9191
 SSH_PORT=22
 STATS_MODE="log"
-XRAY_LOG_PATH="/var/log/xray/access.log"
+ACTIVITY_LOG_PATH="/var/log/vlf-agent/activity.log"
 RATE_LIMIT_RPS=5
 ENABLE_UFW=true
 TOKEN_MODE="per-node"
@@ -28,11 +28,11 @@ Options:
   --allow-cidr <cidr>        Allow CIDR for agent (default AGG_ALLOW_CIDR from .env)
   --token-mode <per-node|shared>
   --shared-token <token>     Required if token-mode=shared
-  --stats-mode <log|xray_api>
-  --xray-log <path>
+  --stats-mode <log|api>
+  --activity-log <path>
   --rate-limit <rps>
   --enable-ufw | --no-ufw
-  --env-file <path>          Path to aggregator .env (default /opt/3x-ui_aggr/.env)
+  --env-file <path>          Path to aggregator .env (default /opt/vlf_aggregator/.env)
 USAGE
 }
 
@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --token-mode) TOKEN_MODE="$2"; shift 2 ;;
     --shared-token) SHARED_TOKEN="$2"; shift 2 ;;
     --stats-mode) STATS_MODE="$2"; shift 2 ;;
-    --xray-log) XRAY_LOG_PATH="$2"; shift 2 ;;
+    --activity-log) ACTIVITY_LOG_PATH="$2"; shift 2 ;;
     --rate-limit) RATE_LIMIT_RPS="$2"; shift 2 ;;
     --enable-ufw) ENABLE_UFW=true; shift ;;
     --no-ufw) ENABLE_UFW=false; shift ;;
@@ -118,7 +118,7 @@ listen: "0.0.0.0:${AGENT_PORT}"
 token: "${TOKEN}"
 allow_cidrs:
   - "${ALLOW_CIDR}"
-xray_access_log_path: "${XRAY_LOG_PATH}"
+activity_log_path: "${ACTIVITY_LOG_PATH}"
 poll_window_seconds: 60
 stats_mode: "${STATS_MODE}"
 rate_limit_rps: ${RATE_LIMIT_RPS}
@@ -185,3 +185,4 @@ echo "Health check..."
 echo "Done."
 echo "Agent URL: http://${SSH_HOST}:${AGENT_PORT}"
 echo "Agent token: ${TOKEN}"
+

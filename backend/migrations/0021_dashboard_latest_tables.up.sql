@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS node_metrics_latest (
   net_rx_bytes bigint NULL,
   net_tx_bytes bigint NULL,
   uptime_sec bigint NULL,
-  panel_version text NULL,
-  xray_running boolean NULL,
-  panel_running boolean NULL
+  service_version text NULL,
+  runtime_running boolean NULL,
+  service_running boolean NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_node_metrics_latest_collected_at ON node_metrics_latest (collected_at);
@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_node_metrics_latest_collected_at ON node_metrics_
 CREATE TABLE IF NOT EXISTS active_users_latest (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   node_id uuid NOT NULL,
-  inbound_tag text NULL,
+  source_tag text NULL,
   client_email text NOT NULL,
   ip text NOT NULL DEFAULT '',
   rx_bps bigint NULL,
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS active_users_latest (
   collected_at timestamptz NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_active_users_latest_unique ON active_users_latest (node_id, inbound_tag, client_email, ip);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_active_users_latest_unique ON active_users_latest (node_id, source_tag, client_email, ip);
 CREATE INDEX IF NOT EXISTS idx_active_users_latest_node_id ON active_users_latest (node_id);
 CREATE INDEX IF NOT EXISTS idx_active_users_latest_client_email ON active_users_latest (client_email);
 CREATE INDEX IF NOT EXISTS idx_active_users_latest_last_seen ON active_users_latest (last_seen);
+

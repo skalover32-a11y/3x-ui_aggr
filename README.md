@@ -1,6 +1,6 @@
-# 3x-ui Panels Aggregator (MVP)
+# server monitoring Panels Aggregator (MVP)
 
-MVP aggregator for managing multiple 3x-ui panels: nodes list, inbounds CRUD, Xray restart, and server reboot over SSH.
+MVP aggregator for managing multiple server monitoring panels: nodes list, connections CRUD, Runtime restart, and server reboot over SSH.
 
 ## Stack
 - Backend: Go 1.22 + Gin
@@ -66,7 +66,7 @@ make run
 - `DASHBOARD_AGENT_PREFER` (optional, default `true`)
 - `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)
 - `AGG_ALLOW_CIDR` (optional, default allow CIDR for agent deploy)
-- `AGG_REPO_PATH` (optional, default `/opt/3x-ui_aggr`, used to build vlf-agent)
+- `AGG_REPO_PATH` (optional, default `/opt/vlf_aggregator`, used to build vlf-agent)
 
 ## Invite-only signup
 Registration is invite-only. Admin creates invites, users sign up with invite code.
@@ -87,7 +87,7 @@ curl -s http://localhost:8080/api/signup \
 ```
 
 ## Node types
-- **PANEL**: 3x-ui panel node. Requires `base_url`, `panel_username`, `panel_password`.
+- **PANEL**: server monitoring panel node. Requires `base_url`, `panel_username`, `panel_password`.
 - **HOST**: SSH-only node. No panel required; use service checks for HTTP endpoints.
 - **BOT (UI)**: creates a HOST node with tag `bot` and opens the bot creation form.
 
@@ -161,17 +161,17 @@ curl -s http://localhost:8080/api/ops/jobs \
   -d '{"type":"reboot_nodes","all":true,"parallelism":5,"params":{"confirm":"REALLY_DO_IT"}}'
 ```
 
-Update x-ui on selected nodes (SSH + expect):
+Update service-manager on selected nodes (SSH + expect):
 ```bash
 curl -s http://localhost:8080/api/ops/jobs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"update_xui_nodes","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{"precheck_only":false,"install_expect":false}}'
+  -d '{"type":"update_nodes","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{"precheck_only":false,"install_expect":false}}'
 ```
 
 Update notes:
 - Uses `expect` with menu prompt: `Please enter your selection [0-25]:`
-- Uses `flock -n /var/lock/x-ui-update.lock` to prevent concurrent updates
+- Uses `flock -n /var/lock/service-manager-update.lock` to prevent concurrent updates
 - Timeouts: menu 60s, update 900s
 - `precheck_only=true` runs diagnostics only (no update)
 - `sandbox=true` restricts targets to nodes with `is_sandbox=true`
@@ -189,7 +189,7 @@ curl -s http://localhost:8080/api/ops/deploy-agent \
       "agent_token_mode":"per-node",
       "allow_cidr":"<AGG_IP>/32",
       "stats_mode":"log",
-      "xray_access_log_path":"/var/log/xray/access.log",
+      "activity_log_path":"/var/log/vlf-agent/activity.log",
       "rate_limit_rps":5,
       "enable_ufw":true,
       "health_check":true
@@ -212,7 +212,7 @@ Bulk update panels:
 curl -s http://localhost:8080/api/tasks/bulk \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"update_panel","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{}}'
+  -d '{"type":"update_services","node_ids":["<node_id_1>","<node_id_2>"],"parallelism":3,"params":{}}'
 ```
 
 Bulk reboot nodes:
@@ -229,7 +229,7 @@ Bulk restart service (whitelist):
 curl -s http://localhost:8080/api/tasks/bulk \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"restart_service","node_ids":["<node_id_1>"],"parallelism":2,"params":{"restart_service":"xray"}}'
+  -d '{"type":"restart_service","node_ids":["<node_id_1>"],"parallelism":2,"params":{"restart_service":"Runtime"}}'
 ```
 
 Get job and items:
@@ -317,7 +317,7 @@ token: "CHANGE_ME"
 # token: "tokenA,tokenB"
 allow_cidrs:
   - "<AGG_IP>/32"
-xray_access_log_path: "/var/log/xray/access.log"
+activity_log_path: "/var/log/vlf-agent/activity.log"
 poll_window_seconds: 60
 stats_mode: "log"
 rate_limit_rps: 5
@@ -337,7 +337,7 @@ curl -s http://localhost:8080/api/nodes/<node_id> \
   -d '{"agent_enabled":true,"agent_url":"http://<node-ip>:9191","agent_token":"CHANGE_ME"}'
 ```
 
-CLI deploy (uses `/opt/3x-ui_aggr/.env` for `SUDO_PASSWORDS` + `AGG_ALLOW_CIDR`):
+CLI deploy (uses `/opt/vlf_aggregator/.env` for `SUDO_PASSWORDS` + `AGG_ALLOW_CIDR`):
 ```bash
 deploy/agent/deploy_agent.sh --host <node-ip> --user <ssh_user> --key /path/to/key
 ```
@@ -348,7 +348,7 @@ Dry-run (no SSH, simulated execution):
 curl -s http://localhost:8080/api/ops/jobs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"update_xui_nodes","all":true,"parallelism":5,"params":{"dry_run":true,"simulate_delay_ms":500}}'
+  -d '{"type":"update_nodes","all":true,"parallelism":5,"params":{"dry_run":true,"simulate_delay_ms":500}}'
 ```
 
 Precheck only (no update, diagnostics only):
@@ -356,7 +356,7 @@ Precheck only (no update, diagnostics only):
 curl -s http://localhost:8080/api/ops/jobs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"update_xui_nodes","node_ids":["<node_id>"],"parallelism":1,"params":{"precheck_only":true}}'
+  -d '{"type":"update_nodes","node_ids":["<node_id>"],"parallelism":1,"params":{"precheck_only":true}}'
 ```
 
 Real run with confirmation (all=true):
@@ -364,7 +364,7 @@ Real run with confirmation (all=true):
 curl -s http://localhost:8080/api/ops/jobs \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"type":"update_xui_nodes","all":true,"parallelism":5,"params":{"confirm":"REALLY_DO_IT"}}'
+  -d '{"type":"update_nodes","all":true,"parallelism":5,"params":{"confirm":"REALLY_DO_IT"}}'
 ```
 
 ## DB reset
@@ -453,9 +453,9 @@ curl -s http://localhost:8080/api/auth/webauthn/login/options \
   -d '{"username":"admin"}'
 ```
 
-List inbounds:
+List connections:
 ```bash
-curl -s http://localhost:8080/api/nodes/<node_id>/inbounds \
+curl -s http://localhost:8080/api/nodes/<node_id>/connections \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -521,9 +521,9 @@ curl -s "http://localhost:8080/api/nodes/<node_id>/uptime?minutes=60" \
   -H "Authorization: Bearer <token>"
 ```
 
-Restart Xray:
+Restart Runtime:
 ```bash
-curl -s -X POST http://localhost:8080/api/nodes/<node_id>/actions/restart-xray \
+curl -s -X POST http://localhost:8080/api/nodes/<node_id>/actions/restart-Runtime \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -555,9 +555,9 @@ curl -s http://localhost:8080/api/nodes \
 ```
 
 ## Notes
-- `settings` and `streamSettings` can be sent as JSON objects; they are serialized to strings when needed for 3x-ui.
-- Update inbound is a merge patch: unspecified fields are preserved.
-- Audit logs are written for add/update/delete inbound, restart xray, and reboot.
+- `settings` and `streamSettings` can be sent as JSON objects; they are serialized to strings when needed for server monitoring.
+- Update source entry is a merge patch: unspecified fields are preserved.
+- Audit logs are written for add/update/delete source entry, restart Runtime, and reboot.
 - SSH key upload: use the UI "Upload SSH Key (.ppk/.pem/.key)" and optionally enter a passphrase for encrypted PPKs; the backend converts to an OpenSSH-compatible private key and shows a fingerprint.
 - Web SSH: use the "SSH" button on a node card (admin only). The browser terminal connects via WebSocket; SSH keys never leave the server.
 - Web SSH limits: global max sessions (`GLOBAL_MAX_SSH_SESSIONS`) and idle timeout (`SSH_IDLE_TIMEOUT_SECONDS`).
@@ -630,3 +630,5 @@ load1: 2.16 (threshold 2.00) | 2025-01-02 03:04:05
 Host: 1.2.3.4
 Severity: WARNING
 ```
+
+

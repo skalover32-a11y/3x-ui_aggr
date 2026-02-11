@@ -25,7 +25,7 @@ func (h *Handler) SendTelegramTest(c *gin.Context) {
 	}
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
-		msg = "3x-ui Aggregator test message"
+		msg = "server monitoring Aggregator test message"
 	}
 	settingsRow, _ := h.getTelegramSettings(c, orgID)
 	ids := req.AdminChatIDs
@@ -63,3 +63,4 @@ func (h *Handler) SendTelegramTest(c *gin.Context) {
 		"results": results,
 	})
 }
+

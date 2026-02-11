@@ -39,8 +39,8 @@ type Node struct {
 	SSHPasswordEnc    *string        `gorm:"type:text" json:"-"`
 	SSHKeyEnc         string         `gorm:"type:text;not null" json:"-"`
 	VerifyTLS         bool           `gorm:"not null;default:true" json:"verify_tls"`
-	XrayVersion       *string        `gorm:"type:text" json:"xray_version"`
-	PanelVersion      *string        `gorm:"type:text" json:"panel_version"`
+	RuntimeVersion       *string        `gorm:"type:text" json:"runtime_version"`
+	PanelVersion      *string        `gorm:"type:text" json:"service_version"`
 	VersionsCheckedAt *time.Time     `json:"versions_checked_at"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
@@ -222,9 +222,9 @@ type NodeMetricsLatest struct {
 	NetTxBytes     *int64    `json:"net_tx_bytes"`
 	NetIface       *string   `json:"net_iface"`
 	UptimeSec      *int64    `json:"uptime_sec"`
-	PanelVersion   *string   `json:"panel_version"`
-	XrayRunning    *bool     `json:"xray_running"`
-	PanelRunning   *bool     `json:"panel_running"`
+	PanelVersion   *string   `json:"service_version"`
+	RuntimeRunning    *bool     `json:"runtime_running"`
+	PanelRunning   *bool     `json:"service_running"`
 	PingMs         *int64    `json:"ping_ms"`
 	TCPConnections *int64    `json:"tcp_connections"`
 	UDPConnections *int64    `json:"udp_connections"`
@@ -237,7 +237,7 @@ func (NodeMetricsLatest) TableName() string {
 type ActiveUserLatest struct {
 	ID             uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	NodeID         uuid.UUID `gorm:"type:uuid;not null" json:"node_id"`
-	InboundTag     *string   `gorm:"type:text" json:"inbound_tag"`
+	SourceTag      *string   `gorm:"type:text" json:"source_tag"`
 	ClientEmail    string    `gorm:"type:text;not null" json:"client_email"`
 	IP             string    `gorm:"type:text;not null;default:''" json:"ip"`
 	RxBps          *int64    `json:"rx_bps"`
@@ -394,3 +394,4 @@ type OpsJobItem struct {
 	StartedAt  *time.Time `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt *time.Time `gorm:"type:timestamptz" json:"finished_at"`
 }
+

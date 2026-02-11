@@ -13,7 +13,7 @@ func (h *Handler) GetAgentDeployDefaults(c *gin.Context) {
 		"default_allow_cidr":           allow,
 		"default_agent_port":           9191,
 		"default_stats_mode":           "log",
-		"default_xray_access_log_path": "/var/log/xray/access.log",
+		"default_activity_log_path": "/var/log/vlf-agent/activity.log",
 		"default_rate_limit_rps":       5,
 		"default_health_check":         true,
 		"default_enable_ufw":           false,
@@ -27,10 +27,11 @@ func (h *Handler) GetPublicSettings(c *gin.Context) {
 		"default_allow_cidr":           allow,
 		"default_agent_port":           9191,
 		"default_stats_mode":           "log",
-		"default_xray_access_log_path": "/var/log/xray/access.log",
+		"default_activity_log_path": "/var/log/vlf-agent/activity.log",
 		"default_rate_limit_rps":       5,
 		"default_health_check":         true,
 		"default_enable_ufw":           false,
 		"default_parallelism":          3,
 	})
 }
+

@@ -4,8 +4,8 @@ token: "CHANGE_ME"
 # token: "tokenA,tokenB"
 allow_cidrs:
   - "1.2.3.4/32"
-xray_access_log_path: "/var/log/xray/access.log"
-xray_error_log_path: "/var/log/xray/error.log"
+activity_log_path: "/var/log/vlf-agent/activity.log"
+error_log_path: "/var/log/vlf-agent/error.log"
 poll_window_seconds: 60
 stats_mode: "log"
 rate_limit_rps: 5
@@ -16,3 +16,4 @@ sqlite_roots:
   - "/var/lib"
 fs_max_text_bytes: 2097152
 fs_max_upload_bytes: 52428800
+

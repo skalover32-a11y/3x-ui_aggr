@@ -87,7 +87,7 @@ func (e *AgentExecutor) Update(ctx context.Context, node *db.Node, _ UpdateParam
 		if logText != "" {
 			logText += "\n"
 		}
-		logText += "panel_version: " + strings.TrimSpace(*resp.PanelVersion)
+		logText += "service_version: " + strings.TrimSpace(*resp.PanelVersion)
 	}
 	return logText, resp.ExitCodeOr(0), nil
 }
@@ -200,7 +200,7 @@ type agentOpResponse struct {
 	Log          string  `json:"log"`
 	ExitCode     *int    `json:"exit_code"`
 	BootID       string  `json:"boot_id"`
-	PanelVersion *string `json:"panel_version"`
+	PanelVersion *string `json:"service_version"`
 }
 
 func (r agentOpResponse) ExitCodeOr(fallback int) int {
@@ -292,3 +292,4 @@ func extractAgentMessage(payload map[string]any) (string, bool) {
 	}
 	return "", false
 }
+

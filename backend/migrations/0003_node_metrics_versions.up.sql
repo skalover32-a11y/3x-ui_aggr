@@ -1,7 +1,7 @@
 -- Add versions to nodes
 ALTER TABLE nodes
-  ADD COLUMN IF NOT EXISTS xray_version TEXT,
-  ADD COLUMN IF NOT EXISTS panel_version TEXT,
+  ADD COLUMN IF NOT EXISTS runtime_version TEXT,
+  ADD COLUMN IF NOT EXISTS service_version TEXT,
   ADD COLUMN IF NOT EXISTS versions_checked_at TIMESTAMPTZ;
 
 -- Metrics time-series
@@ -20,3 +20,4 @@ CREATE TABLE IF NOT EXISTS node_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_node_metrics_node_ts ON node_metrics (node_id, ts DESC);
+

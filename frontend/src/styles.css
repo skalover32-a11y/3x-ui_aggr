@@ -259,10 +259,6 @@ button.danger:hover {
   min-width: 0;
 }
 
-.table.inbounds .table-row {
-  grid-template-columns: 0.6fr 1.4fr 1fr 0.6fr 1.4fr;
-}
-
 .table.nodes .table-row {
   grid-template-columns:
     minmax(0, 1.2fr)
@@ -1250,29 +1246,7 @@ button.ghost:hover {
   display: none;
 }
 
-.inbounds-cards-mobile {
-  display: none;
-}
-
-.inbound-card {
-  background: #0d1522;
-  border: 1px solid #1f2937;
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.inbound-card-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.inbound-card .actions {
+.source-card .actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -1336,30 +1310,6 @@ button.ghost:hover {
   padding: 6px 8px;
 }
 
-.table.inbounds {
-  margin-top: 12px;
-  background: #0d1522;
-  border: 1px solid #1f2937;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.table.inbounds .table-row {
-  background: #0d1522;
-}
-
-.table.inbounds .table-row.head {
-  background: #101827;
-}
-
-.table.inbounds .table-row:not(.head):hover {
-  background: #111e30;
-}
-
-.table.inbounds .table-row .actions {
-  justify-self: end;
-}
-
 .services-header {
   display: flex;
   align-items: center;
@@ -1399,28 +1349,13 @@ button.ghost:hover {
     border-radius: 7px;
   }
 
-  .table.inbounds {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .table.inbounds .table-row {
-    grid-template-columns: 180px 260px 80px 160px 180px 120px 120px 120px;
-    min-width: 1220px;
-    width: max-content;
-  }
-
-  .table.inbounds .table-row > div {
+  .table.sources .table-row > div {
     min-width: 120px;
   }
 
-  .table.inbounds .table-row input,
-  .table.inbounds .table-row select {
+  .table.sources .table-row input,
+  .table.sources .table-row select {
     min-width: 140px;
-  }
-
-  .table.inbounds .table-row .actions {
-    min-width: 120px;
   }
 
   .table.services {
@@ -1590,25 +1525,10 @@ button.ghost:hover {
     flex-direction: column;
   }
 
-  .inbounds-table-desktop {
-    display: none !important;
   }
-
-  .inbounds-cards-mobile {
-    display: flex !important;
-    flex-direction: column;
-  }
-}
 
 @media (max-width: 600px) {
-  .inbounds-table-desktop {
-    display: none !important;
   }
-
-  .inbounds-cards-mobile {
-    display: flex !important;
-  }
-}
 
 .availability {
   display: flex;
@@ -2530,3 +2450,5 @@ button.danger.ghost:hover {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
+
+

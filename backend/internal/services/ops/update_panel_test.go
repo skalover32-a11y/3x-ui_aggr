@@ -23,7 +23,7 @@ func (f *fakeAgentExecutor) Update(ctx context.Context, node *db.Node, params Up
 	if f.version == "" {
 		return "update ok", 0, nil
 	}
-	return "panel_version: " + f.version, 0, nil
+	return "service_version: " + f.version, 0, nil
 }
 
 func (f *fakeAgentExecutor) DeployAgent(ctx context.Context, node *db.Node, params DeployAgentParams) (string, int, error) {
@@ -35,11 +35,11 @@ func (f *fakeAgentExecutor) RestartService(ctx context.Context, node *db.Node, s
 }
 
 func TestParsePanelVersionFromLog(t *testing.T) {
-	version := parsePanelVersionFromLog("foo\npanel_version: 2.8.7\nbar")
+	version := parsePanelVersionFromLog("foo\nservice_version: 2.8.7\nbar")
 	if version != "2.8.7" {
 		t.Fatalf("expected version 2.8.7, got %q", version)
 	}
-	version = parsePanelVersionFromLog("panel_version=3.0.1")
+	version = parsePanelVersionFromLog("service_version=3.0.1")
 	if version != "3.0.1" {
 		t.Fatalf("expected version 3.0.1, got %q", version)
 	}
@@ -85,7 +85,7 @@ func TestUpdatePanelStoresVersion(t *testing.T) {
 	svc := &Service{DB: dbConn, Executor: exec, AgentExecutor: exec, Hub: NewHub()}
 
 	job, err := svc.CreateJob(context.Background(), CreateJobRequest{
-		Type:     JobTypeUpdatePanel,
+		Type:     JobTypeUpdateSvc,
 		NodeIDs:  []string{node.ID.String()},
 		AllNodes: false,
 	})
@@ -100,7 +100,7 @@ func TestUpdatePanelStoresVersion(t *testing.T) {
 		t.Fatalf("load node: %v", err)
 	}
 	if updated.PanelVersion == nil || *updated.PanelVersion != "2.8.7" {
-		t.Fatalf("expected panel_version 2.8.7, got %v", updated.PanelVersion)
+		t.Fatalf("expected service_version 2.8.7, got %v", updated.PanelVersion)
 	}
 	if updated.VersionsCheckedAt == nil || time.Since(*updated.VersionsCheckedAt) > time.Minute {
 		t.Fatalf("expected versions_checked_at to be recent")
@@ -111,7 +111,7 @@ func TestUpdatePanelStoresVersion(t *testing.T) {
 		t.Fatalf("load node_metrics_latest: %v", err)
 	}
 	if metric.PanelVersion == nil || *metric.PanelVersion != "2.8.7" {
-		t.Fatalf("expected metrics panel_version 2.8.7, got %v", metric.PanelVersion)
+		t.Fatalf("expected metrics service_version 2.8.7, got %v", metric.PanelVersion)
 	}
 
 	var item db.OpsJobItem
@@ -122,3 +122,4 @@ func TestUpdatePanelStoresVersion(t *testing.T) {
 		t.Fatalf("expected job item success, got %s", item.Status)
 	}
 }
+

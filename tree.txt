@@ -1,5 +1,5 @@
-Структура папок тома Новый том
-Серийный номер тома: DAD0-3A64
+пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ
+пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ: DAD0-3A64
 D:.
 |   docker-compose.yml
 |   Makefile
@@ -33,7 +33,7 @@ D:.
 |       |   |   actions.go
 |       |   |   auth.go
 |       |   |   handler.go
-|       |   |   inbounds.go
+|       |   |   connections.go
 |       |   |   nodes.go
 |       |   |   response.go
 |       |   |   router.go
@@ -66,3 +66,5 @@ D:.
             main.jsx
             styles.css
             
+
+

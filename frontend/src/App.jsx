@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
 import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
-import InboundEditor from "./components/InboundEditor.jsx";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
 
 function formatTS(ts) {
@@ -282,7 +281,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
     { key: "nodes", label: t("Nodes"), path: "/nodes" },
     {
       key: "panels",
-      label: t("3x-ui Panels"),
+      label: t("Server Panels"),
       path: "/nodes?view=panel",
     },
     { key: "hosts", label: t("Hosts"), path: "/nodes?view=host" },
@@ -818,7 +817,7 @@ function LoginPage() {
   return (
     <div className="page center">
       <form className="card" onSubmit={onSubmit} autoComplete="on">
-        <h1>3x-ui Aggregator</h1>
+        <h1>Server Monitoring Aggregator</h1>
         <label>
           {t("Username")}
           <input name="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -1083,7 +1082,7 @@ function PanelsSelfServicePage() {
         <div className="page">
           <div className="page-header">
             <div>
-              <h1>{t("3x-ui Panels")}</h1>
+              <h1>{t("Server Panels")}</h1>
               <div className="muted small">{t("Self-service panels")}</div>
             </div>
             <div className="page-actions">
@@ -1140,7 +1139,7 @@ function PanelsSelfServicePage() {
                       </label>
                       <label>
                         {t("Host")}
-                        <input value={form.host} onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value, base_url: prev.base_url || `https://${e.target.value}/x-ui/` }))} />
+                        <input value={form.host} onChange={(e) => setForm((prev) => ({ ...prev, host: e.target.value, base_url: prev.base_url || `https://${e.target.value}/` }))} />
                       </label>
                       <label>
                         {t("Type")}
@@ -1334,8 +1333,8 @@ function NodesPage() {
   const [taskLogs, setTaskLogs] = useState({});
   const [taskError, setTaskError] = useState("");
   const [taskForm, setTaskForm] = useState({
-    type: "update_panel",
-    service: "xray",
+    type: "restart_service",
+    service: "docker",
     parallelism: 3,
     all: false,
     confirm: "",
@@ -1346,7 +1345,7 @@ function NodesPage() {
     shared_agent_token: "",
     allow_cidr: "",
     stats_mode: "log",
-    xray_access_log_path: "/var/log/xray/access.log",
+    activity_log_path: "/var/log/vlf-agent/activity.log",
     rate_limit_rps: 5,
     enable_ufw: true,
     health_check: true,
@@ -1820,7 +1819,7 @@ function NodesPage() {
 
   async function onRestart(id) {
     const node = nodes.find((n) => n.id === id);
-    if (node) openActionPlan("restart_xray", node);
+    if (node) openActionPlan("restart_service", node);
   }
 
   async function onReboot(id) {
@@ -2082,7 +2081,7 @@ function NodesPage() {
       shared_agent_token: deployForm.agent_token_mode === "shared" ? deployForm.shared_agent_token.trim() : "",
       allow_cidr: deployForm.allow_cidr.trim(),
       stats_mode: deployForm.stats_mode,
-      xray_access_log_path: deployForm.xray_access_log_path.trim(),
+      activity_log_path: deployForm.activity_log_path.trim(),
       rate_limit_rps: Number(deployForm.rate_limit_rps) || 5,
       enable_ufw: !!deployForm.enable_ufw,
       health_check: !!deployForm.health_check,
@@ -2595,8 +2594,8 @@ function NodesPage() {
           </div>
           <div className="metric-card">
             <div className="metric-label">{t("Panel health")}</div>
-            <div className="metric-value">{node.panel_version ? t("Online") : t("Offline")}</div>
-            <div className="metric-sub">{node.panel_version || "-"}</div>
+            <div className="metric-value">{node.service_version ? t("Online") : t("Offline")}</div>
+            <div className="metric-sub">{node.service_version || "-"}</div>
           </div>
         </div>
 
@@ -2611,10 +2610,9 @@ function NodesPage() {
         <div className="node-actions">
           {!isViewer && (
             <>
-              {node.kind !== "HOST" && <Link to={`/nodes/${node.id}/inbounds`} className="link-button">{t("Inbounds")}</Link>}
               <button className="secondary" onClick={() => openEdit(node)}>{t("Edit")}</button>
               {canManage && <button className="secondary" onClick={() => openSSH(node)}>{t("SSH")}</button>}
-              {node.kind !== "HOST" && <button className="warning" onClick={() => onRestart(node.id)}>{t("Restart Xray")}</button>}
+              <button className="warning" onClick={() => openActionPlan("restart_service", node)}>{t("Restart Service")}</button>
               <button className="danger" onClick={() => onReboot(node.id)}>{t("Reboot")}</button>
             </>
           )}
@@ -2848,7 +2846,7 @@ function NodesPage() {
         allow_cidr: prev.allow_cidr || data.default_allow_cidr || "",
         agent_port: prev.agent_port || data.default_agent_port || 9191,
         stats_mode: prev.stats_mode || data.default_stats_mode || "log",
-        xray_access_log_path: prev.xray_access_log_path || data.default_xray_access_log_path || "/var/log/xray/access.log",
+        activity_log_path: prev.activity_log_path || data.default_activity_log_path || "/var/log/vlf-agent/activity.log",
         rate_limit_rps: prev.rate_limit_rps || data.default_rate_limit_rps || 5,
         health_check: typeof data.default_health_check === "boolean" ? data.default_health_check : prev.health_check,
         enable_ufw: typeof data.default_enable_ufw === "boolean" ? data.default_enable_ufw : prev.enable_ufw,
@@ -3281,8 +3279,8 @@ function NodesPage() {
               <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
                 {t("Deploy agent")}
               </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("update_panel")} disabled={filteredNodes.length === 0}>
-                {t("Update panels")}
+              <button type="button" className="secondary" onClick={() => openTaskModal("update_services")} disabled={filteredNodes.length === 0}>
+                {t("Update services")}
               </button>
               <button type="button" className="secondary" onClick={() => openTaskModal("reboot_node")} disabled={filteredNodes.length === 0}>
                 {t("Reboot nodes")}
@@ -3305,7 +3303,7 @@ function NodesPage() {
                 <div>{t("Node Name")}</div>
                 <div>{t("Node IP")}</div>
                 <div>{t("Agent Status")}</div>
-                <div>{t("Panel Status")}</div>
+                <div>{t("Service Status")}</div>
                 <div>{t("Uptime")}</div>
                 <div>{t("Last Check")}</div>
                 <div>{t("Actions")}</div>
@@ -3345,10 +3343,10 @@ function NodesPage() {
                       <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
                     </div>
                     <div>
-                      <span className={`badge ${node.kind === "HOST" ? "muted" : node.panel_version ? "online" : "offline"}`}>
-                        {node.kind === "HOST" ? t("N/A") : node.panel_version ? t("Online") : t("Offline")}
+                      <span className={`badge ${node.kind === "HOST" ? "muted" : node.service_version ? "online" : "offline"}`}>
+                        {node.kind === "HOST" ? t("N/A") : node.service_version ? t("Online") : t("Offline")}
                       </span>
-                      <span className="muted small">{node.panel_version || "-"}</span>
+                      <span className="muted small">{node.service_version || "-"}</span>
                     </div>
                     <div>
                       <UptimeBar percent={percent} />
@@ -3630,15 +3628,15 @@ function NodesPage() {
                       />
                       <ValidationBadge
                         label={t("Panel")}
-                        status={editValidation.panel_version && editValidation.panel_version !== "unknown" ? "ok" : "error"}
-                        detail={editValidation.panel_version || t("unknown")}
+                        status={editValidation.service_version && editValidation.service_version !== "unknown" ? "ok" : "error"}
+                        detail={editValidation.service_version || t("unknown")}
                       />
                     </>
                   )}
                   <ValidationBadge
-                    label={t("Xray")}
-                    status={editValidation.xray_version && editValidation.xray_version !== "unknown" ? "ok" : "error"}
-                    detail={editValidation.xray_version || t("unknown")}
+                    label={t("Runtime")}
+                    status={editValidation.runtime_version && editValidation.runtime_version !== "unknown" ? "ok" : "error"}
+                    detail={editValidation.runtime_version || t("unknown")}
                   />
                   {editValidation.ssh?.passphrase_required && (
                     <span className="muted small">{t("Passphrase required for SSH key")}</span>
@@ -3729,15 +3727,15 @@ function NodesPage() {
                     />
                     <ValidationBadge
                       label={t("Panel")}
-                      status={validation.panel_version && validation.panel_version !== "unknown" ? "ok" : "error"}
-                      detail={validation.panel_version || t("unknown")}
+                      status={validation.service_version && validation.service_version !== "unknown" ? "ok" : "error"}
+                      detail={validation.service_version || t("unknown")}
                     />
                   </>
                 )}
                 <ValidationBadge
-                  label={t("Xray")}
-                  status={validation.xray_version && validation.xray_version !== "unknown" ? "ok" : "error"}
-                  detail={validation.xray_version || t("unknown")}
+                  label={t("Runtime")}
+                  status={validation.runtime_version && validation.runtime_version !== "unknown" ? "ok" : "error"}
+                  detail={validation.runtime_version || t("unknown")}
                 />
                 {validation.ssh?.passphrase_required && (
                   <span className="muted small">{t("Passphrase required for SSH key")}</span>
@@ -3998,12 +3996,12 @@ function NodesPage() {
                 onChange={(e) => setDeployForm({ ...deployForm, stats_mode: e.target.value })}
               >
                 <option value="log">log</option>
-                <option value="xray_api">xray_api</option>
+                <option value="api">api</option>
               </select>
               <input
-                placeholder={t("Xray access log path")}
-                value={deployForm.xray_access_log_path}
-                onChange={(e) => setDeployForm({ ...deployForm, xray_access_log_path: e.target.value })}
+                placeholder={t("Activity log path")}
+                value={deployForm.activity_log_path}
+                onChange={(e) => setDeployForm({ ...deployForm, activity_log_path: e.target.value })}
               />
               <input
                 type="number"
@@ -4078,7 +4076,7 @@ function NodesPage() {
                 value={taskForm.type}
                 onChange={(e) => setTaskForm({ ...taskForm, type: e.target.value })}
               >
-                <option value="update_panel">{t("Update panels")}</option>
+                <option value="update_services">{t("Update services")}</option>
                 <option value="reboot_node">{t("Reboot nodes")}</option>
                 <option value="restart_service">{t("Restart service")}</option>
               </select>
@@ -4087,9 +4085,9 @@ function NodesPage() {
                   value={taskForm.service}
                   onChange={(e) => setTaskForm({ ...taskForm, service: e.target.value })}
                 >
-                  <option value="3x-ui">3x-ui</option>
-                  <option value="xray">xray</option>
-                  <option value="sing-box">sing-box</option>
+                  
+                  <option value="Runtime">Runtime</option>
+                  
                   <option value="docker">docker</option>
                   <option value="adguard">adguard</option>
                   <option value="agent">agent</option>
@@ -4814,12 +4812,12 @@ function DashboardPage() {
                     return { client_email: u, node_id, node_name, last_seen: new Date().toISOString() };
                   }
                   const clientEmail = u.client_email || u.ClientEmail || "";
-                  const inboundTag = u.inbound_tag ?? u.InboundTag ?? null;
+                  const sourceTag = u.source_tag ?? u.sourceTag ?? null;
                   const ip = u.ip || u.IP || "";
                   return {
                     ...u,
                     client_email: clientEmail,
-                    inbound_tag: inboundTag,
+                    source_tag: sourceTag,
                     ip,
                     node_id,
                     node_name: node_name || u.node_name,
@@ -4946,7 +4944,7 @@ function DashboardPage() {
     return nodesFiltered.filter((node) => {
       const status = deriveNodeStatus(node);
       if (status !== "online") return true;
-      if (node.kind !== "HOST" && !node.panel_version) return true;
+      if (node.kind !== "HOST" && !node.service_version) return true;
       return false;
     }).length;
   }, [nodesFiltered, nowTs]);
@@ -5091,7 +5089,7 @@ function DashboardPage() {
               <div>{t("Node Name")}</div>
               <div>{t("Node IP")}</div>
               <div>{t("Agent Status")}</div>
-              <div>{t("Panel Status")}</div>
+              <div>{t("Service Status")}</div>
               <div>{t("Uptime")}</div>
               <div>{t("Last Check")}</div>
               <div>{t("Actions")}</div>
@@ -5121,10 +5119,10 @@ function DashboardPage() {
                     <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
                   </div>
                   <div>
-                    <span className={`badge ${node.panel_running ? "online" : "offline"}`}>
-                      {node.panel_running ? t("Online") : t("Offline")}
+                    <span className={`badge ${node.service_running ? "online" : "offline"}`}>
+                      {node.service_running ? t("Online") : t("Offline")}
                     </span>
-                    <span className="muted small">{node.panel_version || "-"}</span>
+                    <span className="muted small">{node.service_version || "-"}</span>
                   </div>
                   <div>
                     <div className="uptime-line">
@@ -5208,7 +5206,7 @@ function DashboardPage() {
             <div className="data-row head">
               <div>{t("Client")}</div>
               <div>{t("Node")}</div>
-              <div>{t("Inbound")}</div>
+              <div>{t("Source")}</div>
               <div>{t("IP")}</div>
               <div>{t("RX")}</div>
               <div>{t("TX")}</div>
@@ -5219,7 +5217,7 @@ function DashboardPage() {
               <div className="data-row" key={user.id || `${user.node_id}-${user.client_email}-${user.ip || ""}`}>
                 <div>{user.client_email}</div>
                 <div>{user.node_name || "-"}</div>
-                <div>{user.inbound_tag || "-"}</div>
+                <div>{user.source_tag || "-"}</div>
                 <div>{user.ip || "-"}</div>
                 <div>{formatBps(user.rx_bps)}</div>
                 <div>{formatBps(user.tx_bps)}</div>
@@ -6331,138 +6329,6 @@ function DbWorkPage() {
   );
 }
 
-function InboundsPage() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { t } = useI18n();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [editor, setEditor] = useState({ open: false, mode: "add", inbound: null });
-
-  async function loadInbounds() {
-    setError("");
-    try {
-      const res = await request("GET", `/nodes/${id}/inbounds`);
-      setData(res);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  useEffect(() => {
-    loadInbounds();
-  }, [id]);
-
-  const inbounds = useMemo(() => {
-    if (!data) return [];
-    return Array.isArray(data.obj) ? data.obj : [];
-  }, [data]);
-
-  function openAdd() {
-    setEditor({ open: true, mode: "add", inbound: null });
-  }
-
-  function openEdit(inbound) {
-    setEditor({ open: true, mode: "edit", inbound });
-  }
-
-  async function onDelete(inboundId) {
-    if (!confirm(t("Delete inbound?"))) return;
-    setError("");
-    try {
-      await request("DELETE", `/nodes/${id}/inbounds/${inboundId}`, {});
-      loadInbounds();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  return (
-    <div className="page">
-      <header className="header">
-        <h2>{t("Inbounds")}</h2>
-        <div className="actions">
-          <button onClick={() => navigate("/nodes")}>{t("Back")}</button>
-          <button onClick={openAdd}>{t("Add")}</button>
-        </div>
-      </header>
-
-      {error && <div className="error">{error}</div>}
-
-      <div className="inbounds-table-desktop">
-        <div className="table inbounds">
-          <div className="table-row head">
-            <div>ID</div>
-            <div>{t("Remark")}</div>
-            <div>{t("Protocol")}</div>
-            <div>{t("Port")}</div>
-            <div>{t("Actions")}</div>
-          </div>
-          {inbounds.map((inbound) => (
-            <div className="table-row" key={inbound.id}>
-              <div>{inbound.id}</div>
-              <div>{inbound.remark}</div>
-              <div>{inbound.protocol}</div>
-              <div>{inbound.port}</div>
-              <div className="actions">
-                <button onClick={() => openEdit(inbound)}>{t("Edit")}</button>
-                <button className="danger" onClick={() => onDelete(inbound.id)}>{t("Delete")}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="inbounds-cards-mobile">
-        {inbounds.map((inbound) => (
-          <div className="inbound-card" key={`card-${inbound.id}`}>
-            <div className="inbound-card-row">
-              <span className="field-label">ID</span>
-              <span>{inbound.id}</span>
-            </div>
-            <div className="inbound-card-row">
-              <span className="field-label">{t("Remark")}</span>
-              <span>{inbound.remark || "-"}</span>
-            </div>
-            <div className="inbound-card-row">
-              <span className="field-label">{t("Protocol")}</span>
-              <span>{inbound.protocol || "-"}</span>
-            </div>
-            <div className="inbound-card-row">
-              <span className="field-label">{t("Port")}</span>
-              <span>{inbound.port || "-"}</span>
-            </div>
-            <div className="actions">
-              <button onClick={() => openEdit(inbound)}>{t("Edit")}</button>
-              <button className="danger" onClick={() => onDelete(inbound.id)}>{t("Delete")}</button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <InboundEditor
-        open={editor.open}
-        mode={editor.mode}
-        inbound={editor.inbound}
-        onClose={() => setEditor({ open: false, mode: "add", inbound: null })}
-        onSave={async (payload) => {
-          setError("");
-          try {
-            if (editor.mode === "add") {
-              await request("POST", `/nodes/${id}/inbounds`, payload);
-            } else {
-              await request("PATCH", `/nodes/${id}/inbounds/${editor.inbound?.id}`, payload);
-            }
-            setEditor({ open: false, mode: "add", inbound: null });
-            loadInbounds();
-          } catch (err) {
-            setError(err.message);
-          }
-        }}
-      />
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <Routes>
@@ -6515,18 +6381,12 @@ export default function App() {
             </RequireAuth>
           }
         />
-        <Route
-          path="/nodes/:id/inbounds"
-          element={
-          <RequireAuth>
-            <InboundsPage />
-          </RequireAuth>
-        }
-      />
       <Route path="*" element={<LoginPage />} />
     </Routes>
   );
 }
+
+
 
 
 

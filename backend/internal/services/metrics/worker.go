@@ -111,16 +111,16 @@ func (w *Worker) collectForNode(ctx context.Context, node *db.Node) {
 		}
 	}
 
-	xrayVersion := detectVersion(run, []string{
-		"sh -lc 'if command -v xray >/dev/null 2>&1; then xray version || xray -version; elif [ -x /usr/local/bin/xray ]; then /usr/local/bin/xray version || /usr/local/bin/xray -version; elif [ -x /usr/local/x-ui/bin/xray-linux-amd64 ]; then /usr/local/x-ui/bin/xray-linux-amd64 -version; fi; true'",
+	RuntimeVersion := detectVersion(run, []string{
+		"sh -lc 'if command -v Runtime >/dev/null 2>&1; then Runtime version || Runtime -version; elif [ -x /usr/local/bin/Runtime ]; then /usr/local/bin/Runtime version || /usr/local/bin/Runtime -version; elif [ -x /usr/local/service-manager/bin/Runtime-linux-amd64 ]; then /usr/local/service-manager/bin/Runtime-linux-amd64 -version; fi; true'",
 	})
 	panelVersion := detectVersion(run, []string{
-		"sh -lc 'if [ -x /usr/local/x-ui/x-ui ]; then /usr/local/x-ui/x-ui -v; elif command -v x-ui >/dev/null 2>&1; then x-ui -v 2>/dev/null || x-ui version; elif [ -f /usr/local/x-ui/version ]; then cat /usr/local/x-ui/version; fi; true'",
+		"sh -lc 'if [ -x /usr/local/service-manager/service-manager ]; then /usr/local/service-manager/service-manager -v; elif command -v service-manager >/dev/null 2>&1; then service-manager -v 2>/dev/null || service-manager version; elif [ -f /usr/local/service-manager/version ]; then cat /usr/local/service-manager/version; fi; true'",
 	})
 	now := time.Now()
 	update := map[string]any{
-		"xray_version":        nilifyString(xrayVersion),
-		"panel_version":       nilifyString(panelVersion),
+		"runtime_version":        nilifyString(RuntimeVersion),
+		"service_version":       nilifyString(panelVersion),
 		"versions_checked_at": now,
 	}
 	_ = w.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", node.ID).Updates(update).Error
@@ -275,3 +275,4 @@ func joinErrors(errs ...*string) *string {
 	msg := strings.Join(parts, "; ")
 	return &msg
 }
+

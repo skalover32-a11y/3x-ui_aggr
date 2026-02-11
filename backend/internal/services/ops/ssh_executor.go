@@ -36,11 +36,11 @@ func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdatePa
 	if params.PrecheckOnly {
 		return e.runUpdatePrecheck(ctx, node, params)
 	}
-	if _, code, err := e.runCommand(ctx, node, "command -v x-ui", false); err != nil {
+	if _, code, err := e.runCommand(ctx, node, "command -v service-manager", false); err != nil {
 		if code == 0 {
 			code = 10
 		}
-		return "x-ui not installed", code, fmt.Errorf("x-ui not installed")
+		return "service-manager not installed", code, fmt.Errorf("service-manager not installed")
 	}
 	if _, code, err := e.runCommand(ctx, node, "command -v expect", false); err != nil {
 		if params.InstallExpect {
@@ -60,7 +60,7 @@ func (e *SSHExecutor) Update(ctx context.Context, node *db.Node, params UpdatePa
 		}
 		return "expect not installed", code, fmt.Errorf("expect not installed")
 	}
-	cmd := buildXUIUpdateCommand()
+	cmd := buildservicemgrUpdateCommand()
 	return e.runCommand(ctx, node, cmd, false)
 }
 
@@ -371,16 +371,16 @@ func (e *SSHExecutor) runUpdatePrecheck(ctx context.Context, node *db.Node, para
 	var lines []string
 	exitCode := 0
 
-	xuiOut, _, xuiErr := e.runCommand(ctx, node, "command -v x-ui", false)
-	if xuiErr != nil {
-		if isExitError(xuiErr) {
-			lines = append(lines, "ERR: x-ui missing")
+	servicemgrOut, _, servicemgrErr := e.runCommand(ctx, node, "command -v service-manager", false)
+	if servicemgrErr != nil {
+		if isExitError(servicemgrErr) {
+			lines = append(lines, "ERR: service-manager missing")
 			exitCode = 10
 		} else {
-			return xuiOut, 10, xuiErr
+			return servicemgrOut, 10, servicemgrErr
 		}
 	} else {
-		lines = append(lines, "OK: x-ui present")
+		lines = append(lines, "OK: service-manager present")
 	}
 
 	expectOut, _, expectErr := e.runCommand(ctx, node, "command -v expect", false)
@@ -397,9 +397,9 @@ func (e *SSHExecutor) runUpdatePrecheck(ctx context.Context, node *db.Node, para
 		lines = append(lines, "INFO: install_expect requested, skipped in precheck_only")
 	}
 
-	versionOut, _, _ := e.runCommand(ctx, node, "bash -lc \"x-ui version || true\"", false)
+	versionOut, _, _ := e.runCommand(ctx, node, "bash -lc \"service-manager version || true\"", false)
 	if strings.TrimSpace(versionOut) != "" {
-		lines = append(lines, "x-ui version: "+strings.TrimSpace(versionOut))
+		lines = append(lines, "service-manager version: "+strings.TrimSpace(versionOut))
 	}
 
 	sudoOut, _, sudoErr := e.runCommand(ctx, node, "sudo -n true", false)
@@ -519,13 +519,13 @@ func isDisconnectError(err error) bool {
 	return false
 }
 
-func buildXUIUpdateCommand() string {
-	script := `flock -n /var/lock/x-ui-update.lock -c "expect <<'EOF'
+func buildservicemgrUpdateCommand() string {
+	script := `flock -n /var/lock/service-manager-update.lock -c "expect <<'EOF'
 set timeout 60
 set env(TERM) \"dumb\"
 log_user 1
 match_max 200000
-spawn x-ui
+spawn service-manager
 expect {
   -re {Please enter your selection.*} { send \"2\r\" }
   -re {Enter.*selection.*} { send \"2\r\" }
@@ -537,7 +537,7 @@ expect {
   -re {Already.*latest} { puts \"INFO: already latest version\"; exit 0 }
   -re {Update.*(completed|success|finished)} { puts \"INFO: update completed\"; exit 0 }
   -re {Please enter your selection.*} { puts \"INFO: update finished, returned to menu\"; exit 0 }
-  eof { puts \"INFO: x-ui exited after update\"; exit 0 }
+  eof { puts \"INFO: service-manager exited after update\"; exit 0 }
   timeout { puts \"ERROR: update timeout\"; exit 3 }
 }
 EOF"
@@ -549,3 +549,4 @@ exit $rc
 `
 	return "bash -lc " + strconv.Quote(script)
 }
+

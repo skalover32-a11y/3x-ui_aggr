@@ -57,8 +57,8 @@ func (h *Handler) GetTaskItems(c *gin.Context) {
 
 func mapTaskType(raw string) (string, error) {
 	switch strings.TrimSpace(raw) {
-	case "update_panel":
-		return ops.JobTypeUpdatePanel, nil
+	case "update_services":
+		return ops.JobTypeUpdateSvc, nil
 	case "reboot_node":
 		return ops.JobTypeRebootAgent, nil
 	case "restart_service":
@@ -67,3 +67,4 @@ func mapTaskType(raw string) (string, error) {
 		return "", errors.New("unsupported task type")
 	}
 }
+

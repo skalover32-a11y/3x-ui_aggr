@@ -20,7 +20,7 @@ import (
 	"agr_3x_ui/internal/http/middleware"
 )
 
-const totpIssuer = "3x-ui Aggregator"
+const totpIssuer = "Server Monitoring Aggregator"
 
 type totpStatusResponse struct {
 	Enabled   bool `json:"enabled"`
@@ -339,3 +339,4 @@ func generateRecoveryCode() (string, string, error) {
 	}
 	return code, string(hashBytes), nil
 }
+

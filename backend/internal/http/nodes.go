@@ -103,8 +103,8 @@ type nodeResponse struct {
 	SSHPort           int             `json:"ssh_port"`
 	SSHUser           string          `json:"ssh_user"`
 	VerifyTLS         bool            `json:"verify_tls"`
-	XrayVersion       *string         `json:"xray_version"`
-	PanelVersion      *string         `json:"panel_version"`
+	RuntimeVersion       *string         `json:"runtime_version"`
+	PanelVersion      *string         `json:"service_version"`
 	VersionsCheckedAt *time.Time      `json:"versions_checked_at"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
@@ -147,7 +147,7 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		SSHPort:           node.SSHPort,
 		SSHUser:           node.SSHUser,
 		VerifyTLS:         node.VerifyTLS,
-		XrayVersion:       node.XrayVersion,
+		RuntimeVersion:       node.RuntimeVersion,
 		PanelVersion:      node.PanelVersion,
 		VersionsCheckedAt: node.VersionsCheckedAt,
 		CreatedAt:         node.CreatedAt,
@@ -673,3 +673,4 @@ func validateNodeUpdate(kind string, node *db.Node, req *nodeUpdateRequest) erro
 	_ = req
 	return nil
 }
+
