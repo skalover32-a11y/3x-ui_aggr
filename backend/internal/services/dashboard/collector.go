@@ -325,7 +325,7 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 		Table("nodes n").
 		Select(`n.id as node_id, n.name, n.kind, n.host, n.ssh_host, n.base_url, n.region, n.provider, n.is_enabled, n.is_sandbox,
 			n.agent_installed, n.agent_last_seen_at, n.agent_version,
-			n.panel_version as service_version, n.panel_running as service_running,
+			m.service_version as service_version, m.service_running as service_running,
 			m.collected_at, m.cpu_pct, m.ram_used_bytes, m.ram_total_bytes,
 			m.disk_used_bytes, m.disk_total_bytes, m.net_rx_bps, m.net_tx_bps,
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec,
