@@ -331,7 +331,12 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 		return
 	}
 	h.setRefreshCookie(c, refreshToken, h.RefreshTTL)
-	respondStatus(c, http.StatusOK, loginResponse{Token: jwtToken, Username: username, Role: role})
+	respondStatus(c, http.StatusOK, loginResponse{
+		Token:         jwtToken,
+		Username:      username,
+		Role:          role,
+		IsGlobalAdmin: strings.EqualFold(username, h.AdminUser),
+	})
 }
 
 func (h *Handler) ListWebAuthnCredentials(c *gin.Context) {

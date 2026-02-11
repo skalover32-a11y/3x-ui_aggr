@@ -70,10 +70,10 @@ func TestWebAuthnLoginFlowWithChallengeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := dbConn.AutoMigrate(&db.WebAuthnCredential{}, &db.WebAuthnChallenge{}); err != nil {
+	if err := dbConn.AutoMigrate(&db.WebAuthnCredential{}, &db.WebAuthnChallenge{}, &db.RefreshToken{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	_ = dbConn.Exec("TRUNCATE webauthn_challenges, webauthn_credentials RESTART IDENTITY").Error
+	_ = dbConn.Exec("TRUNCATE webauthn_challenges, webauthn_credentials, auth_refresh_tokens RESTART IDENTITY").Error
 
 	credIDBytes := []byte("cred-123")
 	credID := NormalizeCredentialID(base64.RawURLEncoding.EncodeToString(credIDBytes))
@@ -91,8 +91,13 @@ func TestWebAuthnLoginFlowWithChallengeID(t *testing.T) {
 		signCount: 2,
 	}
 	h := &Handler{
-		DB:       dbConn,
-		WebAuthn: fake,
+		DB:         dbConn,
+		WebAuthn:   fake,
+		AdminUser:  "admin",
+		AdminPass:  "admin123",
+		JWTSecret:  []byte("secret"),
+		JWTExpiry:  time.Hour,
+		RefreshTTL: 24 * time.Hour,
 	}
 	r := NewRouter(h)
 
@@ -150,6 +155,13 @@ func TestWebAuthnLoginFlowWithChallengeID(t *testing.T) {
 	r.ServeHTTP(verifyResp, verifyReq)
 	if verifyResp.Code != http.StatusOK {
 		t.Fatalf("verify status: %d %s", verifyResp.Code, verifyResp.Body.String())
+	}
+	var loginPayload map[string]any
+	if err := json.Unmarshal(verifyResp.Body.Bytes(), &loginPayload); err != nil {
+		t.Fatalf("parse login response: %v", err)
+	}
+	if global, _ := loginPayload["is_global_admin"].(bool); !global {
+		t.Fatalf("expected is_global_admin=true in passkey login response")
 	}
 
 	var updated db.WebAuthnCredential
