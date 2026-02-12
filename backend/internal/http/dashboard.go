@@ -43,6 +43,9 @@ func (h *Handler) GetDashboardSummary(c *gin.Context) {
 			}
 			data["nodes"] = filtered
 			agg := computeAggregateScoped(filtered)
+			traffic24h, traffic7d := computeTrafficTotalsScoped(c.Request.Context(), h.DB, nodeIDs)
+			agg.TotalTraffic24h = traffic24h
+			agg.TotalTraffic7d = traffic7d
 			agg.ActiveAlertsCount = countActiveAlertsScoped(c.Request.Context(), h.DB, nodeIDs)
 			agg.ActiveUsers = countActiveUsersScoped(c.Request.Context(), h.DB, nodeIDs)
 			data["aggregate"] = agg
@@ -330,6 +333,72 @@ func countActiveUsersScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uu
 		return 0
 	}
 	return int(count)
+}
+
+type scopedTrafficPoint struct {
+	NodeID uuid.UUID
+	TS     time.Time
+	NetRx  *int64
+	NetTx  *int64
+}
+
+func computeTrafficTotalsScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) (*int64, *int64) {
+	if dbConn == nil || len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	ids := make([]uuid.UUID, 0, len(nodeIDs))
+	for id := range nodeIDs {
+		ids = append(ids, id)
+	}
+	traffic24h := computeTrafficTotalForRangeScoped(ctx, dbConn, ids, 24*time.Hour)
+	traffic7d := computeTrafficTotalForRangeScoped(ctx, dbConn, ids, 7*24*time.Hour)
+	return traffic24h, traffic7d
+}
+
+func computeTrafficTotalForRangeScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs []uuid.UUID, window time.Duration) *int64 {
+	if dbConn == nil || len(nodeIDs) == 0 {
+		return nil
+	}
+	cutoff := time.Now().UTC().Add(-window)
+	var rows []scopedTrafficPoint
+	if err := dbConn.WithContext(ctx).
+		Table("node_metrics").
+		Select("node_id, ts, net_rx_bytes as net_rx, net_tx_bytes as net_tx").
+		Where("node_id IN ?", nodeIDs).
+		Where("ts >= ?", cutoff).
+		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
+		Order("node_id, ts").
+		Scan(&rows).Error; err != nil {
+		return nil
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	var total int64
+	var current uuid.UUID
+	var prevRx, prevTx *int64
+	first := true
+	for _, row := range rows {
+		if first || row.NodeID != current {
+			current = row.NodeID
+			prevRx, prevTx = row.NetRx, row.NetTx
+			first = false
+			continue
+		}
+		if prevRx != nil && row.NetRx != nil {
+			if delta := *row.NetRx - *prevRx; delta > 0 {
+				total += delta
+			}
+		}
+		if prevTx != nil && row.NetTx != nil {
+			if delta := *row.NetTx - *prevTx; delta > 0 {
+				total += delta
+			}
+		}
+		prevRx, prevTx = row.NetRx, row.NetTx
+	}
+	return &total
 }
 
 func parseIntQuery(c *gin.Context, key string, fallback int) int {

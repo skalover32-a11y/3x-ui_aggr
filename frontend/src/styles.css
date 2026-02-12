@@ -2200,6 +2200,10 @@ body {
   grid-template-columns: 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
 }
 
+.data-table.dashboard-nodes-table .data-row {
+  grid-template-columns: 40px minmax(180px, 1.2fr) minmax(160px, 0.95fr) minmax(150px, 0.9fr) minmax(160px, 1fr) minmax(220px, 1.05fr) minmax(170px, 0.95fr) minmax(220px, 1fr);
+}
+
 .data-table.nodes-table.selectable .data-row {
   grid-template-columns: 36px 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
 }
@@ -2359,6 +2363,12 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.traffic-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .status-dot {

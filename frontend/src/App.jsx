@@ -5107,13 +5107,14 @@ function DashboardPage() {
               </label>
             </div>
           </div>
-          <div className="data-table nodes-table">
+          <div className="data-table nodes-table dashboard-nodes-table">
             <div className="data-row head">
               <div>{t("Status")}</div>
               <div>{t("Node Name")}</div>
               <div>{t("Node IP")}</div>
               <div>{t("Agent Status")}</div>
               <div>{t("Uptime")}</div>
+              <div>{t("Traffic RX / TX")}</div>
               <div>{t("Last Check")}</div>
               <div>{t("Actions")}</div>
             </div>
@@ -5121,6 +5122,8 @@ function DashboardPage() {
               const status = deriveNodeStatus(node);
               const hostValue = formatNodeIP(node);
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
+              const hasTrafficTotals = node.net_rx_bytes != null || node.net_tx_bytes != null;
+              const hasTrafficSpeed = node.net_rx_bps != null || node.net_tx_bps != null;
               return (
                 <div
                   className="data-row"
@@ -5146,6 +5149,10 @@ function DashboardPage() {
                       <UptimeBar percent={uptimePct} />
                       <span className="muted small">{node.uptime_sec ? formatDuration(node.uptime_sec) : "-"}</span>
                     </div>
+                  </div>
+                  <div className="traffic-cell">
+                    <span>{hasTrafficTotals ? `${formatBytes(node.net_rx_bytes || 0)} / ${formatBytes(node.net_tx_bytes || 0)}` : "-"}</span>
+                    <span className="muted small">{hasTrafficSpeed ? `${formatBps(node.net_rx_bps)} / ${formatBps(node.net_tx_bps)}` : "-"}</span>
                   </div>
                   <div>{node.collected_at ? formatTS(node.collected_at) : "-"}</div>
                   <div className="row-actions" onClick={(e) => e.stopPropagation()}>
