@@ -3673,6 +3673,7 @@ function NodesPage() {
                 )}
                 <input name="node_agent_url" autoComplete="off" placeholder={t("Agent URL")} value={form.agent_url} onChange={(e) => setForm({ ...form, agent_url: e.target.value })} />
                 <input name="node_agent_token" autoComplete="new-password" placeholder={t("Agent Token")} type="password" value={form.agent_token} onChange={(e) => setForm({ ...form, agent_token: e.target.value })} />
+                <div className="hint">{t("Host token hint")}</div>
                 <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: Number(e.target.value) })} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} />

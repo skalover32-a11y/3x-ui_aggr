@@ -193,6 +193,15 @@ func (h *Handler) CreateOrgNode(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_NODE", err.Error())
 		return
 	}
+	dupNode, err := h.findDuplicateHostNode(c.Request.Context(), parsedOrg, kind, &req)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_READ", "failed to check duplicate host")
+		return
+	}
+	if dupNode != nil {
+		respondError(c, http.StatusConflict, "DUPLICATE_HOST", duplicateHostNodeMessage(dupNode))
+		return
+	}
 	encPass, err := h.Encryptor.EncryptString(req.PanelPassword)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "ENC_FAIL", "failed to encrypt panel password")

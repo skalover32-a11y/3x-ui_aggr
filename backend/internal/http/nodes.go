@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/http/middleware"
@@ -103,7 +105,7 @@ type nodeResponse struct {
 	SSHPort           int             `json:"ssh_port"`
 	SSHUser           string          `json:"ssh_user"`
 	VerifyTLS         bool            `json:"verify_tls"`
-	RuntimeVersion       *string         `json:"runtime_version"`
+	RuntimeVersion    *string         `json:"runtime_version"`
 	PanelVersion      *string         `json:"service_version"`
 	VersionsCheckedAt *time.Time      `json:"versions_checked_at"`
 	CreatedAt         time.Time       `json:"created_at"`
@@ -147,7 +149,7 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		SSHPort:           node.SSHPort,
 		SSHUser:           node.SSHUser,
 		VerifyTLS:         node.VerifyTLS,
-		RuntimeVersion:       node.RuntimeVersion,
+		RuntimeVersion:    node.RuntimeVersion,
 		PanelVersion:      node.PanelVersion,
 		VersionsCheckedAt: node.VersionsCheckedAt,
 		CreatedAt:         node.CreatedAt,
@@ -224,6 +226,15 @@ func (h *Handler) CreateNode(c *gin.Context) {
 	}
 	if err := validateNodeCreate(kind, &req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_NODE", err.Error())
+		return
+	}
+	dupNode, err := h.findDuplicateHostNode(c.Request.Context(), member.OrgID, kind, &req)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_READ", "failed to check duplicate host")
+		return
+	}
+	if dupNode != nil {
+		respondError(c, http.StatusConflict, "DUPLICATE_HOST", duplicateHostNodeMessage(dupNode))
 		return
 	}
 	encPass, err := h.Encryptor.EncryptString(req.PanelPassword)
@@ -674,3 +685,48 @@ func validateNodeUpdate(kind string, node *db.Node, req *nodeUpdateRequest) erro
 	return nil
 }
 
+func (h *Handler) findDuplicateHostNode(ctx context.Context, orgID uuid.UUID, kind string, req *nodeCreateRequest) (*db.Node, error) {
+	if strings.ToUpper(strings.TrimSpace(kind)) != "HOST" {
+		return nil, nil
+	}
+	sshHost := strings.TrimSpace(req.SSHHost)
+	if sshHost == "" {
+		return nil, nil
+	}
+	sshPort := req.SSHPort
+	if sshPort <= 0 {
+		sshPort = 22
+	}
+	var existing db.Node
+	err := h.DB.WithContext(ctx).
+		Where("org_id = ? AND kind = ? AND lower(trim(ssh_host)) = lower(trim(?)) AND ssh_port = ?", orgID, "HOST", sshHost, sshPort).
+		First(&existing).Error
+	if err == nil {
+		return &existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	agentURL := strings.TrimSpace(req.AgentURL)
+	if agentURL == "" {
+		return nil, nil
+	}
+	err = h.DB.WithContext(ctx).
+		Where("org_id = ? AND kind = ? AND agent_url IS NOT NULL AND lower(trim(agent_url)) = lower(trim(?))", orgID, "HOST", agentURL).
+		First(&existing).Error
+	if err == nil {
+		return &existing, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return nil, err
+}
+
+func duplicateHostNodeMessage(node *db.Node) string {
+	name := strings.TrimSpace(node.Name)
+	if name == "" {
+		name = "unnamed host"
+	}
+	return "host already exists in this organization (" + name + "); use this host and add multiple bots/services under it"
+}
