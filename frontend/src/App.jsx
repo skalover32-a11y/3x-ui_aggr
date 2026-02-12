@@ -1300,6 +1300,7 @@ function NodesPage() {
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [nodeTab, setNodeTab] = useState("overview");
   const [nodeTypeFilter, setNodeTypeFilter] = useState("PANEL");
+  const [nodeChecksFilter, setNodeChecksFilter] = useState("all");
   const [sidebarActive, setSidebarActive] = useState("panels");
   const [servicesMap, setServicesMap] = useState({});
   const [serviceResults, setServiceResults] = useState({});
@@ -1683,6 +1684,13 @@ function NodesPage() {
     }
   }
 
+  function openNodeDetailsTab(node, tab) {
+    openNodeDetails(node);
+    if (tab) {
+      setNodeTab(tab);
+    }
+  }
+
   useEffect(() => {
     const next = {};
     nodes.forEach((node) => {
@@ -1699,14 +1707,27 @@ function NodesPage() {
 
   const showingBots = nodeTypeFilter === "BOT";
   const filteredNodes = useMemo(() => {
+    let scopedNodes = nodes;
     if (nodeTypeFilter === "HOST") {
-      return nodes.filter((node) => (node.kind || "PANEL") === "HOST");
+      scopedNodes = nodes.filter((node) => (node.kind || "PANEL") === "HOST");
     }
     if (nodeTypeFilter === "PANEL") {
-      return nodes.filter((node) => (node.kind || "PANEL") === "PANEL");
+      scopedNodes = nodes.filter((node) => (node.kind || "PANEL") === "PANEL");
     }
-    return nodes;
-  }, [nodes, nodeTypeFilter]);
+    if (nodeTypeFilter === "BOT") {
+      return scopedNodes;
+    }
+    if (nodeChecksFilter === "with_services") {
+      return scopedNodes.filter((node) => Number(node.services_count || 0) > 0);
+    }
+    if (nodeChecksFilter === "with_bots") {
+      return scopedNodes.filter((node) => Number(node.bots_count || 0) > 0);
+    }
+    if (nodeChecksFilter === "with_any") {
+      return scopedNodes.filter((node) => Number(node.services_count || 0) > 0 || Number(node.bots_count || 0) > 0);
+    }
+    return scopedNodes;
+  }, [nodes, nodeTypeFilter, nodeChecksFilter]);
   const botCount = useMemo(() => Object.values(botsMap).flat().length, [botsMap]);
 
   useEffect(() => {
@@ -3309,12 +3330,23 @@ function NodesPage() {
 
       <div className="nodes-layout">
         <div className="nodes-toolbar">
-          <div>
+          <div className="nodes-toolbar-info">
             <div className="muted">
               {showingBots
                 ? t("Bots: {count}", { count: botCount })
                 : t("Servers configured: {count}", { count: filteredNodes.length })}
             </div>
+            {!showingBots && (
+              <label className="nodes-checks-filter">
+                <span className="muted small">{t("Checks filter")}</span>
+                <select value={nodeChecksFilter} onChange={(e) => setNodeChecksFilter(e.target.value)}>
+                  <option value="all">{t("All")}</option>
+                  <option value="with_services">{t("With services")}</option>
+                  <option value="with_bots">{t("With bots")}</option>
+                  <option value="with_any">{t("With checks")}</option>
+                </select>
+              </label>
+            )}
           </div>
           {!showingBots && canOperate && (
             <div className="node-actions">
@@ -3361,6 +3393,8 @@ function NodesPage() {
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
                 const hostValue = formatNodeIP(node);
+                const servicesCount = Number(node.services_count || 0);
+                const botsCount = Number(node.bots_count || 0);
                 return (
                   <div
                     className="data-row"
@@ -3380,8 +3414,29 @@ function NodesPage() {
                     <div>
                       <div className="node-title">{node.name || t("Unnamed node")}</div>
                       <div className="muted small">{node.kind || "PANEL"}</div>
-                      <div className="muted small">
-                        {t("Services")}: {node.services_count || 0} · {t("Bots")}: {node.bots_count || 0}
+                      <div className="node-checks-summary">
+                        <button
+                          type="button"
+                          className={`node-check-chip ${servicesCount > 0 ? "has-items" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openNodeDetailsTab(node, "services");
+                          }}
+                        >
+                          <span>{t("Services")}</span>
+                          <strong>{servicesCount}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          className={`node-check-chip ${botsCount > 0 ? "has-items" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openNodeDetailsTab(node, "bots");
+                          }}
+                        >
+                          <span>{t("Bots")}</span>
+                          <strong>{botsCount}</strong>
+                        </button>
                       </div>
                     </div>
                     <div className="location-cell">

@@ -2144,6 +2144,27 @@ body {
   flex-wrap: wrap;
 }
 
+.nodes-toolbar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nodes-checks-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nodes-checks-filter select {
+  min-width: 180px;
+  background: #0b1220;
+  border: 1px solid #2a3344;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
 .section-actions input {
   background: #0b1220;
   border: 1px solid #2a3344;
@@ -2280,6 +2301,48 @@ body {
 
 .node-title {
   font-weight: 600;
+}
+
+.node-checks-summary {
+  margin-top: 4px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.node-check-chip {
+  min-width: 0;
+  width: auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #cbd5e1;
+  font-size: 12px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.node-check-chip strong {
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.node-check-chip:hover {
+  border-color: #64748b;
+  background: #273449;
+}
+
+.node-check-chip.has-items {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.15);
+  color: #a7f3d0;
+}
+
+.node-check-chip.has-items strong {
+  color: #d1fae5;
 }
 
 .location-cell {
