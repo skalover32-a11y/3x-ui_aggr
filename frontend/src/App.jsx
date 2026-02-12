@@ -3380,6 +3380,9 @@ function NodesPage() {
                     <div>
                       <div className="node-title">{node.name || t("Unnamed node")}</div>
                       <div className="muted small">{node.kind || "PANEL"}</div>
+                      <div className="muted small">
+                        {t("Services")}: {node.services_count || 0} · {t("Bots")}: {node.bots_count || 0}
+                      </div>
                     </div>
                     <div className="location-cell">
                       <span>{hostValue}</span>

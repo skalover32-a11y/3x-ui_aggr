@@ -107,6 +107,8 @@ type nodeResponse struct {
 	VerifyTLS         bool            `json:"verify_tls"`
 	RuntimeVersion    *string         `json:"runtime_version"`
 	PanelVersion      *string         `json:"service_version"`
+	ServicesCount     int             `json:"services_count"`
+	BotsCount         int             `json:"bots_count"`
 	VersionsCheckedAt *time.Time      `json:"versions_checked_at"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`
@@ -151,10 +153,50 @@ func toNodeResponse(node *db.Node) nodeResponse {
 		VerifyTLS:         node.VerifyTLS,
 		RuntimeVersion:    node.RuntimeVersion,
 		PanelVersion:      node.PanelVersion,
+		ServicesCount:     0,
+		BotsCount:         0,
 		VersionsCheckedAt: node.VersionsCheckedAt,
 		CreatedAt:         node.CreatedAt,
 		UpdatedAt:         node.UpdatedAt,
 	}
+}
+
+type nodeCheckCountRow struct {
+	NodeID uuid.UUID `gorm:"column:node_id"`
+	Count  int64     `gorm:"column:count"`
+}
+
+func (h *Handler) loadNodeCheckCounts(ctx context.Context, nodeIDs []uuid.UUID) (map[uuid.UUID]int, map[uuid.UUID]int, error) {
+	services := make(map[uuid.UUID]int, len(nodeIDs))
+	bots := make(map[uuid.UUID]int, len(nodeIDs))
+	if len(nodeIDs) == 0 {
+		return services, bots, nil
+	}
+	var serviceRows []nodeCheckCountRow
+	if err := h.DB.WithContext(ctx).
+		Table("services").
+		Select("node_id, count(*) as count").
+		Where("node_id IN ?", nodeIDs).
+		Group("node_id").
+		Scan(&serviceRows).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, row := range serviceRows {
+		services[row.NodeID] = int(row.Count)
+	}
+	var botRows []nodeCheckCountRow
+	if err := h.DB.WithContext(ctx).
+		Table("bots").
+		Select("node_id, count(*) as count").
+		Where("node_id IN ?", nodeIDs).
+		Group("node_id").
+		Scan(&botRows).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, row := range botRows {
+		bots[row.NodeID] = int(row.Count)
+	}
+	return services, bots, nil
 }
 
 func computeAgentOnline(lastSeen *time.Time, installed bool, ttl time.Duration) bool {
@@ -175,9 +217,21 @@ func (h *Handler) ListNodes(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list nodes")
 		return
 	}
+	nodeIDs := make([]uuid.UUID, 0, len(nodes))
+	for i := range nodes {
+		nodeIDs = append(nodeIDs, nodes[i].ID)
+	}
+	serviceCounts, botCounts, err := h.loadNodeCheckCounts(c.Request.Context(), nodeIDs)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to load node checks")
+		return
+	}
 	resp := make([]nodeResponse, 0, len(nodes))
 	for i := range nodes {
-		resp = append(resp, toNodeResponse(&nodes[i]))
+		row := toNodeResponse(&nodes[i])
+		row.ServicesCount = serviceCounts[nodes[i].ID]
+		row.BotsCount = botCounts[nodes[i].ID]
+		resp = append(resp, row)
 	}
 	respondStatus(c, http.StatusOK, resp)
 }
@@ -189,6 +243,11 @@ func (h *Handler) GetNode(c *gin.Context) {
 		return
 	}
 	resp := toNodeResponse(node)
+	serviceCounts, botCounts, err := h.loadNodeCheckCounts(c.Request.Context(), []uuid.UUID{node.ID})
+	if err == nil {
+		resp.ServicesCount = serviceCounts[node.ID]
+		resp.BotsCount = botCounts[node.ID]
+	}
 	role := c.GetString("role")
 	if role == middleware.RoleAdmin && h.Encryptor != nil && node.AgentTokenEnc != nil && strings.TrimSpace(*node.AgentTokenEnc) != "" {
 		if token, err := h.Encryptor.DecryptString(*node.AgentTokenEnc); err == nil {
