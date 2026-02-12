@@ -4753,7 +4753,6 @@ function DashboardPage() {
   const isGlobalAdmin = getIsGlobalAdmin();
   const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
   const [nodes, setNodes] = useState([]);
-  const [activeUsers, setActiveUsers] = useState([]);
   const [aggregate, setAggregate] = useState({
     nodes_online: 0,
     nodes_total: 0,
@@ -4771,7 +4770,6 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchNodes, setSearchNodes] = useState("");
-  const [searchUsers, setSearchUsers] = useState("");
   const [sandboxOnly, setSandboxOnly] = useState(false);
   const [wsStatus, setWsStatus] = useState("disconnected");
   const [now, setNow] = useState(Date.now());
@@ -4787,34 +4785,6 @@ function DashboardPage() {
     const timer = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(timer);
   }, []);
-
-  function dedupeActiveUsers(list) {
-    const deduped = new Map();
-    list.forEach((row) => {
-      if (!row) return;
-      const email = (row.client_email || "").trim().toLowerCase();
-      if (!email) return;
-      const prev = deduped.get(email);
-      if (!prev) {
-        deduped.set(email, row);
-        return;
-      }
-      const prevTotal = (prev.total_up_bytes || 0) + (prev.total_down_bytes || 0);
-      const rowTotal = (row.total_up_bytes || 0) + (row.total_down_bytes || 0);
-      if (rowTotal > prevTotal) {
-        deduped.set(email, row);
-        return;
-      }
-      const prevSeen = prev.last_seen ? new Date(prev.last_seen).getTime() : 0;
-      const rowSeen = row.last_seen ? new Date(row.last_seen).getTime() : 0;
-      if (rowSeen > prevSeen) {
-        deduped.set(email, row);
-      }
-    });
-    return Array.from(deduped.values()).sort(
-      (a, b) => new Date(b.last_seen).getTime() - new Date(a.last_seen).getTime()
-    );
-  }
 
   async function loadSummary() {
     setLoading(true);
@@ -4840,20 +4810,6 @@ function DashboardPage() {
     }
   }
 
-  async function loadUsers() {
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "200");
-      if (searchUsers.trim()) {
-        params.set("search", searchUsers.trim());
-      }
-      const data = await request("GET", `/dashboard/active-users?${params.toString()}`);
-      setActiveUsers(data || []);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function loadProblems() {
     setProblemsLoading(true);
     setProblemsError("");
@@ -4869,16 +4825,8 @@ function DashboardPage() {
 
   useEffect(() => {
     loadSummary();
-    loadUsers();
     loadSystemStatus();
   }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadUsers();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchUsers]);
 
   useEffect(() => {
     let stopped = false;
@@ -4911,7 +4859,6 @@ function DashboardPage() {
         if (!payload?.type) return;
         if (payload.type === "snapshot" && payload.data) {
           setNodes(payload.data.nodes || []);
-          setActiveUsers(payload.data.active_users || []);
           return;
         }
         if (payload.type === "node_metrics_update" && payload.data) {
@@ -4923,44 +4870,6 @@ function DashboardPage() {
             const next = [...prev];
             next[idx] = { ...next[idx], ...metrics, collected_at: metrics.collected_at || next[idx].collected_at };
             return next;
-          });
-        }
-        if (payload.type === "active_users_update" && payload.data) {
-          const { node_id, users, node_name, source } = payload.data;
-          if (!node_id) return;
-          setNodes((prev) => {
-            const idx = prev.findIndex((n) => n.node_id === node_id);
-            if (idx === -1) return prev;
-            const next = [...prev];
-            next[idx] = {
-              ...next[idx],
-              active_users_source: payload.data.source,
-              active_users_source_detail: payload.data.source_detail,
-              active_users_available: payload.data.available,
-            };
-            return next;
-          });
-          setActiveUsers((prev) => {
-            const filtered = prev.filter((u) => u.node_id !== node_id && u.client_email);
-            const mapped = Array.isArray(users)
-              ? users.map((u) => {
-                  if (typeof u === "string") {
-                    return { client_email: u, node_id, node_name, last_seen: new Date().toISOString() };
-                  }
-                  const clientEmail = u.client_email || u.ClientEmail || "";
-                  const sourceTag = u.source_tag ?? u.sourceTag ?? null;
-                  const ip = u.ip || u.IP || "";
-                  return {
-                    ...u,
-                    client_email: clientEmail,
-                    source_tag: sourceTag,
-                    ip,
-                    node_id,
-                    node_name: node_name || u.node_name,
-                  };
-                })
-              : [];
-            return dedupeActiveUsers([...filtered, ...mapped]);
           });
         }
       };
@@ -4988,10 +4897,9 @@ function DashboardPage() {
     if (wsStatus === "connected") return;
     const timer = setInterval(() => {
       loadSummary();
-      loadUsers();
     }, 15000);
     return () => clearInterval(timer);
-  }, [wsStatus, searchUsers]);
+  }, [wsStatus]);
 
   const staleMs = 20000;
   const nowTs = now;
@@ -5021,26 +4929,6 @@ function DashboardPage() {
       return rowNode === problemsNode;
     });
   }, [problemsList, problemsNode]);
-
-  const usersFiltered = useMemo(() => {
-    const term = searchUsers.trim().toLowerCase();
-    if (!term) return activeUsers;
-    return activeUsers.filter((u) => (u.client_email || "").toLowerCase().includes(term));
-  }, [activeUsers, searchUsers]);
-
-  const activeUsersSummary = useMemo(() => {
-    if (nodes.length === 0) return t("No data");
-    const availableCount = nodes.filter((n) => n.active_users_available).length;
-    const sourceSet = new Set(nodes.map((n) => n.active_users_source).filter(Boolean));
-    if (availableCount === 0) {
-      return t("Active users source not available");
-    }
-    if (sourceSet.size === 1) {
-      const source = Array.from(sourceSet)[0];
-      return `${t("Source")}: ${source}`;
-    }
-    return t("Multiple sources");
-  }, [nodes, t]);
 
   const aggregateSafe = useMemo(() => {
     const fallbackTotal = nodesFiltered.length;
@@ -5074,12 +4962,6 @@ function DashboardPage() {
     const recent = collectedAt > 0 && Math.abs(nowTs - collectedAt) < 90000;
     if (node.agent_online || recent) return "online";
     return "offline";
-  };
-
-  const formatSource = (node) => {
-    const source = node.active_users_source || "unknown";
-    if (source === "no_source") return t("No source");
-    return source;
   };
 
   const activeIssues = useMemo(() => {
@@ -5143,7 +5025,7 @@ function DashboardPage() {
             </div>
             <div className="topbar-actions">
               <span className={`badge ${wsStatus}`}>{t(wsStatus === "connected" ? "Connected" : wsStatus === "connecting" ? "Connecting" : "Disconnected")}</span>
-              <button onClick={() => { loadSummary(); loadUsers(); loadSystemStatus(); }}>{t("Refresh")}</button>
+              <button onClick={() => { loadSummary(); loadSystemStatus(); }}>{t("Refresh")}</button>
             </div>
           </div>
 
@@ -5324,47 +5206,6 @@ function DashboardPage() {
               <div className="muted small">{t("Active issues now")}</div>
               <div className="bottom-sub">{t("Nodes with issues")}</div>
             </div>
-        </section>
-
-        <section className="table-card">
-          <div className="section-head">
-            <div>
-              <h3>{t("Realtime active users")}</h3>
-              <span className="muted small">{t("Across all nodes")}</span>
-            </div>
-            <div className="section-actions">
-              <input value={searchUsers} onChange={(e) => setSearchUsers(e.target.value)} placeholder={t("Search users")} />
-            </div>
-          </div>
-          <div className="data-table users-table">
-            <div className="data-row head">
-              <div>{t("Client")}</div>
-              <div>{t("Node")}</div>
-              <div>{t("Source")}</div>
-              <div>{t("IP")}</div>
-              <div>{t("RX")}</div>
-              <div>{t("TX")}</div>
-              <div>{t("Total")}</div>
-              <div>{t("Last seen")}</div>
-            </div>
-            {usersFiltered.map((user) => (
-              <div className="data-row" key={user.id || `${user.node_id}-${user.client_email}-${user.ip || ""}`}>
-                <div>{user.client_email}</div>
-                <div>{user.node_name || "-"}</div>
-                <div>{user.source_tag || "-"}</div>
-                <div>{user.ip || "-"}</div>
-                <div>{formatBps(user.rx_bps)}</div>
-                <div>{formatBps(user.tx_bps)}</div>
-                <div>{user.total_up_bytes || user.total_down_bytes ? `${formatBytes(user.total_up_bytes || 0)} / ${formatBytes(user.total_down_bytes || 0)}` : "-"}</div>
-                <div>{formatTS(user.last_seen)}</div>
-              </div>
-            ))}
-            {usersFiltered.length === 0 && (
-              <div className="data-row">
-                <div>{loading ? t("Loading...") : activeUsersSummary}</div>
-              </div>
-            )}
-          </div>
         </section>
 
         {problemsOpen && (
