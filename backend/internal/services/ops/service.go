@@ -419,18 +419,28 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	}
 	if job.Type == JobTypeDeploy {
 		params := parseJobParams(job.Params)
-		if node.AgentInstalled && !params.ForceRedeploy && !params.InstallDocker {
+		installed, probeDetails, probeErr := s.probeNodeAgentInstalled(ctx, node, params.AgentPort)
+		if probeErr != nil {
+			log.Printf("deploy probe failed node=%s err=%v", node.ID, probeErr)
+		}
+		if installed && !params.ForceRedeploy && !params.InstallDocker {
 			logText := "ALREADY_INSTALLED: agent already installed"
+			if strings.TrimSpace(probeDetails) != "" {
+				logText = logText + " (" + strings.TrimSpace(probeDetails) + ")"
+			}
 			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
 			return nil
 		}
-		if node.AgentInstalled && params.ForceRedeploy {
+		if installed && params.ForceRedeploy {
 			current := ""
 			if node.AgentVersion != nil {
 				current = strings.TrimSpace(*node.AgentVersion)
 			}
 			if current != "" && current == agentDesiredVersion && !params.InstallDocker {
 				logText := fmt.Sprintf("ALREADY_INSTALLED: agent version matches (%s)", current)
+				if strings.TrimSpace(probeDetails) != "" {
+					logText = logText + " (" + strings.TrimSpace(probeDetails) + ")"
+				}
 				s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
 				return nil
 			}
@@ -583,6 +593,21 @@ func (s *Service) loadNode(ctx context.Context, id uuid.UUID) (*db.Node, error) 
 		return nil, err
 	}
 	return &node, nil
+}
+
+func (s *Service) probeNodeAgentInstalled(ctx context.Context, node *db.Node, agentPort int) (bool, string, error) {
+	if node == nil {
+		return false, "", errors.New("node missing")
+	}
+	probe, ok := s.Executor.(AgentInstallProbe)
+	if !ok {
+		return node.AgentInstalled, "probe unsupported", nil
+	}
+	installed, details, err := probe.CheckAgentInstalled(ctx, node, agentPort)
+	if err != nil {
+		return false, details, err
+	}
+	return installed, details, nil
 }
 
 func parseUpdateParams(raw datatypes.JSON) UpdateParams {
@@ -837,7 +862,7 @@ func (s *Service) persistPanelVersion(ctx context.Context, nodeID uuid.UUID, ver
 	}
 	now := time.Now().UTC()
 	updates := map[string]any{
-		"service_version":       version,
+		"service_version":     version,
 		"versions_checked_at": now,
 	}
 	if err := s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", nodeID).Updates(updates).Error; err != nil {
@@ -852,7 +877,7 @@ func (s *Service) persistPanelVersion(ctx context.Context, nodeID uuid.UUID, ver
 		Columns: []clause.Column{{Name: "node_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"service_version": version,
-			"collected_at":  now,
+			"collected_at":    now,
 		}),
 	}).Create(&row).Error
 }
@@ -1224,4 +1249,3 @@ func jobStatusFromFailures(failed int) (string, *string) {
 	}
 	return JobSuccess, nil
 }
-

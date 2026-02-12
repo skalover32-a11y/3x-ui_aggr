@@ -187,6 +187,37 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 	return logs.String(), 0, nil
 }
 
+func (e *SSHExecutor) CheckAgentInstalled(ctx context.Context, node *db.Node, agentPort int) (bool, string, error) {
+	client, err := e.openClient(node)
+	if err != nil {
+		return false, "", err
+	}
+	defer client.Close()
+	port := agentPort
+	if port <= 0 {
+		port = 9191
+	}
+	cmd := fmt.Sprintf(
+		"if [ -x /usr/local/bin/vlf-agent ]; then echo binary=1; else echo binary=0; fi; "+
+			"if systemctl is-active --quiet vlf-agent; then echo active=1; else echo active=0; fi; "+
+			"if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 http://127.0.0.1:%d/health >/dev/null 2>&1; then echo health=1; else echo health=0; fi",
+		port,
+	)
+	out, _, runErr := runRemote(ctx, client, cmd)
+	if runErr != nil {
+		return false, strings.TrimSpace(out), runErr
+	}
+	compact := strings.TrimSpace(strings.ReplaceAll(out, "\n", " "))
+	binaryOK := strings.Contains(out, "binary=1")
+	activeOK := strings.Contains(out, "active=1")
+	healthOK := strings.Contains(out, "health=1")
+	installed := binaryOK && activeOK && healthOK
+	if compact == "" {
+		compact = fmt.Sprintf("binary=%t active=%t health=%t", binaryOK, activeOK, healthOK)
+	}
+	return installed, compact, nil
+}
+
 func (e *SSHExecutor) RestartService(ctx context.Context, node *db.Node, service string) (string, int, error) {
 	return "", 1, errors.New("restart_service not supported via ssh")
 }
@@ -549,4 +580,3 @@ exit $rc
 `
 	return "bash -lc " + strconv.Quote(script)
 }
-

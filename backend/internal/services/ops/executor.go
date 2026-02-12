@@ -13,6 +13,12 @@ type NodeExecutor interface {
 	RestartService(ctx context.Context, node *db.Node, service string) (string, int, error)
 }
 
+// AgentInstallProbe is an optional capability for executors that can verify
+// whether vlf-agent is actually active on a node.
+type AgentInstallProbe interface {
+	CheckAgentInstalled(ctx context.Context, node *db.Node, agentPort int) (installed bool, details string, err error)
+}
+
 type UpdateParams struct {
 	PrecheckOnly  bool `json:"precheck_only"`
 	InstallExpect bool `json:"install_expect"`
