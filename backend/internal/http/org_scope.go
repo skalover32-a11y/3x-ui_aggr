@@ -208,12 +208,19 @@ func (h *Handler) orgIDFromRequest(c *gin.Context, userID uuid.UUID) (*uuid.UUID
 	}
 	orgID, err := uuid.Parse(raw)
 	if err != nil {
-		return nil, err
+		// Non-UUID or stale client value should not break read endpoints.
+		// Fall back to default org selection via membership join.
+		return nil, nil
 	}
 	var member db.OrganizationMember
 	if err := h.DB.WithContext(c.Request.Context()).
 		Where("org_id = ? AND user_id = ?", orgID, userID).
 		First(&member).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Org header may point to a removed or foreign org.
+			// Treat as "no explicit org selected" and keep query scoped by membership.
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &orgID, nil
