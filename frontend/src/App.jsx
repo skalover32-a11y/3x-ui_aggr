@@ -1320,6 +1320,7 @@ function NodesPage() {
   const [botsError, setBotsError] = useState("");
   const [botEditor, setBotEditor] = useState({ open: false, mode: "add", node: null, bot: null });
   const [botForm, setBotForm] = useState({
+    node_id: "",
     name: "",
     kind: "HTTP",
     docker_container: "",
@@ -2446,6 +2447,7 @@ function NodesPage() {
 
   function resetBotForm() {
     setBotForm({
+      node_id: "",
       name: "",
       kind: "HTTP",
       docker_container: "",
@@ -2459,6 +2461,10 @@ function NodesPage() {
 
   function openBotAdd(node) {
     resetBotForm();
+    setBotForm((prev) => ({
+      ...prev,
+      node_id: node?.id || "",
+    }));
     setBotEditor({ open: true, mode: "add", node, bot: null });
   }
 
@@ -2467,6 +2473,7 @@ function NodesPage() {
       ? bot.expected_status.map((val) => `${val}`)
       : [];
     setBotForm({
+      node_id: bot.node_id || node?.id || "",
       name: bot.name || "",
       kind: bot.kind || "HTTP",
       docker_container: bot.docker_container || "",
@@ -2482,7 +2489,13 @@ function NodesPage() {
   async function saveBot() {
     if (!botEditor.node) return;
     setBotsError("");
+    const selectedNodeID = (botForm.node_id || botEditor.node.id || "").trim();
+    if (!selectedNodeID) {
+      setBotsError("node_id required");
+      return;
+    }
     const payload = {
+      node_id: selectedNodeID,
       name: botForm.name,
       kind: botForm.kind,
       docker_container: botForm.docker_container || null,
@@ -2494,13 +2507,18 @@ function NodesPage() {
     };
     try {
       if (botEditor.mode === "add") {
-        const created = await request("POST", `/nodes/${botEditor.node.id}/bots`, payload);
+        const created = await request("POST", `/nodes/${selectedNodeID}/bots`, payload);
         setBotResults((prev) => ({ ...prev, [created.id]: null }));
       } else if (botEditor.bot) {
         await request("PUT", `/bots/${botEditor.bot.id}`, payload);
       }
+      const previousNodeID = botEditor.node.id;
       setBotEditor({ open: false, mode: "add", node: null, bot: null });
-      loadBots(botEditor.node.id);
+      if (previousNodeID === selectedNodeID) {
+        loadBots(previousNodeID);
+      } else {
+        await Promise.all([loadBots(previousNodeID), loadBots(selectedNodeID)]);
+      }
     } catch (err) {
       setBotsError(err.message);
     }
@@ -3527,6 +3545,21 @@ function NodesPage() {
           <div className="modal-content">
             <h3>{botEditor.mode === "add" ? t("Add Bot") : t("Edit Bot")}</h3>
             <div className="form-grid" autoComplete="off">
+              <select
+                value={botForm.node_id}
+                onChange={(e) => setBotForm({ ...botForm, node_id: e.target.value })}
+              >
+                {botEditor.node && !nodes.some((node) => node.id === botEditor.node.id) && (
+                  <option value={botEditor.node.id}>
+                    {botEditor.node.name || botEditor.node.id}
+                  </option>
+                )}
+                {nodes.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.name}
+                  </option>
+                ))}
+              </select>
               <input
                 placeholder={t("Name")}
                 value={botForm.name}

@@ -18,6 +18,7 @@ import (
 )
 
 type botRequest struct {
+	NodeID          *string `json:"node_id"`
 	Name            string  `json:"name"`
 	Kind            string  `json:"kind"`
 	DockerContainer *string `json:"docker_container"`
@@ -264,6 +265,19 @@ func (h *Handler) UpdateBot(c *gin.Context) {
 	}
 	if req.IsEnabled != nil {
 		bot.IsEnabled = *req.IsEnabled
+	}
+	if req.NodeID != nil {
+		nodeRaw := strings.TrimSpace(*req.NodeID)
+		if nodeRaw == "" {
+			respondError(c, http.StatusBadRequest, "INVALID_NODE", "node_id required")
+			return
+		}
+		targetNode, err := h.getNodeForActor(c, nodeRaw)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "INVALID_NODE", "node not found")
+			return
+		}
+		bot.NodeID = targetNode.ID
 	}
 	if err := h.validateBotRequest(strings.ToUpper(strings.TrimSpace(bot.Kind)), &botRequest{
 		Name:            bot.Name,
