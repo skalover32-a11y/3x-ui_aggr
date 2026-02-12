@@ -436,7 +436,7 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 			if node.AgentVersion != nil {
 				current = strings.TrimSpace(*node.AgentVersion)
 			}
-			if current != "" && current == agentDesiredVersion && !params.InstallDocker {
+			if current != "" && sameAgentVersion(current, agentDesiredVersion) && !params.InstallDocker {
 				logText := fmt.Sprintf("ALREADY_INSTALLED: agent version matches (%s)", current)
 				if strings.TrimSpace(probeDetails) != "" {
 					logText = logText + " (" + strings.TrimSpace(probeDetails) + ")"
@@ -665,6 +665,20 @@ func parseJobParamsFromMap(raw map[string]any) JobParams {
 		return JobParams{}
 	}
 	return parseJobParams(payload)
+}
+
+func sameAgentVersion(a, b string) bool {
+	normalize := func(v string) string {
+		v = strings.TrimSpace(strings.ToLower(v))
+		v = strings.TrimPrefix(v, "v")
+		if idx := strings.IndexAny(v, " \t\r\n"); idx >= 0 {
+			v = v[:idx]
+		}
+		return strings.TrimSpace(v)
+	}
+	na := normalize(a)
+	nb := normalize(b)
+	return na != "" && nb != "" && na == nb
 }
 
 func describeJobAction(jobType string, params JobParams) string {
