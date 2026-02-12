@@ -909,7 +909,7 @@ function PanelsSelfServicePage() {
   const [form, setForm] = useState({
     name: "",
     host: "",
-    type: "PANEL",
+    type: "HOST",
     base_url: "",
     panel_username: "",
     panel_password: "",
@@ -1152,7 +1152,6 @@ function PanelsSelfServicePage() {
                       <label>
                         {t("Type")}
                         <select value={form.type} onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value }))}>
-                          <option value="PANEL">{t("Panel")}</option>
                           <option value="HOST">{t("Host")}</option>
                         </select>
                       </label>
@@ -1365,9 +1364,9 @@ function NodesPage() {
     confirm: "",
   });
   const [editModal, setEditModal] = useState({ open: false, node: null });
-  const [editKind, setEditKind] = useState("PANEL");
+  const [editKind, setEditKind] = useState("HOST");
   const [form, setForm] = useState({
-    kind: "PANEL",
+    kind: "HOST",
     name: "",
     tags: "",
     base_url: "",
@@ -1837,7 +1836,7 @@ function NodesPage() {
 
   function openEdit(node) {
     setEditModal({ open: true, node });
-    setEditKind(node?.kind || "PANEL");
+    setEditKind(node?.kind === "BOT" ? "BOT" : "HOST");
     setEditValidation(null);
     setEditValidating(false);
   }
@@ -2698,11 +2697,10 @@ function NodesPage() {
     );
   }
 
-    function renderBotsTable(bots, showNode) {
+    function renderBotsTable(bots) {
       return (
-        <div className={`data-table nodes-table bots-table ${showNode ? "with-node" : ""}`}>
+        <div className="data-table nodes-table bots-table">
           <div className="data-row head">
-            {showNode && <div>{t("Node")}</div>}
             <div>{t("Name")}</div>
           <div>{t("Kind")}</div>
           <div>{t("Target")}</div>
@@ -2726,7 +2724,6 @@ function NodesPage() {
                 : "unknown";
           return (
             <div className="data-row" key={bot.id}>
-              {showNode && <div title={nodeRef.name || ""}>{nodeRef.name || "-"}</div>}
               <div title={bot.name || ""}>{bot.name || "-"}</div>
               <div>{bot.kind || "-"}</div>
               <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
@@ -2782,7 +2779,7 @@ function NodesPage() {
           </div>
           {botsError && <div className="error">{botsError}</div>}
           <div className="table-card">
-            {renderBotsTable(bots, false)}
+            {renderBotsTable(bots)}
           </div>
         </>
       );
@@ -2797,7 +2794,7 @@ function NodesPage() {
           )}
           {botsError && <div className="error bots-status">{botsError}</div>}
           <div className="table-card">
-            {renderBotsTable(bots, true)}
+            {renderBotsTable(bots)}
           </div>
         </>
       );
@@ -3362,22 +3359,15 @@ function NodesPage() {
                     </div>
                     <div>{lastTs ? formatTS(lastTs) : "-"}</div>
                 <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() => {
-                          if (node.base_url) {
-                            window.open(node.base_url, "_blank");
-                          } else {
-                            openNodeDetails(node);
-                          }
-                        }}
-                      >
-                        {t("Open Dashboard")}
-                      </button>
-                      <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
-                      <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("SSH")}</button>
-                    </div>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => openActionPlan("restart_service", node)}
+                  >
+                    {t("Restart Agent")}
+                  </button>
+                  <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("SSH")}</button>
+                </div>
                   </div>
                 );
               })}
@@ -3595,8 +3585,8 @@ function NodesPage() {
                 value={editKind}
                 onChange={(e) => setEditKind(e.target.value)}
               >
-                <option value="PANEL">{t("Panel node")}</option>
                 <option value="HOST">{t("Host node")}</option>
+                <option value="BOT">{t("Bot node")}</option>
               </select>
               <input name="node_name" autoComplete="off" placeholder={t("Name")} defaultValue={editModal.node.name} />
               <input name="node_tags" autoComplete="off" placeholder={t("Tags (comma)")} defaultValue={(editModal.node.tags || []).join(", ")} />
@@ -3674,7 +3664,6 @@ function NodesPage() {
                 value={form.kind}
                 onChange={(e) => setForm({ ...form, kind: e.target.value })}
               >
-                <option value="PANEL">{t("Panel node")}</option>
                 <option value="HOST">{t("Host node")}</option>
                 <option value="BOT">{t("Bot node")}</option>
               </select>
@@ -5155,11 +5144,10 @@ function DashboardPage() {
                     <button
                       type="button"
                       className="ghost"
-                      onClick={() => navigate(`/nodes?node=${node.node_id}`)}
+                      onClick={() => openActionPlan("restart_service", { id: node.node_id, name: node.name })}
                     >
-                      {t("Open Dashboard")}
+                      {t("Restart Agent")}
                     </button>
-                    <button type="button" className="ghost" disabled>{t("Restart Agent")}</button>
                     <button
                       type="button"
                       className="ghost"

@@ -106,7 +106,7 @@ func renderPrimary(alert Alert) string {
 	case AlertDisk:
 		return fmt.Sprintf("free: <b>%.1f%%</b> (threshold %.1f%%) | %s", alert.Metrics.FreePct, alert.Metrics.Threshold, ts)
 	case AlertConnection:
-		return fmt.Sprintf("PANEL: %s | SSH: %s | %s", statusBadge(alert.PanelOK), statusBadge(alert.SSHOK), ts)
+		return fmt.Sprintf("SSH: %s | %s", statusBadge(alert.SSHOK), ts)
 	case AlertTLS:
 		reason := tlsLabel(alert.CheckType)
 		if reason == "" {
@@ -129,7 +129,7 @@ func renderPrimary(alert Alert) string {
 }
 func renderMeta(alert Alert) []string {
 	lines := []string{}
-	if alert.PanelURL != "" {
+	if alert.PanelURL != "" && alert.Type != AlertConnection && alert.Type != AlertTLS {
 		lines = append(lines, fmt.Sprintf("Panel: <code>%s</code>", escapeHTML(alert.PanelURL)))
 	}
 	if alert.IP != "" {
@@ -295,7 +295,7 @@ func recommendationLine(alert Alert) string {
 	case AlertDisk:
 		return "Recommendation: free disk space or grow the volume."
 	case AlertConnection:
-		return "Recommendation: verify panel URL and network connectivity."
+		return "Recommendation: verify SSH connectivity and credentials."
 	case AlertTLS:
 		return "Recommendation: renew TLS certificate or disable TLS verification if appropriate."
 	case AlertGeneric:

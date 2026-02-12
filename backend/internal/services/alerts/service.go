@@ -104,44 +104,6 @@ func (s *Service) NotifyConnection(ctx context.Context, settings *Settings, node
 		return
 	}
 	now := time.Now()
-	tlsCode := tlsCodeFromPanelCode(panelCode)
-	tlsAlert := Alert{
-		Type:       AlertTLS,
-		NodeID:     node.ID,
-		NodeName:   nodeLabel(node),
-		TS:         now,
-		Severity:   SeverityCritical,
-		PanelOK:    panelOK,
-		SSHOK:      sshOK,
-		PanelURL:   node.BaseURL,
-		IP:         node.SSHHost,
-		TargetType: "tls",
-		CheckType:  tlsCode,
-	}
-	if panelErr != nil {
-		tlsAlert.Error = strings.TrimSpace(*panelErr)
-	}
-	s.maybeSendAlert(ctx, settings, tlsCode != "" && !panelOK, tlsAlert)
-
-	panelTarget := panelTargetType(panelCode)
-	if panelTarget != "tls" {
-		panelAlert := Alert{
-			Type:       AlertConnection,
-			NodeID:     node.ID,
-			NodeName:   nodeLabel(node),
-			TS:         now,
-			Severity:   SeverityCritical,
-			PanelOK:    panelOK,
-			SSHOK:      sshOK,
-			PanelURL:   node.BaseURL,
-			IP:         node.SSHHost,
-			TargetType: panelTarget,
-		}
-		if panelErr != nil {
-			panelAlert.Error = strings.TrimSpace(*panelErr)
-		}
-		s.maybeSendAlert(ctx, settings, !panelOK, panelAlert)
-	}
 
 	sshAlert := Alert{
 		Type:       AlertConnection,
