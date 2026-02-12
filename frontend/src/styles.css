@@ -2176,11 +2176,11 @@ body {
 }
 
 .data-table.nodes-table .data-row {
-  grid-template-columns: 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
+  grid-template-columns: 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
 }
 
 .data-table.nodes-table.selectable .data-row {
-  grid-template-columns: 36px 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
+  grid-template-columns: 36px 40px minmax(180px, 1.3fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(220px, 1.1fr);
 }
 
 .data-table.users-table .data-row {

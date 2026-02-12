@@ -3307,7 +3307,6 @@ function NodesPage() {
                 <div>{t("Node Name")}</div>
                 <div>{t("Node IP")}</div>
                 <div>{t("Agent Status")}</div>
-                <div>{t("Service Status")}</div>
                 <div>{t("Uptime")}</div>
                 <div>{t("Last Check")}</div>
                 <div>{t("Actions")}</div>
@@ -3345,12 +3344,6 @@ function NodesPage() {
                         {node.agent_online ? t("Online") : t("Offline")}
                       </span>
                       <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
-                    </div>
-                    <div>
-                      <span className={`badge ${node.kind === "HOST" ? "muted" : node.service_version ? "online" : "offline"}`}>
-                        {node.kind === "HOST" ? t("N/A") : node.service_version ? t("Online") : t("Offline")}
-                      </span>
-                      <span className="muted small">{node.service_version || "-"}</span>
                     </div>
                     <div>
                       <UptimeBar percent={percent} />
@@ -5096,7 +5089,6 @@ function DashboardPage() {
               <div>{t("Node Name")}</div>
               <div>{t("Node IP")}</div>
               <div>{t("Agent Status")}</div>
-              <div>{t("Service Status")}</div>
               <div>{t("Uptime")}</div>
               <div>{t("Last Check")}</div>
               <div>{t("Actions")}</div>
@@ -5105,7 +5097,6 @@ function DashboardPage() {
               const status = deriveNodeStatus(node);
               const hostValue = formatNodeIP(node);
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
-              const serviceRunning = node.service_running != null ? node.service_running : node.agent_online;
               return (
                 <div
                   className="data-row"
@@ -5125,12 +5116,6 @@ function DashboardPage() {
                       {node.agent_online ? t("Online") : t("Offline")}
                     </span>
                     <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
-                  </div>
-                  <div>
-                    <span className={`badge ${serviceRunning ? "online" : "offline"}`}>
-                      {serviceRunning ? t("Online") : t("Offline")}
-                    </span>
-                    <span className="muted small">{node.service_version || "-"}</span>
                   </div>
                   <div>
                     <div className="uptime-line">
