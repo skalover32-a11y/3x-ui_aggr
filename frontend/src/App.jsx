@@ -1227,6 +1227,8 @@ function NodesPage() {
   const [error, setError] = useState("");
   const [keyPassphrase, setKeyPassphrase] = useState("");
   const [keyFingerprint, setKeyFingerprint] = useState("");
+  const [editKeyPassphrase, setEditKeyPassphrase] = useState("");
+  const [editKeyFingerprint, setEditKeyFingerprint] = useState("");
   const [statusMap, setStatusMap] = useState({});
   const [uptimeMap, setUptimeMap] = useState({});
   const [metricsMap, setMetricsMap] = useState({});
@@ -1238,6 +1240,7 @@ function NodesPage() {
   const deployWsRef = useRef(null);
   const deployPollFailRef = useRef(0);
   const taskPollFailRef = useRef(0);
+  const editFormRef = useRef(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditNodeID, setAuditNodeID] = useState("");
@@ -1838,6 +1841,8 @@ function NodesPage() {
     setEditKind(node?.kind === "BOT" ? "BOT" : "HOST");
     setEditValidation(null);
     setEditValidating(false);
+    setEditKeyPassphrase("");
+    setEditKeyFingerprint("");
   }
 
   function openSSH(node) {
@@ -2915,6 +2920,23 @@ function NodesPage() {
     }
   }
 
+  async function onEditKeyUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError("");
+    try {
+      const data = await convertSSHKey(file, editKeyPassphrase);
+      const formEl = editFormRef.current;
+      const keyField = formEl?.elements?.namedItem?.("node_ssh_key");
+      if (keyField && "value" in keyField) {
+        keyField.value = data.privateKey;
+      }
+      setEditKeyFingerprint(data.fingerprint);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function loadOrgUsers() {
     const orgId = getOrgId();
     if (!orgId) return;
@@ -3571,7 +3593,7 @@ function NodesPage() {
         <div className="modal edit-node-modal">
           <div className="modal-content">
             <h3>{t("Edit Node")}</h3>
-            <form className="form-grid" onSubmit={onUpdate} autoComplete="off">
+            <form ref={editFormRef} className="form-grid" onSubmit={onUpdate} autoComplete="off">
               <select
                 name="node_kind"
                 value={editKind}
@@ -3594,7 +3616,21 @@ function NodesPage() {
               <input name="node_ssh_host" autoComplete="off" placeholder={t("SSH Host")} defaultValue={editModal.node.ssh_host} />
               <input name="node_ssh_port" autoComplete="off" placeholder={t("SSH Port")} type="number" defaultValue={editModal.node.ssh_port} />
               <input name="node_ssh_user" autoComplete="off" placeholder={t("SSH User")} defaultValue={editModal.node.ssh_user} />
+              <input
+                name="node_edit_key_passphrase"
+                autoComplete="new-password"
+                placeholder={t("Key Passphrase (optional)")}
+                type="password"
+                value={editKeyPassphrase}
+                onChange={(e) => setEditKeyPassphrase(e.target.value)}
+              />
+              <label className="file-input">
+                {t("Upload SSH Key (.ppk/.pem/.key)")}
+                <input type="file" accept=".ppk,.pem,.key" onChange={onEditKeyUpload} />
+              </label>
               <textarea name="node_ssh_key" autoComplete="off" placeholder={t("SSH Private Key (leave blank to keep)")} rows="3" />
+              <div className="hint">{t("Paste OpenSSH private key or upload .ppk")}</div>
+              {editKeyFingerprint && <div className="hint">{t("Fingerprint: {fp}", { fp: editKeyFingerprint })}</div>}
               {editKind === "PANEL" && (
                 <label className="checkbox">
                   <input name="verify_tls" type="checkbox" defaultChecked={editModal.node.verify_tls} />
@@ -3635,7 +3671,16 @@ function NodesPage() {
               )}
               <div className="actions">
                 <button type="button" onClick={() => onTest(editModal.node.id)}>{t("Test")}</button>
-                <button type="button" onClick={() => setEditModal({ open: false, node: null })}>{t("Cancel")}</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditModal({ open: false, node: null });
+                    setEditKeyPassphrase("");
+                    setEditKeyFingerprint("");
+                  }}
+                >
+                  {t("Cancel")}
+                </button>
                 <button type="button" onClick={(e) => onValidateEdit(e.currentTarget.form)} disabled={editValidating}>
                   {editValidating ? t("Validating...") : t("Validate")}
                 </button>
