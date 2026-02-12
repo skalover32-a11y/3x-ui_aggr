@@ -278,7 +278,6 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const infraItems = [
-    { key: "nodes", label: t("Nodes"), path: "/nodes" },
     {
       key: "panels",
       label: t("Server Panels"),
@@ -1298,7 +1297,7 @@ function NodesPage() {
   const [nodeDetails, setNodeDetails] = useState({ open: false, node: null });
   const [nodeTab, setNodeTab] = useState("overview");
   const [nodeTypeFilter, setNodeTypeFilter] = useState("PANEL");
-  const [sidebarActive, setSidebarActive] = useState("nodes");
+  const [sidebarActive, setSidebarActive] = useState("panels");
   const [servicesMap, setServicesMap] = useState({});
   const [serviceResults, setServiceResults] = useState({});
   const [servicesBusy, setServicesBusy] = useState(false);
@@ -1564,7 +1563,7 @@ function NodesPage() {
     } else if (add === "1") {
       setSidebarActive("add");
     } else {
-      setSidebarActive("nodes");
+      setSidebarActive("panels");
     }
     if (view === "alerts") {
       if (!isAdmin && !isOrgAdmin) {
