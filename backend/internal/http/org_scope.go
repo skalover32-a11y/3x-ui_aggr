@@ -25,7 +25,15 @@ func (h *Handler) actorUser(c *gin.Context) (*db.User, error) {
 		return nil, errors.New("missing actor")
 	}
 	var user db.User
-	if err := h.DB.WithContext(c.Request.Context()).First(&user, "username = ?", actor).Error; err != nil {
+	if err := h.DB.WithContext(c.Request.Context()).First(&user, "lower(username) = lower(?)", actor).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) && h.actorIsGlobalAdmin(c) {
+			// Self-heal legacy env-admin sessions where user row/org membership was not created yet.
+			if _, ensureErr := h.EnsureRootOrg(c.Request.Context()); ensureErr == nil {
+				if retryErr := h.DB.WithContext(c.Request.Context()).First(&user, "lower(username) = lower(?)", actor).Error; retryErr == nil {
+					return &user, nil
+				}
+			}
+		}
 		return nil, err
 	}
 	return &user, nil

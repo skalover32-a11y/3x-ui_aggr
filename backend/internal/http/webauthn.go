@@ -320,6 +320,12 @@ func (h *Handler) WebAuthnLoginVerify(c *gin.Context) {
 		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unknown user")
 		return
 	}
+	if strings.EqualFold(username, h.AdminUser) {
+		if _, err := h.EnsureRootOrg(context.Background()); err != nil {
+			respondError(c, http.StatusInternalServerError, "ROOT_ORG", "failed to initialize admin workspace")
+			return
+		}
+	}
 	jwtToken, err := h.issueAccessToken(username, role)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "TOKEN_SIGN", "failed to sign token")

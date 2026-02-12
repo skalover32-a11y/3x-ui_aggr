@@ -731,6 +731,14 @@ function LoginPage() {
   const navigate = useNavigate();
   const webAuthnSupported = typeof window !== "undefined" && Boolean(window.PublicKeyCredential);
 
+  function mapLoginError(err) {
+    const code = err?.data?.error?.code;
+    if (code === "PASSKEY_REQUIRED") return t("Passkey required");
+    if (code === "TOTP_REQUIRED") return t("2FA code required");
+    if (code === "TOTP_INVALID") return t("Invalid 2FA code");
+    return err?.message || t("Request failed");
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
@@ -745,7 +753,7 @@ function LoginPage() {
       setAuth(data.token, data.role, data.username, data.is_global_admin);
       navigate("/dashboard");
     } catch (err) {
-      setError(err.message);
+      setError(mapLoginError(err));
     }
   }
 

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -44,6 +45,12 @@ func (h *Handler) Refresh(c *gin.Context) {
 	if err != nil {
 		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unknown user")
 		return
+	}
+	if strings.EqualFold(tokenRow.UserID, h.AdminUser) {
+		if _, err := h.EnsureRootOrg(context.Background()); err != nil {
+			respondError(c, http.StatusInternalServerError, "ROOT_ORG", "failed to initialize admin workspace")
+			return
+		}
 	}
 	jwtToken, err := h.issueAccessToken(tokenRow.UserID, role)
 	if err != nil {

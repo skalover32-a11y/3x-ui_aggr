@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -35,10 +36,23 @@ func (h *Handler) Login(c *gin.Context) {
 	username := strings.TrimSpace(req.Username)
 	password := req.Password
 	role := middleware.RoleAdmin
-	if username == h.AdminUser {
+	var loginUser *db.User
+	if strings.EqualFold(username, h.AdminUser) {
 		if password != h.AdminPass {
 			respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
 			return
+		}
+		if _, err := h.EnsureRootOrg(context.Background()); err != nil {
+			respondError(c, http.StatusInternalServerError, "ROOT_ORG", "failed to initialize admin workspace")
+			return
+		}
+		var admin db.User
+		if err := h.DB.WithContext(c.Request.Context()).Where("lower(username) = lower(?)", h.AdminUser).First(&admin).Error; err == nil {
+			loginUser = &admin
+			role = admin.Role
+			username = admin.Username
+		} else {
+			username = h.AdminUser
 		}
 	} else {
 		var user db.User
@@ -55,26 +69,41 @@ func (h *Handler) Login(c *gin.Context) {
 			respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid credentials")
 			return
 		}
+		loginUser = &user
 		role = user.Role
-		if role == middleware.RoleAdmin || role == middleware.RoleOperator {
-			if user.TOTPEnabled {
-				if strings.TrimSpace(req.OTP) == "" && strings.TrimSpace(req.RecoveryCode) == "" {
-					respondError(c, http.StatusUnauthorized, "TOTP_REQUIRED", "otp required")
+		username = user.Username
+	}
+	if loginUser != nil && (role == middleware.RoleAdmin || role == middleware.RoleOperator) {
+		if loginUser.TOTPEnabled {
+			if strings.TrimSpace(req.OTP) == "" && strings.TrimSpace(req.RecoveryCode) == "" {
+				respondError(c, http.StatusUnauthorized, "TOTP_REQUIRED", "otp required")
+				return
+			}
+			if strings.TrimSpace(req.RecoveryCode) != "" {
+				if ok := h.verifyRecoveryCode(c, loginUser, req.RecoveryCode); !ok {
+					respondError(c, http.StatusUnauthorized, "RECOVERY_INVALID", "recovery code invalid")
 					return
 				}
-				if strings.TrimSpace(req.RecoveryCode) != "" {
-					if ok := h.verifyRecoveryCode(c, &user, req.RecoveryCode); !ok {
-						respondError(c, http.StatusUnauthorized, "RECOVERY_INVALID", "recovery code invalid")
-						return
-					}
-					if err := h.disableUserTOTP(c, &user); err != nil {
-						respondError(c, http.StatusInternalServerError, "TOTP_DISABLE", "failed to reset 2fa")
-						return
-					}
-				} else if !h.verifyTOTPCode(c, &user, req.OTP) {
-					respondError(c, http.StatusUnauthorized, "TOTP_INVALID", "invalid otp")
+				if err := h.disableUserTOTP(c, loginUser); err != nil {
+					respondError(c, http.StatusInternalServerError, "TOTP_DISABLE", "failed to reset 2fa")
 					return
 				}
+			} else if !h.verifyTOTPCode(c, loginUser, req.OTP) {
+				respondError(c, http.StatusUnauthorized, "TOTP_INVALID", "invalid otp")
+				return
+			}
+		} else {
+			var passkeyCount int64
+			if err := h.DB.WithContext(c.Request.Context()).
+				Model(&db.WebAuthnCredential{}).
+				Where("user_id = ?", loginUser.Username).
+				Count(&passkeyCount).Error; err != nil {
+				respondError(c, http.StatusInternalServerError, "DB_READ", "failed to read passkeys")
+				return
+			}
+			if passkeyCount > 0 {
+				respondError(c, http.StatusUnauthorized, "PASSKEY_REQUIRED", "passkey required")
+				return
 			}
 		}
 	}
