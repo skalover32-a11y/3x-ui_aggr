@@ -211,11 +211,20 @@ func (h *Handler) CreateNode(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	selectedOrgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	var member db.OrganizationMember
-	if err := h.DB.WithContext(c.Request.Context()).
-		Where("user_id = ?", user.ID).
-		Order("created_at").
-		First(&member).Error; err != nil {
+	memberQuery := h.DB.WithContext(c.Request.Context()).
+		Where("user_id = ?", user.ID)
+	if selectedOrgID != nil {
+		memberQuery = memberQuery.Where("org_id = ?", *selectedOrgID)
+	} else {
+		memberQuery = memberQuery.Order("created_at")
+	}
+	if err := memberQuery.First(&member).Error; err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "organization required")
 		return
 	}
