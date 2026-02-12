@@ -2703,62 +2703,67 @@ function NodesPage() {
 
     function renderBotsTable(bots) {
       return (
-        <div className="data-table nodes-table bots-table">
+        <div className="data-table nodes-table bots-table with-node">
           <div className="data-row head">
+            <div>{t("Node")}</div>
             <div>{t("Name")}</div>
-          <div>{t("Kind")}</div>
-          <div>{t("Target")}</div>
-          <div>{t("Enabled")}</div>
-          <div>{t("Last status")}</div>
-          <div>{t("Last seen")}</div>
-          <div>{t("Latency")}</div>
-          <div>{t("Actions")}</div>
-        </div>
-        {bots.map((bot) => {
-          const last = botResults[bot.id];
-          const node = nodes.find((n) => n.id === bot.node_id);
-          const nodeRef = node || { id: bot.node_id, name: "-" };
-          const statusValue = (last?.status || "").toLowerCase();
-          const badgeStatus = statusValue === "ok"
-            ? "online"
-            : statusValue === "warn"
-              ? "degraded"
-              : statusValue === "fail"
-                ? "offline"
-                : "unknown";
-          return (
-            <div className="data-row" key={bot.id}>
-              <div title={bot.name || ""}>{bot.name || "-"}</div>
-              <div>{bot.kind || "-"}</div>
-              <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
-              <div>{bot.is_enabled ? t("On") : t("Off")}</div>
-              <div className="status-cell">
-                <StatusBadge status={badgeStatus} />
-                <span>{last?.status || "-"}</span>
-                {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
+            <div>{t("Kind")}</div>
+            <div>{t("Target")}</div>
+            <div>{t("Enabled")}</div>
+            <div>{t("Last status")}</div>
+            <div>{t("Last seen")}</div>
+            <div>{t("Latency")}</div>
+            <div>{t("Actions")}</div>
+          </div>
+          {bots.map((bot) => {
+            const last = botResults[bot.id];
+            const node = nodes.find((n) => n.id === bot.node_id);
+            const nodeRef = node || { id: bot.node_id, name: "-" };
+            const statusValue = (last?.status || "").toLowerCase();
+            const badgeStatus = statusValue === "ok"
+              ? "online"
+              : statusValue === "warn"
+                ? "degraded"
+                : statusValue === "fail"
+                  ? "offline"
+                  : "unknown";
+            return (
+              <div className="data-row" key={bot.id}>
+                <div>
+                  <div className="node-title">{node?.name || "-"}</div>
+                  <div className="muted small">{formatNodeIP(node)}</div>
+                </div>
+                <div title={bot.name || ""}>{bot.name || "-"}</div>
+                <div>{bot.kind || "-"}</div>
+                <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
+                <div>{bot.is_enabled ? t("On") : t("Off")}</div>
+                <div className="status-cell">
+                  <StatusBadge status={badgeStatus} />
+                  <span>{last?.status || "-"}</span>
+                  {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
+                </div>
+                <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+                <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+                <div className="actions">
+                  {!isViewer && (
+                    <>
+                      <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
+                      <button type="button" className="secondary" onClick={() => muteBot(bot)}>{t("Mute 1h")}</button>
+                      <button type="button" className="secondary" onClick={() => openBotEdit(nodeRef, bot)}>{t("Edit")}</button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => toggleBot(bot, !bot.is_enabled)}
+                      >
+                        {bot.is_enabled ? t("Disable") : t("Enable")}
+                      </button>
+                      <button type="button" className="danger" onClick={() => deleteBot(bot)}>{t("Delete")}</button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
-              <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-              <div className="actions">
-                {!isViewer && (
-                  <>
-                    <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
-                    <button type="button" className="secondary" onClick={() => muteBot(bot)}>{t("Mute 1h")}</button>
-                    <button type="button" className="secondary" onClick={() => openBotEdit(nodeRef, bot)}>{t("Edit")}</button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => toggleBot(bot, !bot.is_enabled)}
-                    >
-                      {bot.is_enabled ? t("Disable") : t("Enable")}
-                    </button>
-                    <button type="button" className="danger" onClick={() => deleteBot(bot)}>{t("Delete")}</button>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
         {bots.length === 0 && (
           <div className="table-row">
             <div className="muted small">{t("No bots yet")}</div>
