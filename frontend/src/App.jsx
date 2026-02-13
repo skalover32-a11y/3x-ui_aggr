@@ -3458,12 +3458,14 @@ function NodesPage() {
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
                 const nodeMetrics = metricsMap[node.id] || [];
-                const cpuPctExact = findLastMetricValue(nodeMetrics, "cpu_pct");
+                const cpuPctNodeRaw = Number(node.cpu_pct);
+                const cpuPctMetricRaw = findLastMetricValue(nodeMetrics, "cpu_pct");
+                const cpuPctExact = cpuPctMetricRaw != null
+                  ? cpuPctMetricRaw
+                  : (Number.isFinite(cpuPctNodeRaw) ? cpuPctNodeRaw : null);
                 const load1 = findLastMetricValue(nodeMetrics, "load1");
                 const cpuPct = cpuPctExact != null ? Math.max(0, Math.min(100, cpuPctExact)) : cpuFromLoad(load1);
-                const cpuDisplay = cpuPctExact != null
-                  ? formatPercent(cpuPctExact)
-                  : (load1 != null ? `${load1.toFixed(2)} L1` : "-");
+                const cpuDisplay = cpuPct != null ? formatPercent(cpuPct) : "-";
                 const memTotal = findLastMetricValue(nodeMetrics, ["mem_total_bytes", "ram_total_bytes"]);
                 const memAvail = findLastMetricValue(nodeMetrics, "mem_available_bytes");
                 const memUsedRaw = findLastMetricValue(nodeMetrics, "ram_used_bytes");
