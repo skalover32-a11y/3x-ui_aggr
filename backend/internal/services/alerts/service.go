@@ -376,8 +376,9 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	if status == "ok" {
 		if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 			alert.Occurrences = state.Occurrences
-			s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSON(state.LastMessageIDs))
 			s.sendRecovery(ctx, settings, alert, state)
+			// Clear thread mapping on recovery so the next incident starts a new alert message.
+			s.updateState(ctx, alert, state, "ok", now, true, map[string]int{})
 			return
 		}
 		s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSONOrEmpty(state))
@@ -778,30 +779,11 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 }
 
 func (s *Service) sendRecovery(ctx context.Context, settings *Settings, alert Alert, state *db.AlertState) {
-	if settings == nil || state == nil {
+	if settings == nil {
 		return
 	}
-	messageIDs := messageIDsFromJSON(state.LastMessageIDs)
 	text, keyboard := RenderRecovery(alert, s.publicBaseURL)
-	if len(messageIDs) == 0 {
-		for _, chatID := range settings.AdminChatIDs {
-			msgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
-			if err != nil {
-				log.Printf("telegram recovery failed chat_id=%s error=%v", chatID, err)
-				continue
-			}
-			messageIDs[chatID] = msgID
-		}
-		return
-	}
 	for _, chatID := range settings.AdminChatIDs {
-		if msgID, ok := messageIDs[chatID]; ok && msgID > 0 {
-			if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err == nil {
-				continue
-			} else {
-				log.Printf("telegram recovery edit failed chat_id=%s error=%v", chatID, err)
-			}
-		}
 		if _, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard); err != nil {
 			log.Printf("telegram recovery resend failed chat_id=%s error=%v", chatID, err)
 		}

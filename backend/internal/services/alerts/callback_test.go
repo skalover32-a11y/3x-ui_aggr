@@ -110,8 +110,21 @@ func TestAlertTransitions(t *testing.T) {
 		t.Fatalf("expected no repeat sends, got %d", rt.sendCount)
 	}
 	svc.maybeSendAlert(context.Background(), settings, false, alert)
-	if rt.editCount != 1 {
-		t.Fatalf("expected 1 edit for recovery, got %d", rt.editCount)
+	if rt.sendCount != 2 {
+		t.Fatalf("expected separate recovery message send, got sends=%d", rt.sendCount)
+	}
+	if rt.editCount != 0 {
+		t.Fatalf("expected no edit for recovery, got %d", rt.editCount)
+	}
+	var updated db.AlertState
+	if err := dbConn.First(&updated, "fingerprint = ?", alert.Fingerprint).Error; err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if updated.LastStatus == nil || *updated.LastStatus != "ok" {
+		t.Fatalf("expected last_status=ok after recovery")
+	}
+	if len(messageIDsFromJSON(updated.LastMessageIDs)) != 0 {
+		t.Fatalf("expected recovery to clear message thread ids")
 	}
 }
 
