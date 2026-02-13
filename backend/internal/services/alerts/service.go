@@ -388,11 +388,12 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 		alert.Occurrences = state.Occurrences
 		existingMessageIDs := messageIDsFromJSONOrEmpty(state)
-		if len(existingMessageIDs) > 0 {
+		if len(existingMessageIDs) > 0 && hasMessageThreadForAllChats(settings.AdminChatIDs, existingMessageIDs) {
 			s.updateState(ctx, alert, state, status, now, false, existingMessageIDs)
 			return
 		}
 		// If the last fail never produced a Telegram message (e.g. settings/network issue),
+		// or chats were rotated and this alert has no thread in the active chats,
 		// retry sending until a thread is created.
 		repeatedFailWithoutThread = true
 	}
@@ -852,6 +853,21 @@ func messageIDsFromJSONOrEmpty(state *db.AlertState) map[string]int {
 		return map[string]int{}
 	}
 	return messageIDsFromJSON(state.LastMessageIDs)
+}
+
+func hasMessageThreadForAllChats(chatIDs []string, messageIDs map[string]int) bool {
+	if len(chatIDs) == 0 || len(messageIDs) == 0 {
+		return false
+	}
+	for _, chatID := range chatIDs {
+		if strings.TrimSpace(chatID) == "" {
+			continue
+		}
+		if msgID, ok := messageIDs[chatID]; !ok || msgID <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func nullableString(value string) *string {

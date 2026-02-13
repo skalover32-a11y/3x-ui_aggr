@@ -285,6 +285,63 @@ func TestAlertFallsBackToSendWhenEditFails(t *testing.T) {
 	}
 }
 
+func TestAlertResendsWhenChatListChanged(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:        "token",
+		AdminChatIDs:    []string{"new-chat"},
+		AlertConnection: true,
+	}
+
+	nodeID := uuid.New()
+	alert := Alert{
+		Type:       AlertConnection,
+		NodeID:     nodeID,
+		NodeName:   "node",
+		TargetType: "ssh",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		SSHOK:      false,
+		PanelOK:    true,
+	}
+	alert.Fingerprint = fingerprintFor(alert)
+	status := "fail"
+	state := db.AlertState{
+		Fingerprint:    alert.Fingerprint,
+		AlertType:      string(alert.Type),
+		NodeID:         &nodeID,
+		LastStatus:     &status,
+		FirstSeen:      time.Now().Add(-time.Minute),
+		LastSeen:       time.Now().Add(-time.Minute),
+		Occurrences:    1,
+		LastMessageIDs: messageIDsToJSON(map[string]int{"old-chat": 42}),
+		UpdatedAt:      time.Now().Add(-time.Minute),
+	}
+	if err := dbConn.Create(&state).Error; err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected resend for changed chat list, got sends=%d", rt.sendCount)
+	}
+}
+
 type editFailRT struct {
 	sendCount int
 	editCount int
