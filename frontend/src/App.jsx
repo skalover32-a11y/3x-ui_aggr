@@ -646,7 +646,9 @@ function RequireAuth({ children }) {
         setOrgId("");
         setOrgRole("");
       } catch {
-        // keep silent, org flows may be unavailable for admin-only sessions
+        // Avoid keeping stale org from a previous account/session.
+        setOrgId("");
+        setOrgRole("");
       }
     }
     ensureAuth();

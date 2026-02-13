@@ -203,32 +203,33 @@ func (h *Handler) orgIDFromRequest(c *gin.Context, userID uuid.UUID) (*uuid.UUID
 	if raw == "" {
 		raw = strings.TrimSpace(c.Query("org_id"))
 	}
-	if raw == "" {
-		return nil, nil
+	if raw != "" {
+		orgID, err := uuid.Parse(raw)
+		if err == nil {
+			var member db.OrganizationMember
+			if err := h.DB.WithContext(c.Request.Context()).
+				Where("org_id = ? AND user_id = ?", orgID, userID).
+				First(&member).Error; err == nil {
+				return &orgID, nil
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
+		// For stale/invalid/foreign org id: fall back to a deterministic org instead of "all orgs".
 	}
-	orgID, err := uuid.Parse(raw)
+	firstOrg, err := h.firstOrgForUser(c, userID)
 	if err != nil {
-		// Non-UUID or stale client value should not break read endpoints.
-		// Fall back to default org selection via membership join.
-		return nil, nil
-	}
-	var member db.OrganizationMember
-	if err := h.DB.WithContext(c.Request.Context()).
-		Where("org_id = ? AND user_id = ?", orgID, userID).
-		First(&member).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Org header may point to a removed or foreign org.
-			// Treat as "no explicit org selected" and keep query scoped by membership.
 			return nil, nil
 		}
 		return nil, err
 	}
-	return &orgID, nil
+	return &firstOrg, nil
 }
 
-func (h *Handler) firstOrgForUser(ctx *gin.Context, userID uuid.UUID) (uuid.UUID, error) {
+func (h *Handler) firstOrgForUser(c *gin.Context, userID uuid.UUID) (uuid.UUID, error) {
 	var member db.OrganizationMember
-	if err := h.DB.WithContext(ctx.Request.Context()).
+	if err := h.DB.WithContext(c.Request.Context()).
 		Where("user_id = ?", userID).
 		Order("created_at").
 		First(&member).Error; err != nil {

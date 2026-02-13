@@ -13,6 +13,13 @@ export function setToken(token) {
 }
 
 export function setAuth(token, role, username, isGlobalAdmin) {
+  const previousUser = getUser();
+  const nextUser = (username || "").trim();
+  if (previousUser && nextUser && previousUser !== nextUser) {
+    // Prevent org leakage between different accounts in one browser session.
+    localStorage.removeItem("agg_org_id");
+    localStorage.removeItem("agg_org_role");
+  }
   setToken(token);
   if (role) {
     localStorage.setItem("agg_role", role);
@@ -30,6 +37,8 @@ export function clearAuth() {
   localStorage.removeItem("agg_role");
   localStorage.removeItem("agg_user");
   localStorage.removeItem("agg_is_global_admin");
+  localStorage.removeItem("agg_org_id");
+  localStorage.removeItem("agg_org_role");
 }
 
 export function getOrgId() {
