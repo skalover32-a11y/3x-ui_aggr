@@ -119,7 +119,7 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	switch {
 	case err == nil:
 		updates := map[string]any{
-			"org_id":            row.OrgID,
+			"org_id":           row.OrgID,
 			"bot_token_enc":    row.BotTokenEnc,
 			"admin_chat_id":    row.AdminChatID,
 			"alert_connection": row.AlertConnection,
@@ -216,7 +216,17 @@ func (h *Handler) getTelegramSettings(c *gin.Context, orgID uuid.UUID) (db.Teleg
 		Order("created_at desc").
 		First(&row).Error
 	if err != nil {
-		return db.TelegramSettings{}, err
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return db.TelegramSettings{}, err
+		}
+		// Legacy fallback for deployments where telegram settings existed before org scoping.
+		legacyErr := h.DB.WithContext(c.Request.Context()).
+			Where("org_id IS NULL").
+			Order("created_at desc").
+			First(&row).Error
+		if legacyErr != nil {
+			return db.TelegramSettings{}, legacyErr
+		}
 	}
 	return row, nil
 }

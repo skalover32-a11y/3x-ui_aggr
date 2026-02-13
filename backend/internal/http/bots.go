@@ -354,7 +354,11 @@ func (h *Handler) RunBotCheck(c *gin.Context) {
 	}
 	result, err := h.Checks.RunNowBot(c.Request.Context(), bot.ID)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "RUN_FAILED", "failed to run check")
+		msg := strings.TrimSpace(err.Error())
+		if msg == "" {
+			msg = "failed to run check"
+		}
+		respondError(c, http.StatusInternalServerError, "RUN_FAILED", msg)
 		return
 	}
 	resp := checkResultResponse{

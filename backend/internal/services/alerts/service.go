@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -77,6 +78,13 @@ func (s *Service) LoadSettings(ctx context.Context) (*Settings, error) {
 		}
 		return nil, err
 	}
+	return s.settingsFromRow(&row)
+}
+
+func (s *Service) settingsFromRow(row *db.TelegramSettings) (*Settings, error) {
+	if s == nil || s.enc == nil || row == nil {
+		return nil, nil
+	}
 	token, err := s.enc.DecryptString(row.BotTokenEnc)
 	if err != nil {
 		return nil, err
@@ -133,31 +141,22 @@ func (s *Service) LoadSettingsForOrg(ctx context.Context, orgID *uuid.UUID) (*Se
 		Order("created_at desc").
 		First(&row).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
 		}
-		return nil, err
+		// Legacy fallback: older installs may still have a single global row without org_id.
+		legacyErr := s.db.WithContext(ctx).
+			Where("org_id IS NULL").
+			Order("created_at desc").
+			First(&row).Error
+		if legacyErr != nil {
+			if errors.Is(legacyErr, gorm.ErrRecordNotFound) {
+				return nil, nil
+			}
+			return nil, legacyErr
+		}
 	}
-	token, err := s.enc.DecryptString(row.BotTokenEnc)
-	if err != nil {
-		return nil, err
-	}
-	token = strings.TrimSpace(token)
-	if token == "" || strings.TrimSpace(row.AdminChatID) == "" {
-		return nil, nil
-	}
-	adminIDs := splitChatIDs(row.AdminChatID)
-	if len(adminIDs) == 0 {
-		return nil, nil
-	}
-	return &Settings{
-		BotToken:        token,
-		AdminChatIDs:    adminIDs,
-		AlertConnection: row.AlertConnection,
-		AlertCPU:        row.AlertCPU,
-		AlertMemory:     row.AlertMemory,
-		AlertDisk:       row.AlertDisk,
-	}, nil
+	return s.settingsFromRow(&row)
 }
 
 func (s *Service) NotifyCPU(ctx context.Context, settings *Settings, node *db.Node, load1 float64) {
