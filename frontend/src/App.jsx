@@ -660,6 +660,35 @@ function RequireAuth({ children }) {
   return children;
 }
 
+function normalizeCheckStatus(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!value) return "unknown";
+  if (["ok", "pass", "healthy", "success", "online"].includes(value)) return "online";
+  if (["warn", "warning", "degraded", "partial", "unstable"].includes(value)) return "degraded";
+  if (["fail", "failed", "error", "offline", "down", "critical", "timeout"].includes(value)) return "offline";
+  return "unknown";
+}
+
+function checkStatusLabel(raw, t) {
+  const kind = normalizeCheckStatus(raw);
+  if (kind === "online") return t("Healthy");
+  if (kind === "degraded") return t("Degraded");
+  if (kind === "offline") return t("Failed");
+  return t("Unknown");
+}
+
+function summarizeStatusError(errorText) {
+  const text = String(errorText || "").trim();
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  if (lower.includes("unable to authenticate")) return "SSH auth failed";
+  if (lower.includes("password is required")) return "sudo password required";
+  if (lower.includes("connection refused")) return "connection refused";
+  if (lower.includes("i/o timeout") || lower.includes("timeout")) return "request timeout";
+  const firstLine = text.split("\n")[0].trim();
+  return firstLine.length > 88 ? `${firstLine.slice(0, 88)}...` : firstLine;
+}
+
 async function copyText(value) {
   if (!value) return;
   try {
@@ -2761,6 +2790,9 @@ function NodesPage() {
           {services.map((service) => {
             const last = serviceResults[service.id];
             const expected = (service.expected_status || []).join(", ") || "-";
+            const statusKind = normalizeCheckStatus(last?.status);
+            const statusText = checkStatusLabel(last?.status, t);
+            const statusReason = summarizeStatusError(last?.error);
             return (
               <div className="table-row" key={service.id}>
                 <div>{service.kind || "-"}</div>
@@ -2768,7 +2800,14 @@ function NodesPage() {
                 <div>{service.health_path || "-"}</div>
                 <div>{expected}</div>
                 <div>{service.is_enabled ? t("On") : t("Off")}</div>
-                <div>{last?.status || "-"}</div>
+                <div className="status-cell">
+                  <div className="status-main">
+                    <StatusBadge status={statusKind} />
+                    <span className="status-text">{statusText}</span>
+                  </div>
+                  <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
+                  {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
+                </div>
                 <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
                 <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
                 <div className="actions">
@@ -2815,14 +2854,9 @@ function NodesPage() {
             const last = botResults[bot.id];
             const node = nodes.find((n) => n.id === bot.node_id);
             const nodeRef = node || { id: bot.node_id, name: "-" };
-            const statusValue = (last?.status || "").toLowerCase();
-            const badgeStatus = statusValue === "ok"
-              ? "online"
-              : statusValue === "warn"
-                ? "degraded"
-                : statusValue === "fail"
-                  ? "offline"
-                  : "unknown";
+            const badgeStatus = normalizeCheckStatus(last?.status);
+            const statusText = checkStatusLabel(last?.status, t);
+            const statusReason = summarizeStatusError(last?.error);
             return (
               <div className="data-row" key={bot.id}>
                 <div>
@@ -2840,9 +2874,10 @@ function NodesPage() {
                       {bot.is_enabled ? t("On") : t("Off")}
                     </span>
                     <StatusBadge status={badgeStatus} />
-                    <span>{last?.status || "-"}</span>
+                    <span className="status-text">{statusText}</span>
                   </div>
-                  {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
+                  <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
+                  {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
                 </div>
                 <div>
                   <div>{last?.ts ? formatTS(last.ts) : "-"}</div>

@@ -91,6 +91,46 @@ func TestCallbackDataShort(t *testing.T) {
 	}
 }
 
+func TestKeyboardButtonsCurrentScope(t *testing.T) {
+	alertID := uuid.New().String()
+	alert := Alert{
+		NodeID:     uuid.New(),
+		NodeName:   "node",
+		Type:       AlertGeneric,
+		TS:         time.Now(),
+		Severity:   SeverityCritical,
+		AlertID:    alertID,
+		CheckType:  "DOCKER",
+		TargetType: "bot",
+		Status:     "fail",
+	}
+	_, keyboard := RenderAlert(alert, "https://example.com")
+	if keyboard == nil || len(keyboard.InlineKeyboard) == 0 {
+		t.Fatalf("expected keyboard")
+	}
+	var callbackData []string
+	var buttonTexts []string
+	for _, row := range keyboard.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData != "" {
+				callbackData = append(callbackData, btn.CallbackData)
+			}
+			buttonTexts = append(buttonTexts, btn.Text)
+		}
+	}
+	joinedCallbacks := strings.Join(callbackData, "|")
+	if strings.Contains(joinedCallbacks, "o:"+alertID) {
+		t.Fatalf("unexpected open callback button: %s", joinedCallbacks)
+	}
+	if !strings.Contains(joinedCallbacks, "a:"+alertID) || !strings.Contains(joinedCallbacks, "m1:"+alertID) || !strings.Contains(joinedCallbacks, "r:"+alertID) {
+		t.Fatalf("missing required callback buttons: %s", joinedCallbacks)
+	}
+	joinedTexts := strings.ToLower(strings.Join(buttonTexts, "|"))
+	if strings.Contains(joinedTexts, "метрики") || strings.Contains(joinedTexts, "metrics") {
+		t.Fatalf("unexpected metrics button in keyboard: %s", joinedTexts)
+	}
+}
+
 func TestParseCallbackDataLegacyMute(t *testing.T) {
 	action, alertID, minutes := ParseCallbackData("mute:1h:fingerprint")
 	if action != "mute" {

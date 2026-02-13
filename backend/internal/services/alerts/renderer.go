@@ -37,12 +37,12 @@ func RenderRecovery(alert Alert, publicBaseURL string) (string, *InlineKeyboard)
 func renderRecoveryTitle(alert Alert) string {
 	title := escapeHTML(alert.NodeName)
 	if alert.TargetType == "bot" && strings.TrimSpace(alert.BotKind) != "" {
-		return fmt.Sprintf("<b>?? Recovered - %s (%s)</b>", title, escapeHTML(alert.BotKind))
+		return fmt.Sprintf("<b>Recovered: %s (%s)</b>", title, escapeHTML(alert.BotKind))
 	}
 	if strings.TrimSpace(alert.ServiceKind) != "" {
-		return fmt.Sprintf("<b>?? Recovered - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
+		return fmt.Sprintf("<b>Recovered: %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
 	}
-	return fmt.Sprintf("<b>?? Recovered - %s</b>", title)
+	return fmt.Sprintf("<b>Recovered: %s</b>", title)
 }
 
 func renderRecoveryPrimary(alert Alert) string {
@@ -72,28 +72,28 @@ func renderTitle(alert Alert) string {
 	title := escapeHTML(alert.NodeName)
 	switch alert.Type {
 	case AlertCPU:
-		return fmt.Sprintf("<b>?? High CPU - %s</b>", title)
+		return fmt.Sprintf("<b>High CPU: %s</b>", title)
 	case AlertMemory:
-		return fmt.Sprintf("<b>?? High memory - %s</b>", title)
+		return fmt.Sprintf("<b>High memory: %s</b>", title)
 	case AlertDisk:
-		return fmt.Sprintf("<b>?? Low disk space - %s</b>", title)
+		return fmt.Sprintf("<b>Low disk space: %s</b>", title)
 	case AlertConnection:
-		return fmt.Sprintf("<b>?? Connection issue - %s</b>", title)
+		return fmt.Sprintf("<b>Connection issue: %s</b>", title)
 	case AlertTLS:
-		return fmt.Sprintf("<b>?? TLS issue - %s</b>", title)
+		return fmt.Sprintf("<b>TLS issue: %s</b>", title)
 	case AlertGeneric:
 		if alert.TargetType == "bot" {
 			if strings.TrimSpace(alert.BotKind) != "" {
-				return fmt.Sprintf("<b>?? Bot alert - %s (%s)</b>", title, escapeHTML(alert.BotKind))
+				return fmt.Sprintf("<b>Service check alert: %s (%s)</b>", title, escapeHTML(alert.BotKind))
 			}
-			return fmt.Sprintf("<b>?? Bot alert - %s</b>", title)
+			return fmt.Sprintf("<b>Service check alert: %s</b>", title)
 		}
 		if strings.TrimSpace(alert.ServiceKind) != "" {
-			return fmt.Sprintf("<b>?? Service alert - %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
+			return fmt.Sprintf("<b>Service alert: %s (%s)</b>", title, escapeHTML(alert.ServiceKind))
 		}
-		return fmt.Sprintf("<b>?? Service alert - %s</b>", title)
+		return fmt.Sprintf("<b>Service alert: %s</b>", title)
 	default:
-		return fmt.Sprintf("<b>?? Alert - %s</b>", title)
+		return fmt.Sprintf("<b>Alert: %s</b>", title)
 	}
 }
 func renderPrimary(alert Alert) string {
@@ -114,15 +114,11 @@ func renderPrimary(alert Alert) string {
 		}
 		return fmt.Sprintf("%s | %s", escapeHTML(reason), ts)
 	case AlertGeneric:
-		label := strings.TrimSpace(alert.CheckType)
-		if label == "" {
-			label = "check"
-		}
 		status := strings.TrimSpace(alert.Status)
 		if status == "" {
 			status = "unknown"
 		}
-		return fmt.Sprintf("%s: <b>%s</b> | %s", escapeHTML(label), escapeHTML(status), ts)
+		return fmt.Sprintf("Status: <b>%s</b> | Probe: <code>%s</code> | %s", escapeHTML(genericStatusLabel(status)), escapeHTML(genericProbeLabel(alert.CheckType, alert.TargetType)), ts)
 	default:
 		return fmt.Sprintf("Time: %s", ts)
 	}
@@ -141,12 +137,12 @@ func renderMeta(alert Alert) []string {
 	if strings.TrimSpace(alert.Target) != "" {
 		label := "Target"
 		if alert.TargetType == "bot" {
-			label = "Bot"
+			label = "Service check"
 		}
 		lines = append(lines, fmt.Sprintf("%s: <code>%s</code>", label, escapeHTML(alert.Target)))
 	}
 	if strings.TrimSpace(alert.CheckType) != "" {
-		lines = append(lines, fmt.Sprintf("Check: <code>%s</code>", escapeHTML(alert.CheckType)))
+		lines = append(lines, fmt.Sprintf("Probe type: <code>%s</code>", escapeHTML(genericProbeLabel(alert.CheckType, alert.TargetType))))
 	}
 	if alert.Metrics.StatusCode != 0 {
 		lines = append(lines, fmt.Sprintf("HTTP status: <code>%d</code>", alert.Metrics.StatusCode))
@@ -157,7 +153,7 @@ func renderMeta(alert Alert) []string {
 	return lines
 }
 func renderReason(alert Alert) string {
-	short := shortReason(alert.Error)
+	short := humanReason(shortReason(alert.Error))
 	return fmt.Sprintf("Reason: <code>%s</code>", escapeHTML(short))
 }
 
@@ -245,7 +241,6 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 			{Text: "✅ Ack", CallbackData: fmt.Sprintf("a:%s", alertID)},
 			{Text: "🔇 Mute 1h", CallbackData: fmt.Sprintf("m1:%s", alertID)},
 			{Text: "🔁 Retry", CallbackData: fmt.Sprintf("r:%s", alertID)},
-			{Text: "🔎 Open", CallbackData: fmt.Sprintf("o:%s", alertID)},
 		}
 	}
 	if strings.TrimSpace(publicBaseURL) == "" || alert.NodeID == uuid.Nil {
@@ -256,10 +251,8 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 	}
 	base := strings.TrimRight(publicBaseURL, "/")
 	nodeURL := fmt.Sprintf("%s/nodes?node=%s", base, alert.NodeID.String())
-	metricsURL := fmt.Sprintf("%s/nodes?node=%s&tab=metrics", base, alert.NodeID.String())
 	linkRow := []InlineButton{
-		{Text: "🔗 Открыть ноду", URL: nodeURL},
-		{Text: "📊 Метрики", URL: metricsURL},
+		{Text: "🔗 Open node", URL: nodeURL},
 	}
 	rows := [][]InlineButton{linkRow}
 	if len(callbackRow) > 0 {
@@ -358,6 +351,66 @@ func shortReason(err string) string {
 		return line[:120] + "..."
 	}
 	return line
+}
+
+func genericProbeLabel(checkType, targetType string) string {
+	code := strings.ToUpper(strings.TrimSpace(checkType))
+	switch code {
+	case "DOCKER":
+		return "Docker container"
+	case "SYSTEMD":
+		return "Systemd service"
+	case "HTTP":
+		return "HTTP endpoint"
+	case "CUSTOM_HTTP":
+		return "Custom HTTP endpoint"
+	}
+	target := strings.ToLower(strings.TrimSpace(targetType))
+	switch target {
+	case "bot":
+		return "Service check"
+	case "service":
+		return "Service health"
+	default:
+		if code != "" {
+			return code
+		}
+		return "Generic check"
+	}
+}
+
+func genericStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ok", "online", "pass", "healthy", "success":
+		return "Online"
+	case "warn", "warning", "degraded", "partial":
+		return "Warning"
+	case "fail", "failed", "error", "offline", "down", "critical":
+		return "Offline"
+	default:
+		if strings.TrimSpace(status) == "" {
+			return "Unknown"
+		}
+		return strings.TrimSpace(status)
+	}
+}
+
+func humanReason(reason string) string {
+	lower := strings.ToLower(strings.TrimSpace(reason))
+	switch {
+	case strings.Contains(lower, "unable to authenticate"):
+		return "SSH authentication failed"
+	case strings.Contains(lower, "password is required"):
+		return "sudo password is required"
+	case strings.Contains(lower, "connection refused"):
+		return "connection refused"
+	case strings.Contains(lower, "i/o timeout"), strings.Contains(lower, "timeout"):
+		return "request timeout"
+	case strings.Contains(lower, "no route to host"):
+		return "no route to host"
+	default:
+		return reason
+	}
 }
 
 func fingerprintFor(alert Alert) string {
