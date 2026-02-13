@@ -69,6 +69,30 @@ function formatPercent(value) {
   return `${value.toFixed(1)}%`;
 }
 
+function findLastMetricValue(metrics, keys) {
+  if (!Array.isArray(metrics) || metrics.length === 0) return null;
+  const keyList = Array.isArray(keys) ? keys : [keys];
+  for (let i = metrics.length - 1; i >= 0; i--) {
+    const row = metrics[i];
+    if (!row || typeof row !== "object") continue;
+    for (const key of keyList) {
+      const raw = row[key];
+      if (raw == null) continue;
+      const value = Number(raw);
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
+function cpuFromLoad(load1) {
+  if (!Number.isFinite(load1)) return null;
+  // Fallback scaling when direct cpu_pct is not available from metrics API.
+  return Math.max(0, Math.min(100, load1 * 25));
+}
+
 function formatDuration(sec) {
   if (sec == null || sec <= 0) return "-";
   const total = Math.floor(sec);
@@ -2623,9 +2647,24 @@ function NodesPage() {
   function renderNodeDetails(node, uptimePoints, metrics) {
     const { success, total, percent } = computeUptime(uptimePoints);
     const latest = metrics && metrics.length > 0 ? metrics[metrics.length - 1] : {};
-    const cpu = latest.cpu_pct != null ? formatPercent(latest.cpu_pct) : "-";
-    const ram = latest.mem_total_bytes ? `${formatBytes(latest.mem_total_bytes - (latest.mem_available_bytes || 0))} / ${formatBytes(latest.mem_total_bytes)}` : "-";
-    const disk = latest.disk_total_bytes ? `${formatBytes(latest.disk_used_bytes || 0)} / ${formatBytes(latest.disk_total_bytes)}` : "-";
+    const cpuPctExact = findLastMetricValue(metrics, "cpu_pct");
+    const load1 = findLastMetricValue(metrics, "load1");
+    const cpuPctFallback = cpuFromLoad(load1);
+    const cpu = cpuPctExact != null
+      ? formatPercent(cpuPctExact)
+      : (load1 != null ? `${t("Load")} ${load1.toFixed(2)}` : "-");
+    const memTotal = findLastMetricValue(metrics, ["mem_total_bytes", "ram_total_bytes"]);
+    const memAvailable = findLastMetricValue(metrics, "mem_available_bytes");
+    const memUsed = findLastMetricValue(metrics, "ram_used_bytes");
+    const effectiveMemUsed = memUsed != null ? memUsed : (memTotal != null && memAvailable != null ? Math.max(0, memTotal - memAvailable) : null);
+    const ram = memTotal != null && effectiveMemUsed != null
+      ? `${formatBytes(effectiveMemUsed)} / ${formatBytes(memTotal)}`
+      : "-";
+    const diskTotal = findLastMetricValue(metrics, "disk_total_bytes");
+    const diskUsed = findLastMetricValue(metrics, "disk_used_bytes");
+    const disk = diskTotal != null && diskUsed != null
+      ? `${formatBytes(diskUsed)} / ${formatBytes(diskTotal)}`
+      : "-";
     const rx = latest.net_rx_bps != null ? formatBps(latest.net_rx_bps) : null;
     const tx = latest.net_tx_bps != null ? formatBps(latest.net_tx_bps) : null;
     const tcpConn = latest.tcp_connections != null ? latest.tcp_connections : null;
@@ -2636,7 +2675,10 @@ function NodesPage() {
           <div className="metric-card">
             <div className="metric-label">{t("CPU usage")}</div>
             <div className="metric-value">{cpu}</div>
-            <div className="metric-sub">{t("Load")} {latest.load1 || "-"}</div>
+            <div className="metric-sub">
+              {t("Load")} {load1 != null ? load1.toFixed(2) : "-"}
+              {cpuPctExact == null && cpuPctFallback != null ? ` | ~${formatPercent(cpuPctFallback)}` : ""}
+            </div>
           </div>
           <div className="metric-card">
             <div className="metric-label">{t("RAM usage")}</div>
@@ -3416,21 +3458,22 @@ function NodesPage() {
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
                 const nodeMetrics = metricsMap[node.id] || [];
-                const latestMetric = nodeMetrics.length > 0 ? nodeMetrics[nodeMetrics.length - 1] : null;
-                const cpuPctRaw = latestMetric?.cpu_pct;
-                const cpuPct = Number.isFinite(cpuPctRaw) ? Math.max(0, Math.min(100, Number(cpuPctRaw))) : null;
-                const memTotal = Number(latestMetric?.mem_total_bytes ?? latestMetric?.ram_total_bytes ?? 0);
-                const memAvailRaw = latestMetric?.mem_available_bytes;
-                const memUsedRaw = latestMetric?.ram_used_bytes;
-                const memUsed = Number.isFinite(memUsedRaw)
-                  ? Number(memUsedRaw)
-                  : (Number.isFinite(memAvailRaw) ? Math.max(0, memTotal - Number(memAvailRaw)) : null);
-                const ramPct = memTotal > 0 && Number.isFinite(memUsed)
-                  ? Math.max(0, Math.min(100, (Number(memUsed) / memTotal) * 100))
+                const cpuPctExact = findLastMetricValue(nodeMetrics, "cpu_pct");
+                const load1 = findLastMetricValue(nodeMetrics, "load1");
+                const cpuPct = cpuPctExact != null ? Math.max(0, Math.min(100, cpuPctExact)) : cpuFromLoad(load1);
+                const cpuDisplay = cpuPctExact != null
+                  ? formatPercent(cpuPctExact)
+                  : (load1 != null ? `${load1.toFixed(2)} L1` : "-");
+                const memTotal = findLastMetricValue(nodeMetrics, ["mem_total_bytes", "ram_total_bytes"]);
+                const memAvail = findLastMetricValue(nodeMetrics, "mem_available_bytes");
+                const memUsedRaw = findLastMetricValue(nodeMetrics, "ram_used_bytes");
+                const memUsed = memUsedRaw != null ? memUsedRaw : (memTotal != null && memAvail != null ? Math.max(0, memTotal - memAvail) : null);
+                const ramPct = memTotal != null && memTotal > 0 && memUsed != null
+                  ? Math.max(0, Math.min(100, (memUsed / memTotal) * 100))
                   : null;
-                const diskTotal = Number(latestMetric?.disk_total_bytes ?? 0);
-                const diskUsed = Number(latestMetric?.disk_used_bytes ?? 0);
-                const diskFreePct = diskTotal > 0
+                const diskTotal = findLastMetricValue(nodeMetrics, "disk_total_bytes");
+                const diskUsed = findLastMetricValue(nodeMetrics, "disk_used_bytes");
+                const diskFreePct = diskTotal != null && diskTotal > 0 && diskUsed != null
                   ? Math.max(0, Math.min(100, ((diskTotal - diskUsed) / diskTotal) * 100))
                   : null;
                 const uptimeTone = percent >= 95 ? "good" : percent >= 85 ? "warn" : "bad";
@@ -3503,7 +3546,7 @@ function NodesPage() {
                         <div className="node-metric-line">
                           <span className="node-metric-label">{t("CPU")}</span>
                           <NodeMetricBar percent={cpuPct} tone={cpuTone} />
-                          <span className="node-metric-value">{cpuPct != null ? formatPercent(cpuPct) : "-"}</span>
+                          <span className="node-metric-value">{cpuDisplay}</span>
                         </div>
                         <div className="node-metric-line">
                           <span className="node-metric-label">{t("RAM")}</span>
