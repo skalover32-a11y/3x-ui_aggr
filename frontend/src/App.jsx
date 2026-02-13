@@ -132,6 +132,29 @@ function UptimeBar({ percent }) {
   );
 }
 
+function NodeMetricBar({ percent, tone = "unknown" }) {
+  const pct = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
+  return (
+    <div className={`node-metric-bar ${tone}`}>
+      <div className="node-metric-bar-fill" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function usageTone(percent, warnAt, badAt) {
+  if (!Number.isFinite(percent)) return "unknown";
+  if (percent >= badAt) return "bad";
+  if (percent >= warnAt) return "warn";
+  return "good";
+}
+
+function freeTone(percent, warnBelow, badBelow) {
+  if (!Number.isFinite(percent)) return "unknown";
+  if (percent <= badBelow) return "bad";
+  if (percent <= warnBelow) return "warn";
+  return "good";
+}
+
 function buildWsUrl(path) {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}${API_BASE}${path}`;
@@ -2642,11 +2665,6 @@ function NodesPage() {
             <div className="metric-value">{node.agent_online ? t("Online") : t("Offline")}</div>
             <div className="metric-sub">{node.agent_version ? `v${node.agent_version}` : "-"}</div>
           </div>
-          <div className="metric-card">
-            <div className="metric-label">{t("Panel health")}</div>
-            <div className="metric-value">{node.service_version ? t("Online") : t("Offline")}</div>
-            <div className="metric-sub">{node.service_version || "-"}</div>
-          </div>
         </div>
 
         <div className="node-availability">
@@ -3397,6 +3415,28 @@ function NodesPage() {
                 const uptimePoints = uptimeMap[node.id] || [];
                 const { percent } = computeUptime(uptimePoints);
                 const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+                const nodeMetrics = metricsMap[node.id] || [];
+                const latestMetric = nodeMetrics.length > 0 ? nodeMetrics[nodeMetrics.length - 1] : null;
+                const cpuPctRaw = latestMetric?.cpu_pct;
+                const cpuPct = Number.isFinite(cpuPctRaw) ? Math.max(0, Math.min(100, Number(cpuPctRaw))) : null;
+                const memTotal = Number(latestMetric?.mem_total_bytes ?? latestMetric?.ram_total_bytes ?? 0);
+                const memAvailRaw = latestMetric?.mem_available_bytes;
+                const memUsedRaw = latestMetric?.ram_used_bytes;
+                const memUsed = Number.isFinite(memUsedRaw)
+                  ? Number(memUsedRaw)
+                  : (Number.isFinite(memAvailRaw) ? Math.max(0, memTotal - Number(memAvailRaw)) : null);
+                const ramPct = memTotal > 0 && Number.isFinite(memUsed)
+                  ? Math.max(0, Math.min(100, (Number(memUsed) / memTotal) * 100))
+                  : null;
+                const diskTotal = Number(latestMetric?.disk_total_bytes ?? 0);
+                const diskUsed = Number(latestMetric?.disk_used_bytes ?? 0);
+                const diskFreePct = diskTotal > 0
+                  ? Math.max(0, Math.min(100, ((diskTotal - diskUsed) / diskTotal) * 100))
+                  : null;
+                const uptimeTone = percent >= 95 ? "good" : percent >= 85 ? "warn" : "bad";
+                const cpuTone = usageTone(cpuPct, 60, 85);
+                const ramTone = usageTone(ramPct, 70, 90);
+                const diskTone = freeTone(diskFreePct, 30, 15);
                 const hostValue = formatNodeIP(node);
                 const servicesCount = Number(node.services_count || 0);
                 const botsCount = Number(node.bots_count || 0);
@@ -3439,7 +3479,7 @@ function NodesPage() {
                             openNodeDetailsTab(node, "bots");
                           }}
                         >
-                          <span>{t("Bots")}</span>
+                          <span>{t("Checks")}</span>
                           <strong>{botsCount}</strong>
                         </button>
                       </div>
@@ -3454,8 +3494,28 @@ function NodesPage() {
                       <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
                     </div>
                     <div>
-                      <UptimeBar percent={percent} />
-                      <span className="muted small">{percent.toFixed(1)}%</span>
+                      <div className="node-metric-lines">
+                        <div className="node-metric-line">
+                          <span className="node-metric-label">{t("Uptime")}</span>
+                          <NodeMetricBar percent={percent} tone={uptimeTone} />
+                          <span className="node-metric-value">{percent.toFixed(1)}%</span>
+                        </div>
+                        <div className="node-metric-line">
+                          <span className="node-metric-label">{t("CPU")}</span>
+                          <NodeMetricBar percent={cpuPct} tone={cpuTone} />
+                          <span className="node-metric-value">{cpuPct != null ? formatPercent(cpuPct) : "-"}</span>
+                        </div>
+                        <div className="node-metric-line">
+                          <span className="node-metric-label">{t("RAM")}</span>
+                          <NodeMetricBar percent={ramPct} tone={ramTone} />
+                          <span className="node-metric-value">{ramPct != null ? formatPercent(ramPct) : "-"}</span>
+                        </div>
+                        <div className="node-metric-line">
+                          <span className="node-metric-label">{t("Disk Free")}</span>
+                          <NodeMetricBar percent={diskFreePct} tone={diskTone} />
+                          <span className="node-metric-value">{diskFreePct != null ? formatPercent(diskFreePct) : "-"}</span>
+                        </div>
+                      </div>
                     </div>
                     <div>{lastTs ? formatTS(lastTs) : "-"}</div>
                 <div className="row-actions" onClick={(e) => e.stopPropagation()}>
@@ -3538,7 +3598,7 @@ function NodesPage() {
                 className={`tab ${nodeTab === "bots" ? "active" : ""}`}
                 onClick={() => setNodeTab("bots")}
               >
-                {t("Bots")}
+                {t("Checks")}
               </button>
             </div>
             {nodeTab === "overview" && renderNodeDetails(

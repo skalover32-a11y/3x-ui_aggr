@@ -2458,6 +2458,60 @@ body {
   border-radius: 999px;
 }
 
+.node-metric-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-metric-line {
+  display: grid;
+  grid-template-columns: 52px minmax(90px, 1fr) 56px;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-metric-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.node-metric-value {
+  font-size: 11px;
+  color: #cbd5e1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.node-metric-bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: #1f2937;
+  overflow: hidden;
+}
+
+.node-metric-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.node-metric-bar.good .node-metric-bar-fill {
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.85), rgba(74, 222, 128, 0.55));
+}
+
+.node-metric-bar.warn .node-metric-bar-fill {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.85), rgba(251, 191, 36, 0.55));
+}
+
+.node-metric-bar.bad .node-metric-bar-fill {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.9), rgba(248, 113, 113, 0.65));
+}
+
+.node-metric-bar.unknown .node-metric-bar-fill {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.55), rgba(100, 116, 139, 0.35));
+}
+
 .grid-bottom {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
