@@ -426,11 +426,24 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 			messageIDs[chatID] = msgID
 		}
 	} else {
-		for chatID, msgID := range messageIDs {
-			if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
-				log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
+		updatedMessageIDs := map[string]int{}
+		for _, chatID := range settings.AdminChatIDs {
+			if msgID, ok := messageIDs[chatID]; ok && msgID > 0 {
+				if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err == nil {
+					updatedMessageIDs[chatID] = msgID
+					continue
+				} else {
+					log.Printf("telegram edit failed chat_id=%s error=%v", chatID, err)
+				}
 			}
+			newMsgID, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard)
+			if err != nil {
+				log.Printf("telegram alert resend failed chat_id=%s error=%v", chatID, err)
+				continue
+			}
+			updatedMessageIDs[chatID] = newMsgID
 		}
+		messageIDs = updatedMessageIDs
 	}
 
 	s.updateState(ctx, alert, state, status, now, true, messageIDs)
@@ -780,9 +793,16 @@ func (s *Service) sendRecovery(ctx context.Context, settings *Settings, alert Al
 		}
 		return
 	}
-	for chatID, msgID := range messageIDs {
-		if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err != nil {
-			log.Printf("telegram recovery edit failed chat_id=%s error=%v", chatID, err)
+	for _, chatID := range settings.AdminChatIDs {
+		if msgID, ok := messageIDs[chatID]; ok && msgID > 0 {
+			if err := s.client.EditMessage(ctx, settings.BotToken, chatID, msgID, text, parseModeHTML, keyboard); err == nil {
+				continue
+			} else {
+				log.Printf("telegram recovery edit failed chat_id=%s error=%v", chatID, err)
+			}
+		}
+		if _, err := s.client.SendMessage(ctx, settings.BotToken, chatID, text, parseModeHTML, keyboard); err != nil {
+			log.Printf("telegram recovery resend failed chat_id=%s error=%v", chatID, err)
 		}
 	}
 }

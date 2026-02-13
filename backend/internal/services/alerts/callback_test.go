@@ -225,3 +225,91 @@ func (rt *countingRT) RoundTrip(req *http.Request) (*http.Response, error) {
 func strPtr(s string) *string {
 	return &s
 }
+
+func TestAlertFallsBackToSendWhenEditFails(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &editFailRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:        "token",
+		AdminChatIDs:    []string{"1"},
+		AlertConnection: true,
+	}
+	nodeID := uuid.New()
+	alert := Alert{
+		Type:       AlertConnection,
+		NodeID:     nodeID,
+		NodeName:   "node",
+		TargetType: "ssh",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		SSHOK:      false,
+		PanelOK:    true,
+	}
+	alert.Fingerprint = fingerprintFor(alert)
+	status := "fail"
+	state := db.AlertState{
+		Fingerprint:    alert.Fingerprint,
+		AlertType:      string(alert.Type),
+		NodeID:         &nodeID,
+		LastStatus:     &status,
+		FirstSeen:      time.Now().Add(-time.Minute),
+		LastSeen:       time.Now().Add(-time.Minute),
+		Occurrences:    1,
+		LastMessageIDs: messageIDsToJSON(map[string]int{"1": 99}),
+		UpdatedAt:      time.Now().Add(-time.Minute),
+	}
+	if err := dbConn.Create(&state).Error; err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.editCount != 1 {
+		t.Fatalf("expected one edit attempt, got %d", rt.editCount)
+	}
+	if rt.sendCount != 1 {
+		t.Fatalf("expected resend after edit failure, got sends=%d", rt.sendCount)
+	}
+}
+
+type editFailRT struct {
+	sendCount int
+	editCount int
+}
+
+func (rt *editFailRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.Contains(req.URL.Path, "editMessageText") {
+		rt.editCount++
+		return &http.Response{
+			StatusCode: 400,
+			Body:       io.NopCloser(strings.NewReader(`{"ok":false,"description":"message to edit not found"}`)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	}
+	if strings.Contains(req.URL.Path, "sendMessage") {
+		rt.sendCount++
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":123}}`)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, nil
+	}
+	return &http.Response{
+		StatusCode: 200,
+		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, nil
+}
