@@ -2213,11 +2213,66 @@ body {
 }
 
 .data-table.bots-table.with-node .data-row {
-  grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.2fr) minmax(120px, 0.8fr) minmax(200px, 1.6fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(140px, 1fr) minmax(110px, 0.7fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(170px, 1.1fr) minmax(210px, 1.45fr) minmax(100px, 0.65fr) minmax(220px, 1.25fr) minmax(150px, 0.85fr) minmax(220px, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
 }
 
 .data-table.bots-table .data-row {
-  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.8fr) minmax(200px, 1.6fr) minmax(90px, 0.7fr) minmax(150px, 1fr) minmax(140px, 1fr) minmax(110px, 0.7fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(220px, 1.45fr) minmax(100px, 0.65fr) minmax(220px, 1.25fr) minmax(150px, 0.85fr) minmax(220px, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.data-table.bots-table .data-row.head {
+  padding: 10px 12px;
+}
+
+.data-table.bots-table .check-target {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-table.bots-table .check-kind {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.data-table.bots-table .status-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-table.bots-table .status-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.data-table.bots-table .status-error {
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-table.bots-table .actions.compact {
+  gap: 4px;
+}
+
+.data-table.bots-table .actions.compact button {
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.1;
 }
 
 .data-table.key-storage-table.key-storage-form .data-row {

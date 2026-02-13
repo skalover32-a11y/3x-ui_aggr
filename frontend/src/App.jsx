@@ -2745,13 +2745,10 @@ function NodesPage() {
         <div className="data-table nodes-table bots-table with-node">
           <div className="data-row head">
             <div>{t("Node")}</div>
-            <div>{t("Name")}</div>
+            <div>{t("Check")}</div>
             <div>{t("Kind")}</div>
-            <div>{t("Target")}</div>
-            <div>{t("Enabled")}</div>
             <div>{t("Last status")}</div>
             <div>{t("Last seen")}</div>
-            <div>{t("Latency")}</div>
             <div>{t("Actions")}</div>
           </div>
           {bots.map((bot) => {
@@ -2772,18 +2769,26 @@ function NodesPage() {
                   <div className="node-title">{node?.name || "-"}</div>
                   <div className="muted small">{formatNodeIP(node)}</div>
                 </div>
-                <div title={bot.name || ""}>{bot.name || "-"}</div>
-                <div>{bot.kind || "-"}</div>
-                <div title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
-                <div>{bot.is_enabled ? t("On") : t("Off")}</div>
+                <div>
+                  <div className="node-title" title={bot.name || ""}>{bot.name || "-"}</div>
+                  <div className="muted small check-target" title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
+                </div>
+                <div className="check-kind">{bot.kind || "-"}</div>
                 <div className="status-cell">
-                  <StatusBadge status={badgeStatus} />
-                  <span>{last?.status || "-"}</span>
+                  <div className="status-main">
+                    <span className={`badge ${bot.is_enabled ? "online" : "offline"}`}>
+                      {bot.is_enabled ? t("On") : t("Off")}
+                    </span>
+                    <StatusBadge status={badgeStatus} />
+                    <span>{last?.status || "-"}</span>
+                  </div>
                   {last?.error && <span className="status-error" title={last.error}>{last.error}</span>}
                 </div>
-                <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
-                <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-                <div className="actions">
+                <div>
+                  <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+                  <div className="muted small">{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+                </div>
+                <div className="actions compact">
                   {!isViewer && (
                     <>
                       <button type="button" onClick={() => runBot(bot)}>{t("Run now")}</button>
