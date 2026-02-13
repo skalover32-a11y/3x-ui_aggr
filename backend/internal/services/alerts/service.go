@@ -384,13 +384,24 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		return
 	}
 
+	repeatedFailWithoutThread := false
 	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 		alert.Occurrences = state.Occurrences
-		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
-		return
+		existingMessageIDs := messageIDsFromJSONOrEmpty(state)
+		if len(existingMessageIDs) > 0 {
+			s.updateState(ctx, alert, state, status, now, false, existingMessageIDs)
+			return
+		}
+		// If the last fail never produced a Telegram message (e.g. settings/network issue),
+		// retry sending until a thread is created.
+		repeatedFailWithoutThread = true
 	}
 	if state != nil {
-		alert.Occurrences = state.Occurrences + 1
+		if repeatedFailWithoutThread {
+			alert.Occurrences = state.Occurrences
+		} else {
+			alert.Occurrences = state.Occurrences + 1
+		}
 	} else {
 		alert.Occurrences = 1
 	}

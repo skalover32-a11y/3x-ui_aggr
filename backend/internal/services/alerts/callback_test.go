@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 
 	"agr_3x_ui/internal/db"
 )
@@ -111,6 +112,71 @@ func TestAlertTransitions(t *testing.T) {
 	svc.maybeSendAlert(context.Background(), settings, false, alert)
 	if rt.editCount != 1 {
 		t.Fatalf("expected 1 edit for recovery, got %d", rt.editCount)
+	}
+}
+
+func TestAlertResendsWhenFailStateHasNoTelegramThread(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:        "token",
+		AdminChatIDs:    []string{"1"},
+		AlertConnection: true,
+	}
+	nodeID := uuid.New()
+	status := "fail"
+	alert := Alert{
+		Type:       AlertConnection,
+		NodeID:     nodeID,
+		NodeName:   "node",
+		TargetType: "ssh",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		SSHOK:      false,
+		PanelOK:    true,
+	}
+	alert.Fingerprint = fingerprintFor(alert)
+	alertID := uuid.New()
+	state := db.AlertState{
+		AlertID:        &alertID,
+		Fingerprint:    alert.Fingerprint,
+		AlertType:      string(alert.Type),
+		NodeID:         &nodeID,
+		LastStatus:     &status,
+		FirstSeen:      time.Now().Add(-time.Minute),
+		LastSeen:       time.Now().Add(-time.Minute),
+		Occurrences:    1,
+		LastMessageIDs: datatypes.JSON([]byte("[]")),
+		UpdatedAt:      time.Now().Add(-time.Minute),
+	}
+	if err := dbConn.Create(&state).Error; err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected one send retry for fail without thread, got %d", rt.sendCount)
+	}
+	var updated db.AlertState
+	if err := dbConn.First(&updated, "fingerprint = ?", alert.Fingerprint).Error; err != nil {
+		t.Fatalf("load updated state: %v", err)
+	}
+	if len(messageIDsFromJSON(updated.LastMessageIDs)) == 0 {
+		t.Fatalf("expected message thread to be stored after resend")
 	}
 }
 
