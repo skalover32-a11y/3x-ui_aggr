@@ -5230,6 +5230,32 @@ function DashboardPage() {
               const status = deriveNodeStatus(node);
               const hostValue = formatNodeIP(node);
               const uptimePct = node.uptime_sec ? Math.min(100, (node.uptime_sec / 86400) * 100) : 0;
+              const cpuPctRaw = Number(node.cpu_pct);
+              const load1Raw = Number(node.load1);
+              const cpuPct = Number.isFinite(cpuPctRaw)
+                ? Math.max(0, Math.min(100, cpuPctRaw))
+                : cpuFromLoad(load1Raw);
+              const cpuDisplay = Number.isFinite(cpuPctRaw)
+                ? formatPercent(cpuPctRaw)
+                : (Number.isFinite(load1Raw) ? `${load1Raw.toFixed(2)} L1` : "-");
+              const memTotal = Number(node.mem_total_bytes ?? node.ram_total_bytes);
+              const memAvailRaw = Number(node.mem_available_bytes);
+              const memUsedRaw = Number(node.ram_used_bytes);
+              const memUsed = Number.isFinite(memUsedRaw)
+                ? memUsedRaw
+                : (Number.isFinite(memTotal) && Number.isFinite(memAvailRaw) ? Math.max(0, memTotal - memAvailRaw) : null);
+              const ramPct = Number.isFinite(memTotal) && memTotal > 0 && Number.isFinite(memUsed)
+                ? Math.max(0, Math.min(100, (memUsed / memTotal) * 100))
+                : null;
+              const diskTotal = Number(node.disk_total_bytes);
+              const diskUsed = Number(node.disk_used_bytes);
+              const diskFreePct = Number.isFinite(diskTotal) && diskTotal > 0 && Number.isFinite(diskUsed)
+                ? Math.max(0, Math.min(100, ((diskTotal - diskUsed) / diskTotal) * 100))
+                : null;
+              const uptimeTone = uptimePct >= 95 ? "good" : uptimePct >= 85 ? "warn" : "bad";
+              const cpuTone = cpuPct == null ? "unknown" : cpuPct >= 80 ? "bad" : cpuPct >= 60 ? "warn" : "good";
+              const ramTone = ramPct == null ? "unknown" : ramPct >= 90 ? "bad" : ramPct >= 75 ? "warn" : "good";
+              const diskTone = diskFreePct == null ? "unknown" : diskFreePct <= 10 ? "bad" : diskFreePct <= 25 ? "warn" : "good";
               const hasTrafficTotals = node.net_rx_bytes != null || node.net_tx_bytes != null;
               const hasTrafficSpeed = node.net_rx_bps != null || node.net_tx_bps != null;
               return (
@@ -5253,9 +5279,27 @@ function DashboardPage() {
                     <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
                   </div>
                   <div>
-                    <div className="uptime-line">
-                      <UptimeBar percent={uptimePct} />
-                      <span className="muted small">{node.uptime_sec ? formatDuration(node.uptime_sec) : "-"}</span>
+                    <div className="node-metric-lines">
+                      <div className="node-metric-line">
+                        <span className="node-metric-label">{t("Uptime")}</span>
+                        <NodeMetricBar percent={uptimePct} tone={uptimeTone} />
+                        <span className="node-metric-value">{uptimePct.toFixed(1)}%</span>
+                      </div>
+                      <div className="node-metric-line">
+                        <span className="node-metric-label">{t("CPU")}</span>
+                        <NodeMetricBar percent={cpuPct} tone={cpuTone} />
+                        <span className="node-metric-value">{cpuDisplay}</span>
+                      </div>
+                      <div className="node-metric-line">
+                        <span className="node-metric-label">{t("RAM")}</span>
+                        <NodeMetricBar percent={ramPct} tone={ramTone} />
+                        <span className="node-metric-value">{ramPct != null ? formatPercent(ramPct) : "-"}</span>
+                      </div>
+                      <div className="node-metric-line">
+                        <span className="node-metric-label">{t("Disk Free")}</span>
+                        <NodeMetricBar percent={diskFreePct} tone={diskTone} />
+                        <span className="node-metric-value">{diskFreePct != null ? formatPercent(diskFreePct) : "-"}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="traffic-cell">
