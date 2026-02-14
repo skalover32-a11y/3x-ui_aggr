@@ -23,6 +23,9 @@ const (
 	cpuLoadThreshold = 2.0
 	memPercentHigh   = 90.0
 	diskFreeLow      = 10.0
+	// Generic service/container checks are noisy on transient network hiccups.
+	// Require two consecutive fail samples before sending an alert.
+	genericFailThreshold = 2
 )
 
 type Service struct {
@@ -372,9 +375,38 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	now := time.Now()
 	state := s.loadState(ctx, alert.Fingerprint)
 	alert.AlertID = s.ensureAlertID(ctx, state)
+	prevStatus := ""
+	if state != nil && state.LastStatus != nil {
+		prevStatus = strings.ToLower(strings.TrimSpace(*state.LastStatus))
+	}
+	prevMessageIDs := messageIDsFromJSONOrEmpty(state)
+
+	// Anti-spam hysteresis for generic checks (docker/systemd/http service checks).
+	if alert.Type == AlertGeneric && status == "fail" {
+		failStreak := 1
+		if prevStatus == "fail" {
+			failStreak = state.Occurrences + 1
+			if failStreak < 1 {
+				failStreak = 1
+			}
+		}
+		alert.Occurrences = failStreak
+		if failStreak < genericFailThreshold && len(prevMessageIDs) == 0 {
+			// Not enough consecutive fails yet and no active telegram thread.
+			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs)
+			return
+		}
+	}
 
 	if status == "ok" {
-		if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
+		if state != nil && prevStatus == "fail" {
+			if alert.Type == AlertGeneric && len(prevMessageIDs) == 0 {
+				// Generic fail was never surfaced to Telegram (below threshold or send failed):
+				// do not send a recovery notification.
+				alert.Occurrences = 0
+				s.updateState(ctx, alert, state, "ok", now, true, map[string]int{})
+				return
+			}
 			alert.Occurrences = state.Occurrences
 			s.sendRecovery(ctx, settings, alert, state)
 			// Clear thread mapping on recovery so the next incident starts a new alert message.

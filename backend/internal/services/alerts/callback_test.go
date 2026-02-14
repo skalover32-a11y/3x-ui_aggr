@@ -298,6 +298,62 @@ func TestAlertFallsBackToSendWhenEditFails(t *testing.T) {
 	}
 }
 
+func TestGenericAlertRequiresConsecutiveFails(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:     "token",
+		AdminChatIDs: []string{"1"},
+	}
+	nodeID := uuid.New()
+	checkID := uuid.New()
+	alert := Alert{
+		Type:       AlertGeneric,
+		NodeID:     nodeID,
+		CheckID:    checkID,
+		NodeName:   "node",
+		TargetType: "bot",
+		CheckType:  "DOCKER",
+		Target:     "remnanode",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+	}
+
+	// First fail: only persist state, no Telegram.
+	alert.Status = "fail"
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no send on first fail, got %d", rt.sendCount)
+	}
+
+	// Second consecutive fail: send alert.
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected send on second fail, got %d", rt.sendCount)
+	}
+
+	// Recovery after surfaced fail: separate recovery message.
+	alert.Status = "ok"
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	if rt.sendCount != 2 {
+		t.Fatalf("expected recovery send after surfaced fail, got %d", rt.sendCount)
+	}
+}
+
 func TestAlertResendsWhenChatListChanged(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
