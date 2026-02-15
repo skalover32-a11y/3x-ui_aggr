@@ -15,6 +15,7 @@ type Config struct {
 	JWTSecret                    string
 	MasterKeyB64                 string
 	TokenSalt                    string
+	TelegramWebhookSecret        string
 	JWTExpiry                    time.Duration
 	AccessTokenTTL               time.Duration
 	RefreshTokenTTL              time.Duration
@@ -35,6 +36,10 @@ type Config struct {
 	DashboardPanelSessionTTL     time.Duration
 	DashboardAgentTimeout        time.Duration
 	DashboardAgentPrefer         bool
+	AlertCPUThreshold            float64
+	AlertMemoryThreshold         float64
+	AlertDiskFreeThreshold       float64
+	AlertOfflineDelay            time.Duration
 	SudoPasswords                []string
 	AllowCIDR                    string
 	RepoPath                     string
@@ -42,15 +47,16 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		DBDSN:         strings.TrimSpace(os.Getenv("DB_DSN")),
-		AdminUser:     strings.TrimSpace(os.Getenv("ADMIN_USER")),
-		AdminPass:     strings.TrimSpace(os.Getenv("ADMIN_PASS")),
-		JWTSecret:     strings.TrimSpace(os.Getenv("JWT_SECRET")),
-		MasterKeyB64:  strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
-		PublicBaseURL: strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
-		TokenSalt:     strings.TrimSpace(os.Getenv("TOKEN_SALT")),
-		AuthRPID:      strings.TrimSpace(os.Getenv("AUTH_RP_ID")),
-		AuthRPOrigin:  strings.TrimSpace(os.Getenv("AUTH_RP_ORIGIN")),
+		DBDSN:                 strings.TrimSpace(os.Getenv("DB_DSN")),
+		AdminUser:             strings.TrimSpace(os.Getenv("ADMIN_USER")),
+		AdminPass:             strings.TrimSpace(os.Getenv("ADMIN_PASS")),
+		JWTSecret:             strings.TrimSpace(os.Getenv("JWT_SECRET")),
+		MasterKeyB64:          strings.TrimSpace(os.Getenv("AGG_MASTER_KEY_BASE64")),
+		PublicBaseURL:         strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
+		TokenSalt:             strings.TrimSpace(os.Getenv("TOKEN_SALT")),
+		TelegramWebhookSecret: strings.TrimSpace(os.Getenv("TELEGRAM_WEBHOOK_SECRET")),
+		AuthRPID:              strings.TrimSpace(os.Getenv("AUTH_RP_ID")),
+		AuthRPOrigin:          strings.TrimSpace(os.Getenv("AUTH_RP_ORIGIN")),
 	}
 	cfg.SudoPasswords = parseCSVEnv("SUDO_PASSWORDS", nil)
 	cfg.AllowCIDR = strings.TrimSpace(os.Getenv("AGG_ALLOW_CIDR"))
@@ -97,6 +103,10 @@ func Load() (*Config, error) {
 	cfg.DashboardPanelSessionTTL = parseDurationAllowZeroEnv("DASHBOARD_PANEL_SESSION_TTL", 12*time.Hour)
 	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
 	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
+	cfg.AlertCPUThreshold = parseFloat64Env("ALERT_CPU_THRESHOLD", 2.0)
+	cfg.AlertMemoryThreshold = parseFloat64Env("ALERT_MEMORY_THRESHOLD", 90.0)
+	cfg.AlertDiskFreeThreshold = parseFloat64Env("ALERT_DISK_FREE_THRESHOLD", 10.0)
+	cfg.AlertOfflineDelay = parseDurationAllowZeroEnv("ALERT_OFFLINE_DELAY", 5*time.Minute)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" || cfg.TokenSalt == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}
@@ -197,6 +207,18 @@ func parseInt64Env(key string, fallback int64) int64 {
 	}
 	val, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || val <= 0 {
+		return fallback
+	}
+	return val
+}
+
+func parseFloat64Env(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.ParseFloat(raw, 64)
+	if err != nil || val < 0 {
 		return fallback
 	}
 	return val

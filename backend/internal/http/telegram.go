@@ -1,7 +1,12 @@
 package httpapi
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -15,13 +20,15 @@ import (
 )
 
 type telegramSettingsResponse struct {
-	BotTokenSet     bool     `json:"bot_token_set"`
-	AdminChatID     string   `json:"admin_chat_id"`
-	AdminChatIDs    []string `json:"admin_chat_ids"`
-	AlertConnection bool     `json:"alert_connection"`
-	AlertCPU        bool     `json:"alert_cpu"`
-	AlertMemory     bool     `json:"alert_memory"`
-	AlertDisk       bool     `json:"alert_disk"`
+	BotTokenSet       bool     `json:"bot_token_set"`
+	AdminChatID       string   `json:"admin_chat_id"`
+	AdminChatIDs      []string `json:"admin_chat_ids"`
+	AlertConnection   bool     `json:"alert_connection"`
+	AlertCPU          bool     `json:"alert_cpu"`
+	AlertMemory       bool     `json:"alert_memory"`
+	AlertDisk         bool     `json:"alert_disk"`
+	WebhookConfigured bool     `json:"webhook_configured"`
+	WebhookError      string   `json:"webhook_error,omitempty"`
 }
 
 type telegramSettingsRequest struct {
@@ -91,6 +98,14 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 	if adminChatID == "" {
 		adminChatID = current.AdminChatID
 	}
+	if botToken == "" && current.BotTokenEnc != "" {
+		dec, err := h.Encryptor.DecryptString(current.BotTokenEnc)
+		if err != nil {
+			respondError(c, http.StatusInternalServerError, "TELEGRAM_TOKEN", "failed to decrypt token")
+			return
+		}
+		botToken = strings.TrimSpace(dec)
+	}
 
 	botTokenEnc := current.BotTokenEnc
 	if botToken != "" {
@@ -152,22 +167,86 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "TELEGRAM_SAVE", "failed to save settings")
 		return
 	}
+	webhookConfigured, webhookErr := h.configureTelegramWebhook(c.Request.Context(), orgID, botToken)
 	h.auditEvent(c, nil, "TELEGRAM_SETTINGS_UPDATE", "ok", nil, gin.H{
-		"admin_chat_id":    adminChatID,
-		"alert_connection": req.AlertConnection,
-		"alert_cpu":        req.AlertCPU,
-		"alert_memory":     req.AlertMemory,
-		"alert_disk":       req.AlertDisk,
+		"admin_chat_id":      adminChatID,
+		"alert_connection":   req.AlertConnection,
+		"alert_cpu":          req.AlertCPU,
+		"alert_memory":       req.AlertMemory,
+		"alert_disk":         req.AlertDisk,
+		"webhook_configured": webhookConfigured,
+		"webhook_error":      webhookErr,
 	}, nil)
 	respondStatus(c, http.StatusOK, telegramSettingsResponse{
-		BotTokenSet:     botTokenEnc != "",
-		AdminChatID:     adminChatID,
-		AdminChatIDs:    splitChatIDs(adminChatID),
-		AlertConnection: req.AlertConnection,
-		AlertCPU:        req.AlertCPU,
-		AlertMemory:     req.AlertMemory,
-		AlertDisk:       req.AlertDisk,
+		BotTokenSet:       botTokenEnc != "",
+		AdminChatID:       adminChatID,
+		AdminChatIDs:      splitChatIDs(adminChatID),
+		AlertConnection:   req.AlertConnection,
+		AlertCPU:          req.AlertCPU,
+		AlertMemory:       req.AlertMemory,
+		AlertDisk:         req.AlertDisk,
+		WebhookConfigured: webhookConfigured,
+		WebhookError:      webhookErr,
 	})
+}
+
+type telegramSetWebhookRequest struct {
+	URL         string `json:"url"`
+	SecretToken string `json:"secret_token,omitempty"`
+}
+
+type telegramSetWebhookResponse struct {
+	OK          bool   `json:"ok"`
+	Description string `json:"description,omitempty"`
+}
+
+func (h *Handler) configureTelegramWebhook(ctx context.Context, orgID uuid.UUID, botToken string) (bool, string) {
+	token := strings.TrimSpace(botToken)
+	if token == "" {
+		return false, "bot token missing"
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(h.PublicBaseURL), "/")
+	if baseURL == "" {
+		return false, "PUBLIC_BASE_URL is empty"
+	}
+	secret := h.telegramWebhookSecretFor(orgID, token)
+	if secret == "" {
+		return false, "failed to generate webhook secret"
+	}
+	reqBody, err := json.Marshal(telegramSetWebhookRequest{
+		URL:         baseURL + "/api/telegram/webhook",
+		SecretToken: secret,
+	})
+	if err != nil {
+		return false, fmt.Sprintf("marshal webhook request: %v", err)
+	}
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook", token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBody))
+	if err != nil {
+		return false, fmt.Sprintf("build webhook request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Sprintf("telegram setWebhook request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, fmt.Sprintf("read setWebhook response: %v", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return false, fmt.Sprintf("setWebhook HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var body telegramSetWebhookResponse
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return false, fmt.Sprintf("decode setWebhook response: %v", err)
+	}
+	if !body.OK {
+		return false, fmt.Sprintf("setWebhook rejected: %s", strings.TrimSpace(body.Description))
+	}
+	return true, ""
 }
 
 func splitChatIDs(raw string) []string {
@@ -216,17 +295,7 @@ func (h *Handler) getTelegramSettings(c *gin.Context, orgID uuid.UUID) (db.Teleg
 		Order("created_at desc").
 		First(&row).Error
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return db.TelegramSettings{}, err
-		}
-		// Legacy fallback for deployments where telegram settings existed before org scoping.
-		legacyErr := h.DB.WithContext(c.Request.Context()).
-			Where("org_id IS NULL").
-			Order("created_at desc").
-			First(&row).Error
-		if legacyErr != nil {
-			return db.TelegramSettings{}, legacyErr
-		}
+		return db.TelegramSettings{}, err
 	}
 	return row, nil
 }

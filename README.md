@@ -54,6 +54,11 @@ make run
 - `GLOBAL_MAX_SSH_SESSIONS` (optional, default 10)
 - `SSH_IDLE_TIMEOUT_SECONDS` (optional, default 600)
 - `PUBLIC_BASE_URL` (optional, for Telegram alert buttons; required to build agent install_command, example: `https://aggr.example.com`)
+- `TELEGRAM_WEBHOOK_SECRET` (optional legacy fallback secret for Telegram webhook; normally webhook secret is configured automatically from UI)
+- `ALERT_CPU_THRESHOLD` (optional, default `2.0`, CPU/load threshold for CPU alerts)
+- `ALERT_MEMORY_THRESHOLD` (optional, default `90.0`, percent used RAM threshold)
+- `ALERT_DISK_FREE_THRESHOLD` (optional, default `10.0`, percent free disk threshold)
+- `ALERT_OFFLINE_DELAY` (optional, default `5m`, delay before sending offline fail alerts)
 - `NODE_AGENT_ADDR` (node-agent, optional, default `:9090`)
 - `NODE_AGENT_TOKEN` (node-agent, optional bearer token)
 - `NODE_AGENT_ALLOWLIST` (node-agent, optional comma-separated IP allowlist)
@@ -616,12 +621,10 @@ curl -s "http://localhost:8080/api/bots/<bot_id>/results?minutes=60" \
 
 ## Telegram alerts
 Alerts are sent in Telegram HTML format with inline buttons (open node, metrics, retry, mute).
-To enable callback buttons, set the webhook to:
-```bash
-curl -s "https://api.telegram.org/bot<token>/setWebhook?url=https://<PUBLIC_BASE_URL>/api/telegram/webhook"
-```
+Webhook is configured automatically when Telegram settings are saved in the UI.
 Required env for links/buttons:
 - `PUBLIC_BASE_URL` (example: `https://aggr.example.com`)
+- `TOKEN_SALT` (used to derive per-org webhook secret automatically)
 
 Example alert:
 ```

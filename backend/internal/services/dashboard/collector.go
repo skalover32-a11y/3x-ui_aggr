@@ -320,8 +320,12 @@ func (s *Service) LoadSnapshot(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, error) {
+	return s.loadNodesWithMetricsForNodeIDs(ctx, nil)
+}
+
+func (s *Service) loadNodesWithMetricsForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) ([]DashboardNode, error) {
 	var rows []DashboardNode
-	err := s.DB.WithContext(ctx).
+	query := s.DB.WithContext(ctx).
 		Table("nodes n").
 		Select(`n.id as node_id, n.name, n.kind, n.host, n.ssh_host, n.base_url, n.region, n.provider, n.is_enabled, n.is_sandbox,
 			n.agent_installed, n.agent_last_seen_at, n.agent_version,
@@ -332,8 +336,11 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 			m.net_rx_bytes, m.net_tx_bytes, m.net_iface, m.uptime_sec,
 			m.ping_ms, m.tcp_connections, m.udp_connections,
 			NULL::text as last_error`).
-		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id").
-		Scan(&rows).Error
+		Joins("LEFT JOIN node_metrics_latest m ON m.node_id = n.id")
+	if len(nodeIDs) > 0 {
+		query = query.Where("n.id IN ?", nodeIDs)
+	}
+	err := query.Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +351,10 @@ func (s *Service) loadNodesWithMetrics(ctx context.Context) ([]DashboardNode, er
 }
 
 func (s *Service) listActiveUsers(ctx context.Context, limit int, search string) ([]DashboardActiveUser, error) {
+	return s.listActiveUsersForNodeIDs(ctx, nil, limit, search)
+}
+
+func (s *Service) listActiveUsersForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID, limit int, search string) ([]DashboardActiveUser, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
@@ -353,6 +364,9 @@ func (s *Service) listActiveUsers(ctx context.Context, limit int, search string)
 		Joins("JOIN nodes n ON n.id = a.node_id").
 		Order("a.last_seen DESC").
 		Limit(limit)
+	if len(nodeIDs) > 0 {
+		query = query.Where("a.node_id IN ?", nodeIDs)
+	}
 	if strings.TrimSpace(search) != "" {
 		query = query.Where("a.client_email ILIKE ?", "%"+search+"%")
 	}
@@ -455,19 +469,23 @@ type DashboardActiveUser struct {
 }
 
 func (s *Service) Summary(ctx context.Context) (map[string]any, error) {
-	nodes, err := s.loadNodesWithMetrics(ctx)
+	return s.SummaryForNodeIDs(ctx, nil)
+}
+
+func (s *Service) SummaryForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) (map[string]any, error) {
+	nodes, err := s.loadNodesWithMetricsForNodeIDs(ctx, nodeIDs)
 	if err != nil {
 		return nil, err
 	}
 	s.applySources(nodes)
 	agg := computeAggregate(nodes)
-	traffic24h, traffic7d, err := s.computeTrafficTotals(ctx)
+	traffic24h, traffic7d, err := s.computeTrafficTotalsForNodeIDs(ctx, nodeIDs)
 	if err == nil {
 		agg.TotalTraffic24h = traffic24h
 		agg.TotalTraffic7d = traffic7d
 	}
-	agg.ActiveAlertsCount = s.countActiveAlerts(ctx)
-	agg.ActiveUsers = s.countActiveUsers(ctx)
+	agg.ActiveAlertsCount = s.countActiveAlertsForNodeIDs(ctx, nodeIDs)
+	agg.ActiveUsers = s.countActiveUsersForNodeIDs(ctx, nodeIDs)
 	return map[string]any{
 		"nodes":        nodes,
 		"aggregate":    agg,
@@ -477,6 +495,10 @@ func (s *Service) Summary(ctx context.Context) (map[string]any, error) {
 
 func (s *Service) ActiveUsers(ctx context.Context, limit int, search string) ([]DashboardActiveUser, error) {
 	return s.listActiveUsers(ctx, limit, search)
+}
+
+func (s *Service) ActiveUsersForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID, limit int, search string) ([]DashboardActiveUser, error) {
+	return s.listActiveUsersForNodeIDs(ctx, nodeIDs, limit, search)
 }
 
 type AggregateSummary struct {
@@ -562,31 +584,34 @@ type trafficPoint struct {
 	NetTx  *int64
 }
 
-func (s *Service) computeTrafficTotals(ctx context.Context) (*int64, *int64, error) {
-	traffic24h, err := s.computeTrafficTotalForRange(ctx, 24*time.Hour)
+func (s *Service) computeTrafficTotalsForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) (*int64, *int64, error) {
+	traffic24h, err := s.computeTrafficTotalForRange(ctx, nodeIDs, 24*time.Hour)
 	if err != nil {
 		return nil, nil, err
 	}
-	traffic7d, err := s.computeTrafficTotalForRange(ctx, 7*24*time.Hour)
+	traffic7d, err := s.computeTrafficTotalForRange(ctx, nodeIDs, 7*24*time.Hour)
 	if err != nil {
 		return nil, nil, err
 	}
 	return traffic24h, traffic7d, nil
 }
 
-func (s *Service) computeTrafficTotalForRange(ctx context.Context, window time.Duration) (*int64, error) {
+func (s *Service) computeTrafficTotalForRange(ctx context.Context, nodeIDs []uuid.UUID, window time.Duration) (*int64, error) {
 	if s == nil || s.DB == nil {
 		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-window)
 	var rows []trafficPoint
-	err := s.DB.WithContext(ctx).
+	query := s.DB.WithContext(ctx).
 		Table("node_metrics").
 		Select("node_id, ts, net_rx_bytes as net_rx, net_tx_bytes as net_tx").
 		Where("ts >= ?", cutoff).
 		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
-		Order("node_id, ts").
-		Scan(&rows).Error
+		Order("node_id, ts")
+	if len(nodeIDs) > 0 {
+		query = query.Where("node_id IN ?", nodeIDs)
+	}
+	err := query.Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -620,16 +645,23 @@ func (s *Service) computeTrafficTotalForRange(ctx context.Context, window time.D
 }
 
 func (s *Service) countActiveAlerts(ctx context.Context) int {
+	return s.countActiveAlertsForNodeIDs(ctx, nil)
+}
+
+func (s *Service) countActiveAlertsForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) int {
 	if s == nil || s.DB == nil {
 		return 0
 	}
-	var count int64
 	now := time.Now().UTC()
-	err := s.DB.WithContext(ctx).
+	query := s.DB.WithContext(ctx).
 		Table("alert_states").
 		Where("last_status IN ('fail','warn')").
-		Where("muted_until IS NULL OR muted_until < ?", now).
-		Count(&count).Error
+		Where("muted_until IS NULL OR muted_until < ?", now)
+	if len(nodeIDs) > 0 {
+		query = query.Where("node_id IN ?", nodeIDs)
+	}
+	var count int64
+	err := query.Count(&count).Error
 	if err != nil {
 		return 0
 	}
@@ -637,11 +669,19 @@ func (s *Service) countActiveAlerts(ctx context.Context) int {
 }
 
 func (s *Service) countActiveUsers(ctx context.Context) int {
+	return s.countActiveUsersForNodeIDs(ctx, nil)
+}
+
+func (s *Service) countActiveUsersForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) int {
 	if s == nil || s.DB == nil {
 		return 0
 	}
+	query := s.DB.WithContext(ctx).Table("active_users_latest")
+	if len(nodeIDs) > 0 {
+		query = query.Where("node_id IN ?", nodeIDs)
+	}
 	var count int64
-	if err := s.DB.WithContext(ctx).Table("active_users_latest").Count(&count).Error; err != nil {
+	if err := query.Count(&count).Error; err != nil {
 		return 0
 	}
 	return int(count)

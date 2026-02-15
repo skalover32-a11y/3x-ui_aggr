@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -12,9 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"gorm.io/gorm"
 
-	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/services/dashboard"
 )
 
@@ -23,33 +20,19 @@ func (h *Handler) GetDashboardSummary(c *gin.Context) {
 		respondError(c, http.StatusServiceUnavailable, "DASHBOARD_DISABLED", "dashboard service not configured")
 		return
 	}
-	data, err := h.Dashboard.Summary(c.Request.Context())
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "DASHBOARD_SUMMARY", "failed to load summary")
-		return
-	}
 	nodeIDs, err := h.accessibleNodeIDs(c)
 	if err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
-	if nodesRaw, ok := data["nodes"]; ok {
-		if nodes, ok := nodesRaw.([]dashboard.DashboardNode); ok {
-			filtered := make([]dashboard.DashboardNode, 0, len(nodes))
-			for _, node := range nodes {
-				if _, ok := nodeIDs[node.NodeID]; ok {
-					filtered = append(filtered, node)
-				}
-			}
-			data["nodes"] = filtered
-			agg := computeAggregateScoped(filtered)
-			traffic24h, traffic7d := computeTrafficTotalsScoped(c.Request.Context(), h.DB, nodeIDs)
-			agg.TotalTraffic24h = traffic24h
-			agg.TotalTraffic7d = traffic7d
-			agg.ActiveAlertsCount = countActiveAlertsScoped(c.Request.Context(), h.DB, nodeIDs)
-			agg.ActiveUsers = countActiveUsersScoped(c.Request.Context(), h.DB, nodeIDs)
-			data["aggregate"] = agg
-		}
+	scopedIDs := make([]uuid.UUID, 0, len(nodeIDs))
+	for id := range nodeIDs {
+		scopedIDs = append(scopedIDs, id)
+	}
+	data, err := h.Dashboard.SummaryForNodeIDs(c.Request.Context(), scopedIDs)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DASHBOARD_SUMMARY", "failed to load summary")
+		return
 	}
 	respondStatus(c, http.StatusOK, data)
 }
@@ -61,23 +44,20 @@ func (h *Handler) GetDashboardActiveUsers(c *gin.Context) {
 	}
 	limit := parseIntQuery(c, "limit", 200)
 	search := strings.TrimSpace(c.Query("search"))
-	users, err := h.Dashboard.ActiveUsers(c.Request.Context(), limit, search)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "DASHBOARD_USERS", "failed to load active users")
-		return
-	}
 	nodeIDs, err := h.accessibleNodeIDs(c)
 	if err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
-	filtered := make([]dashboard.DashboardActiveUser, 0, len(users))
-	for _, row := range users {
-		if _, ok := nodeIDs[row.NodeID]; ok {
-			filtered = append(filtered, row)
-		}
+	scopedIDs := make([]uuid.UUID, 0, len(nodeIDs))
+	for id := range nodeIDs {
+		scopedIDs = append(scopedIDs, id)
 	}
-	users = filtered
+	users, err := h.Dashboard.ActiveUsersForNodeIDs(c.Request.Context(), scopedIDs, limit, search)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DASHBOARD_USERS", "failed to load active users")
+		return
+	}
 	respondStatus(c, http.StatusOK, users)
 }
 
@@ -174,62 +154,6 @@ func canDashboardRole(role string) bool {
 	return role == "admin" || role == "operator" || role == "viewer"
 }
 
-func computeAggregateScoped(nodes []dashboard.DashboardNode) dashboard.AggregateSummary {
-	var agg dashboard.AggregateSummary
-	var cpuCount int
-	var cpuSum float64
-	var pingCount int
-	var pingSum float64
-	var totalConnections int64
-	for _, node := range nodes {
-		agg.NodesTotal++
-		if node.AgentInstalled {
-			agg.AgentsTotal++
-		}
-		if node.AgentOnline {
-			agg.NodesOnline++
-			agg.AgentsActive++
-		}
-		if node.ServiceRunning != nil {
-			if *node.ServiceRunning {
-				agg.ServicesOnline++
-			}
-		} else if node.AgentOnline {
-			agg.ServicesOnline++
-		}
-		if node.CPUPct != nil {
-			cpuSum += *node.CPUPct
-			cpuCount++
-		}
-		if node.PingMs != nil {
-			pingSum += float64(*node.PingMs)
-			pingCount++
-		}
-		if node.NetRxBps != nil {
-			agg.TotalRxBps += *node.NetRxBps
-		}
-		if node.NetTxBps != nil {
-			agg.TotalTxBps += *node.NetTxBps
-		}
-		if node.TCPConnections != nil {
-			totalConnections += *node.TCPConnections
-		}
-		if node.UDPConnections != nil {
-			totalConnections += *node.UDPConnections
-		}
-	}
-	if cpuCount > 0 {
-		agg.AvgCPU = cpuSum / float64(cpuCount)
-	}
-	if pingCount > 0 {
-		val := pingSum / float64(pingCount)
-		agg.AvgPingMs = &val
-	}
-	agg.TotalConnections = &totalConnections
-	agg.NodesOffline = agg.NodesTotal - agg.NodesOnline
-	return agg
-}
-
 func filterDashboardSnapshot(snapshot map[string]any, nodeIDs map[uuid.UUID]struct{}) map[string]any {
 	if len(nodeIDs) == 0 {
 		snapshot["nodes"] = []dashboard.DashboardNode{}
@@ -296,109 +220,6 @@ func parseUUIDAny(value any) (uuid.UUID, bool) {
 	default:
 		return uuid.Nil, false
 	}
-}
-
-func countActiveAlertsScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) int {
-	if dbConn == nil || len(nodeIDs) == 0 {
-		return 0
-	}
-	ids := make([]uuid.UUID, 0, len(nodeIDs))
-	for id := range nodeIDs {
-		ids = append(ids, id)
-	}
-	var count int64
-	if err := dbConn.WithContext(ctx).
-		Model(&db.AlertState{}).
-		Where("node_id IN ?", ids).
-		Where("last_status <> ?", "ok").
-		Count(&count).Error; err != nil {
-		return 0
-	}
-	return int(count)
-}
-
-func countActiveUsersScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) int {
-	if dbConn == nil || len(nodeIDs) == 0 {
-		return 0
-	}
-	ids := make([]uuid.UUID, 0, len(nodeIDs))
-	for id := range nodeIDs {
-		ids = append(ids, id)
-	}
-	var count int64
-	if err := dbConn.WithContext(ctx).
-		Table("active_users_latest").
-		Where("node_id IN ?", ids).
-		Count(&count).Error; err != nil {
-		return 0
-	}
-	return int(count)
-}
-
-type scopedTrafficPoint struct {
-	NodeID uuid.UUID
-	TS     time.Time
-	NetRx  *int64
-	NetTx  *int64
-}
-
-func computeTrafficTotalsScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}) (*int64, *int64) {
-	if dbConn == nil || len(nodeIDs) == 0 {
-		return nil, nil
-	}
-	ids := make([]uuid.UUID, 0, len(nodeIDs))
-	for id := range nodeIDs {
-		ids = append(ids, id)
-	}
-	traffic24h := computeTrafficTotalForRangeScoped(ctx, dbConn, ids, 24*time.Hour)
-	traffic7d := computeTrafficTotalForRangeScoped(ctx, dbConn, ids, 7*24*time.Hour)
-	return traffic24h, traffic7d
-}
-
-func computeTrafficTotalForRangeScoped(ctx context.Context, dbConn *gorm.DB, nodeIDs []uuid.UUID, window time.Duration) *int64 {
-	if dbConn == nil || len(nodeIDs) == 0 {
-		return nil
-	}
-	cutoff := time.Now().UTC().Add(-window)
-	var rows []scopedTrafficPoint
-	if err := dbConn.WithContext(ctx).
-		Table("node_metrics").
-		Select("node_id, ts, net_rx_bytes as net_rx, net_tx_bytes as net_tx").
-		Where("node_id IN ?", nodeIDs).
-		Where("ts >= ?", cutoff).
-		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
-		Order("node_id, ts").
-		Scan(&rows).Error; err != nil {
-		return nil
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-
-	var total int64
-	var current uuid.UUID
-	var prevRx, prevTx *int64
-	first := true
-	for _, row := range rows {
-		if first || row.NodeID != current {
-			current = row.NodeID
-			prevRx, prevTx = row.NetRx, row.NetTx
-			first = false
-			continue
-		}
-		if prevRx != nil && row.NetRx != nil {
-			if delta := *row.NetRx - *prevRx; delta > 0 {
-				total += delta
-			}
-		}
-		if prevTx != nil && row.NetTx != nil {
-			if delta := *row.NetTx - *prevTx; delta > 0 {
-				total += delta
-			}
-		}
-		prevRx, prevTx = row.NetRx, row.NetTx
-	}
-	return &total
 }
 
 func parseIntQuery(c *gin.Context, key string, fallback int) int {

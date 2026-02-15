@@ -44,7 +44,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("encryptor error: %v", err)
 	}
-	alertsSvc := alerts.New(dbConn, enc, cfg.PublicBaseURL)
+	alertsSvc := alerts.New(
+		dbConn,
+		enc,
+		cfg.PublicBaseURL,
+		alerts.WithPolicy(alerts.Policy{
+			CPULoadThreshold: cfg.AlertCPUThreshold,
+			MemPercentHigh:   cfg.AlertMemoryThreshold,
+			DiskFreeLow:      cfg.AlertDiskFreeThreshold,
+			OfflineDelay:     cfg.AlertOfflineDelay,
+		}),
+	)
 	rpID := strings.TrimSpace(cfg.AuthRPID)
 	rpOrigin := strings.TrimSpace(cfg.AuthRPOrigin)
 	if rpID == "" && cfg.PublicBaseURL != "" {
@@ -70,28 +80,29 @@ func main() {
 		log.Fatalf("webauthn init error: %v", err)
 	}
 	handler := &httpapi.Handler{
-		DB:                  dbConn,
-		Encryptor:           enc,
-		Audit:               audit.New(dbConn),
-		Alerts:              alertsSvc,
-		AdminUser:           cfg.AdminUser,
-		AdminPass:           cfg.AdminPass,
-		JWTSecret:           []byte(cfg.JWTSecret),
-		JWTExpiry:           cfg.JWTExpiry,
-		RefreshTTL:          cfg.RefreshTokenTTL,
-		WebAuthnRegisterTTL: cfg.WebAuthnRegisterChallengeTTL,
-		WebAuthnLoginTTL:    cfg.WebAuthnLoginChallengeTTL,
-		FileAllowedRoots:    cfg.FileAllowedRoots,
-		FilePreviewMaxBytes: cfg.FilePreviewMaxBytes,
-		FileTailMaxBytes:    cfg.FileTailMaxBytes,
-		WebAuthn:            webAuthn,
-		SSHClient:           sshclient.New(15 * time.Second),
-		SSHManager:          sshws.NewManager(cfg.SSHMaxSessions),
-		SSHIdleTimeout:      cfg.SSHIdleTimeout,
-		MasterKey:           cfg.MasterKeyB64,
-		AllowCIDR:           cfg.AllowCIDR,
-		TokenSalt:           cfg.TokenSalt,
-		PublicBaseURL:       cfg.PublicBaseURL,
+		DB:                    dbConn,
+		Encryptor:             enc,
+		Audit:                 audit.New(dbConn),
+		Alerts:                alertsSvc,
+		AdminUser:             cfg.AdminUser,
+		AdminPass:             cfg.AdminPass,
+		JWTSecret:             []byte(cfg.JWTSecret),
+		JWTExpiry:             cfg.JWTExpiry,
+		RefreshTTL:            cfg.RefreshTokenTTL,
+		WebAuthnRegisterTTL:   cfg.WebAuthnRegisterChallengeTTL,
+		WebAuthnLoginTTL:      cfg.WebAuthnLoginChallengeTTL,
+		FileAllowedRoots:      cfg.FileAllowedRoots,
+		FilePreviewMaxBytes:   cfg.FilePreviewMaxBytes,
+		FileTailMaxBytes:      cfg.FileTailMaxBytes,
+		WebAuthn:              webAuthn,
+		SSHClient:             sshclient.New(15 * time.Second),
+		SSHManager:            sshws.NewManager(cfg.SSHMaxSessions),
+		SSHIdleTimeout:        cfg.SSHIdleTimeout,
+		MasterKey:             cfg.MasterKeyB64,
+		AllowCIDR:             cfg.AllowCIDR,
+		TokenSalt:             cfg.TokenSalt,
+		PublicBaseURL:         cfg.PublicBaseURL,
+		TelegramWebhookSecret: cfg.TelegramWebhookSecret,
 	}
 	if _, err := handler.EnsureRootOrg(context.Background()); err != nil {
 		log.Printf("ensure root org failed: %v", err)

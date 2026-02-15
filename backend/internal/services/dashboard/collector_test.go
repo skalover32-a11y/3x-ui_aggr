@@ -59,7 +59,7 @@ func TestComputeTrafficTotalForRange(t *testing.T) {
 	}
 
 	svc := &Service{DB: dbConn}
-	total, err := svc.computeTrafficTotalForRange(context.Background(), 24*time.Hour)
+	total, err := svc.computeTrafficTotalForRange(context.Background(), nil, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("compute traffic: %v", err)
 	}

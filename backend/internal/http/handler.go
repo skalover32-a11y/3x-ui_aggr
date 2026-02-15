@@ -23,31 +23,32 @@ import (
 )
 
 type Handler struct {
-	DB                  *gorm.DB
-	Encryptor           *security.Encryptor
-	Audit               *audit.Service
-	Alerts              *alerts.Service
-	Checks              *checks.Worker
-	AdminUser           string
-	AdminPass           string
-	JWTSecret           []byte
-	JWTExpiry           time.Duration
-	RefreshTTL          time.Duration
-	WebAuthnRegisterTTL time.Duration
-	WebAuthnLoginTTL    time.Duration
-	FileAllowedRoots    []string
-	FilePreviewMaxBytes int64
-	FileTailMaxBytes    int64
-	Ops                 *ops.Service
-	Dashboard           *dashboard.Service
-	WebAuthn            WebAuthnProvider
-	SSHClient           *sshclient.Client
-	SSHManager          *sshws.Manager
-	SSHIdleTimeout      time.Duration
-	MasterKey           string
-	AllowCIDR           string
-	TokenSalt           string
-	PublicBaseURL       string
+	DB                    *gorm.DB
+	Encryptor             *security.Encryptor
+	Audit                 *audit.Service
+	Alerts                *alerts.Service
+	Checks                *checks.Worker
+	AdminUser             string
+	AdminPass             string
+	JWTSecret             []byte
+	JWTExpiry             time.Duration
+	RefreshTTL            time.Duration
+	WebAuthnRegisterTTL   time.Duration
+	WebAuthnLoginTTL      time.Duration
+	FileAllowedRoots      []string
+	FilePreviewMaxBytes   int64
+	FileTailMaxBytes      int64
+	Ops                   *ops.Service
+	Dashboard             *dashboard.Service
+	WebAuthn              WebAuthnProvider
+	SSHClient             *sshclient.Client
+	SSHManager            *sshws.Manager
+	SSHIdleTimeout        time.Duration
+	MasterKey             string
+	AllowCIDR             string
+	TokenSalt             string
+	PublicBaseURL         string
+	TelegramWebhookSecret string
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {

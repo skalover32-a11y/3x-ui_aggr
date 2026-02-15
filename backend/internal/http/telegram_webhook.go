@@ -2,6 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -78,6 +82,11 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 		return
 	}
+	expectedSecret := h.telegramWebhookSecretFor(orgID, token)
+	if !h.telegramWebhookAuthorized(c, expectedSecret) {
+		c.JSON(http.StatusUnauthorized, gin.H{"ok": false})
+		return
+	}
 	data := strings.TrimSpace(update.CallbackQuery.Data)
 	fromID := int64(0)
 	if update.CallbackQuery.From != nil {
@@ -92,28 +101,108 @@ func (h *Handler) TelegramWebhook(c *gin.Context) {
 			chatID = fmt.Sprintf("%d", update.CallbackQuery.Message.Chat.ID)
 		}
 	}
+	if !telegramChatAllowed(chatID, row.AdminChatID) {
+		log.Printf("telegram callback denied: action=%s alert_id=%s chat_id=%s", action, alertID, chatID)
+		_ = h.Alerts.AnswerCallback(c.Request.Context(), token, update.CallbackQuery.ID, "forbidden")
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
 	if action == "retry" && alertID != "" {
 		if fingerprint, err := h.lookupFingerprintByAlertID(c.Request.Context(), alertID); err == nil && fingerprint != "" {
 			log.Printf("telegram callback action=%s alert_id=%s chat_id=%s fingerprint=%s", action, alertID, chatID, fingerprint)
-			if _, err := h.runRetry(c.Request.Context(), fingerprint); err != nil {
+			if result, err := h.runRetry(c.Request.Context(), fingerprint); err != nil {
 				msg = "Retry failed"
+				_ = h.Alerts.SendMessage(c.Request.Context(), token, chatID, fmt.Sprintf("Retry failed: %s", err.Error()))
 			} else {
-				msg = "Retry queued"
+				msg = "Retry completed"
+				_ = h.Alerts.SendMessage(c.Request.Context(), token, chatID, retryStatusMessage(result))
 			}
 		} else {
 			log.Printf("telegram callback action=%s alert_id=%s chat_id=%s fingerprint=%s", action, alertID, chatID, alertID)
-			if _, err := h.runRetry(c.Request.Context(), alertID); err != nil {
+			if result, err := h.runRetry(c.Request.Context(), alertID); err != nil {
 				msg = "Retry failed"
+				_ = h.Alerts.SendMessage(c.Request.Context(), token, chatID, fmt.Sprintf("Retry failed: %s", err.Error()))
 			} else {
-				msg = "Retry queued"
+				msg = "Retry completed"
+				_ = h.Alerts.SendMessage(c.Request.Context(), token, chatID, retryStatusMessage(result))
 			}
 		}
 	} else {
 		log.Printf("telegram callback action=%s alert_id=%s chat_id=%s", action, alertID, chatID)
 		msg, _ = h.Alerts.HandleCallback(c.Request.Context(), token, data)
+		if action == "ack" {
+			_ = h.Alerts.SendMessage(c.Request.Context(), token, chatID, "Alert acknowledged")
+		}
 	}
 	_ = h.Alerts.AnswerCallback(c.Request.Context(), token, update.CallbackQuery.ID, msg)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *Handler) telegramWebhookAuthorized(c *gin.Context, expectedSecret string) bool {
+	if h == nil {
+		return false
+	}
+	header := strings.TrimSpace(c.GetHeader("X-Telegram-Bot-Api-Secret-Token"))
+	if header == "" {
+		return false
+	}
+	expected := strings.TrimSpace(expectedSecret)
+	if expected != "" && subtle.ConstantTimeCompare([]byte(expected), []byte(header)) == 1 {
+		return true
+	}
+	legacy := strings.TrimSpace(h.TelegramWebhookSecret)
+	if legacy != "" && subtle.ConstantTimeCompare([]byte(legacy), []byte(header)) == 1 {
+		return true
+	}
+	return false
+}
+
+func (h *Handler) telegramWebhookSecretFor(orgID uuid.UUID, botToken string) string {
+	if h == nil {
+		return ""
+	}
+	salt := strings.TrimSpace(h.TokenSalt)
+	token := strings.TrimSpace(botToken)
+	if salt == "" || token == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(salt))
+	_, _ = mac.Write([]byte(orgID.String()))
+	_, _ = mac.Write([]byte{':'})
+	_, _ = mac.Write([]byte(token))
+	sum := mac.Sum(nil)
+	return "tg_" + base64.RawURLEncoding.EncodeToString(sum)
+}
+
+func telegramChatAllowed(chatID, rawAllowed string) bool {
+	id := strings.TrimSpace(chatID)
+	if id == "" {
+		return false
+	}
+	for _, allowed := range splitChatIDs(rawAllowed) {
+		if id == strings.TrimSpace(allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+func retryStatusMessage(result *db.CheckResult) string {
+	if result == nil {
+		return "Retry completed"
+	}
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = "unknown"
+	}
+	latency := "-"
+	if result.LatencyMS != nil {
+		latency = fmt.Sprintf("%dms", *result.LatencyMS)
+	}
+	if result.Error != nil && strings.TrimSpace(*result.Error) != "" {
+		return fmt.Sprintf("Retry result: %s (%s)\nError: %s", status, latency, strings.TrimSpace(*result.Error))
+	}
+	return fmt.Sprintf("Retry result: %s (%s)", status, latency)
 }
 
 func (h *Handler) lookupFingerprintByAlertID(ctx context.Context, alertID string) (string, error) {

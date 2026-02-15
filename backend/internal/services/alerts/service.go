@@ -19,12 +19,46 @@ import (
 )
 
 const (
-	dedupTTL          = 5 * time.Minute
-	cpuLoadThreshold  = 2.0
-	memPercentHigh    = 90.0
-	diskFreeLow       = 10.0
-	offlineAlertDelay = 5 * time.Minute
+	dedupTTL = 5 * time.Minute
 )
+
+type Policy struct {
+	CPULoadThreshold float64
+	MemPercentHigh   float64
+	DiskFreeLow      float64
+	OfflineDelay     time.Duration
+}
+
+func defaultPolicy() Policy {
+	return Policy{
+		CPULoadThreshold: 2.0,
+		MemPercentHigh:   90.0,
+		DiskFreeLow:      10.0,
+		OfflineDelay:     5 * time.Minute,
+	}
+}
+
+type Option func(*Service)
+
+func WithPolicy(policy Policy) Option {
+	return func(s *Service) {
+		if s == nil {
+			return
+		}
+		if policy.CPULoadThreshold > 0 {
+			s.policy.CPULoadThreshold = policy.CPULoadThreshold
+		}
+		if policy.MemPercentHigh > 0 {
+			s.policy.MemPercentHigh = policy.MemPercentHigh
+		}
+		if policy.DiskFreeLow > 0 {
+			s.policy.DiskFreeLow = policy.DiskFreeLow
+		}
+		if policy.OfflineDelay >= 0 {
+			s.policy.OfflineDelay = policy.OfflineDelay
+		}
+	}
+}
 
 type Service struct {
 	db            *gorm.DB
@@ -32,6 +66,7 @@ type Service struct {
 	publicBaseURL string
 	client        *telegramClient
 	dedup         *Deduper
+	policy        Policy
 	mu            sync.Mutex
 	mutedUntil    map[string]time.Time
 }
@@ -56,15 +91,22 @@ type SendResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func New(dbConn *gorm.DB, enc *security.Encryptor, publicBaseURL string) *Service {
-	return &Service{
+func New(dbConn *gorm.DB, enc *security.Encryptor, publicBaseURL string, opts ...Option) *Service {
+	svc := &Service{
 		db:            dbConn,
 		enc:           enc,
 		publicBaseURL: strings.TrimSpace(publicBaseURL),
 		client:        newTelegramClient(),
 		dedup:         NewDeduper(dedupTTL),
+		policy:        defaultPolicy(),
 		mutedUntil:    map[string]time.Time{},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(svc)
+		}
+	}
+	return svc
 }
 
 func (s *Service) LoadSettings(ctx context.Context) (*Settings, error) {
@@ -142,20 +184,10 @@ func (s *Service) LoadSettingsForOrg(ctx context.Context, orgID *uuid.UUID) (*Se
 		Order("created_at desc").
 		First(&row).Error
 	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
 		}
-		// Legacy fallback: older installs may still have a single global row without org_id.
-		legacyErr := s.db.WithContext(ctx).
-			Where("org_id IS NULL").
-			Order("created_at desc").
-			First(&row).Error
-		if legacyErr != nil {
-			if errors.Is(legacyErr, gorm.ErrRecordNotFound) {
-				return nil, nil
-			}
-			return nil, legacyErr
-		}
+		return nil, err
 	}
 	return s.settingsFromRow(&row)
 }
@@ -164,7 +196,8 @@ func (s *Service) NotifyCPU(ctx context.Context, settings *Settings, node *db.No
 	if settings == nil || !settings.AlertCPU || node == nil {
 		return
 	}
-	active := load1 >= cpuLoadThreshold
+	threshold := s.policy.CPULoadThreshold
+	active := load1 >= threshold
 	alert := Alert{
 		Type:     AlertCPU,
 		NodeID:   node.ID,
@@ -173,7 +206,7 @@ func (s *Service) NotifyCPU(ctx context.Context, settings *Settings, node *db.No
 		Severity: SeverityWarning,
 		Metrics: AlertMetrics{
 			Load1:     load1,
-			Threshold: cpuLoadThreshold,
+			Threshold: threshold,
 		},
 		PanelURL: node.BaseURL,
 		IP:       node.SSHHost,
@@ -185,7 +218,8 @@ func (s *Service) NotifyMemory(ctx context.Context, settings *Settings, node *db
 	if settings == nil || !settings.AlertMemory || node == nil {
 		return
 	}
-	active := usedPercent >= memPercentHigh
+	threshold := s.policy.MemPercentHigh
+	active := usedPercent >= threshold
 	alert := Alert{
 		Type:     AlertMemory,
 		NodeID:   node.ID,
@@ -194,7 +228,7 @@ func (s *Service) NotifyMemory(ctx context.Context, settings *Settings, node *db
 		Severity: SeverityWarning,
 		Metrics: AlertMetrics{
 			UsedPct:   usedPercent,
-			Threshold: memPercentHigh,
+			Threshold: threshold,
 		},
 		PanelURL: node.BaseURL,
 		IP:       node.SSHHost,
@@ -206,7 +240,8 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 	if settings == nil || !settings.AlertDisk || node == nil {
 		return
 	}
-	active := freePercent <= diskFreeLow
+	threshold := s.policy.DiskFreeLow
+	active := freePercent <= threshold
 	alert := Alert{
 		Type:     AlertDisk,
 		NodeID:   node.ID,
@@ -215,7 +250,7 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 		Severity: SeverityWarning,
 		Metrics: AlertMetrics{
 			FreePct:   freePercent,
-			Threshold: diskFreeLow,
+			Threshold: threshold,
 		},
 		PanelURL: node.BaseURL,
 		IP:       node.SSHHost,
@@ -412,7 +447,7 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		if state != nil && prevStatus == "fail" && !state.FirstSeen.IsZero() {
 			failStartedAt = state.FirstSeen
 		}
-		if now.Sub(failStartedAt) < offlineAlertDelay {
+		if now.Sub(failStartedAt) < s.policy.OfflineDelay {
 			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs)
 			return
 		}
@@ -552,6 +587,23 @@ func (s *Service) AnswerCallback(ctx context.Context, token, callbackID, text st
 		return nil
 	}
 	return s.client.AnswerCallback(ctx, token, callbackID, text)
+}
+
+func (s *Service) SendMessage(ctx context.Context, token, chatID, text string) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("alerts service not configured")
+	}
+	t := strings.TrimSpace(token)
+	c := strings.TrimSpace(chatID)
+	if t == "" || c == "" {
+		return fmt.Errorf("token and chat id required")
+	}
+	msg := strings.TrimSpace(text)
+	if msg == "" {
+		msg = "OK"
+	}
+	_, err := s.client.SendMessage(ctx, t, c, escapeHTML(msg), parseModeHTML, nil)
+	return err
 }
 
 func (s *Service) setMute(fingerprint string, dur time.Duration) {
@@ -697,15 +749,15 @@ func nodeLabel(node *db.Node) string {
 }
 
 func CPUThreshold() float64 {
-	return cpuLoadThreshold
+	return defaultPolicy().CPULoadThreshold
 }
 
 func MemThreshold() float64 {
-	return memPercentHigh
+	return defaultPolicy().MemPercentHigh
 }
 
 func DiskThreshold() float64 {
-	return diskFreeLow
+	return defaultPolicy().DiskFreeLow
 }
 
 func (s *Service) loadState(ctx context.Context, fingerprint string) *db.AlertState {
