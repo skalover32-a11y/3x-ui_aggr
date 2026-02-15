@@ -19,13 +19,11 @@ import (
 )
 
 const (
-	dedupTTL         = 5 * time.Minute
-	cpuLoadThreshold = 2.0
-	memPercentHigh   = 90.0
-	diskFreeLow      = 10.0
-	// Generic service/container checks are noisy on transient network hiccups.
-	// Require two consecutive fail samples before sending an alert.
-	genericFailThreshold = 2
+	dedupTTL          = 5 * time.Minute
+	cpuLoadThreshold  = 2.0
+	memPercentHigh    = 90.0
+	diskFreeLow       = 10.0
+	offlineAlertDelay = 5 * time.Minute
 )
 
 type Service struct {
@@ -381,27 +379,10 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	}
 	prevMessageIDs := messageIDsFromJSONOrEmpty(state)
 
-	// Anti-spam hysteresis for generic checks (docker/systemd/http service checks).
-	if alert.Type == AlertGeneric && status == "fail" {
-		failStreak := 1
-		if prevStatus == "fail" {
-			failStreak = state.Occurrences + 1
-			if failStreak < 1 {
-				failStreak = 1
-			}
-		}
-		alert.Occurrences = failStreak
-		if failStreak < genericFailThreshold && len(prevMessageIDs) == 0 {
-			// Not enough consecutive fails yet and no active telegram thread.
-			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs)
-			return
-		}
-	}
-
 	if status == "ok" {
 		if state != nil && prevStatus == "fail" {
-			if alert.Type == AlertGeneric && len(prevMessageIDs) == 0 {
-				// Generic fail was never surfaced to Telegram (below threshold or send failed):
+			if len(prevMessageIDs) == 0 {
+				// Fail state was not surfaced to Telegram (delay window or send failed):
 				// do not send a recovery notification.
 				alert.Occurrences = 0
 				s.updateState(ctx, alert, state, "ok", now, true, map[string]int{})
@@ -417,9 +398,28 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		return
 	}
 
+	if state != nil && prevStatus == "fail" {
+		alert.Occurrences = state.Occurrences + 1
+		if alert.Occurrences < 1 {
+			alert.Occurrences = 1
+		}
+	} else {
+		alert.Occurrences = 1
+	}
+
+	if requiresOfflineDelay(alert.Type) && len(prevMessageIDs) == 0 {
+		failStartedAt := now
+		if state != nil && prevStatus == "fail" && !state.FirstSeen.IsZero() {
+			failStartedAt = state.FirstSeen
+		}
+		if now.Sub(failStartedAt) < offlineAlertDelay {
+			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs)
+			return
+		}
+	}
+
 	repeatedFailWithoutThread := false
 	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
-		alert.Occurrences = state.Occurrences
 		existingMessageIDs := messageIDsFromJSONOrEmpty(state)
 		if len(existingMessageIDs) > 0 && hasMessageThreadForAllChats(settings.AdminChatIDs, existingMessageIDs) {
 			s.updateState(ctx, alert, state, status, now, false, existingMessageIDs)
@@ -430,14 +430,8 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		// retry sending until a thread is created.
 		repeatedFailWithoutThread = true
 	}
-	if state != nil {
-		if repeatedFailWithoutThread {
-			alert.Occurrences = state.Occurrences
-		} else {
-			alert.Occurrences = state.Occurrences + 1
-		}
-	} else {
-		alert.Occurrences = 1
+	if repeatedFailWithoutThread && state != nil && alert.Occurrences < state.Occurrences {
+		alert.Occurrences = state.Occurrences
 	}
 
 	if s.isMuted(ctx, alert.Fingerprint) {
@@ -779,6 +773,15 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 			payload["alert_id"] = id
 		}
 	}
+	if state != nil && status == "fail" {
+		prev := ""
+		if state.LastStatus != nil {
+			prev = strings.ToLower(strings.TrimSpace(*state.LastStatus))
+		}
+		if prev != "fail" {
+			payload["first_seen"] = now
+		}
+	}
 	if state != nil {
 		_ = s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", alert.Fingerprint).Updates(payload).Error
 		return
@@ -867,6 +870,10 @@ func messageIDsFromJSONOrEmpty(state *db.AlertState) map[string]int {
 		return map[string]int{}
 	}
 	return messageIDsFromJSON(state.LastMessageIDs)
+}
+
+func requiresOfflineDelay(alertType AlertType) bool {
+	return alertType == AlertGeneric || alertType == AlertConnection
 }
 
 func hasMessageThreadForAllChats(chatIDs []string, messageIDs map[string]int) bool {

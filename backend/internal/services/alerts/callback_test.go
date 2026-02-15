@@ -92,14 +92,15 @@ func TestAlertTransitions(t *testing.T) {
 	}
 	nodeID := uuid.New()
 	alert := Alert{
-		Type:       AlertConnection,
-		NodeID:     nodeID,
-		NodeName:   "node",
-		TargetType: "ssh",
-		Severity:   SeverityCritical,
-		TS:         time.Now(),
-		SSHOK:      false,
-		PanelOK:    true,
+		Type:     AlertCPU,
+		NodeID:   nodeID,
+		NodeName: "node",
+		Severity: SeverityCritical,
+		TS:       time.Now(),
+		Metrics: AlertMetrics{
+			Load1:     4.2,
+			Threshold: 2.0,
+		},
 	}
 	svc.maybeSendAlert(context.Background(), settings, true, alert)
 	if rt.sendCount != 1 {
@@ -170,7 +171,7 @@ func TestAlertResendsWhenFailStateHasNoTelegramThread(t *testing.T) {
 		AlertType:      string(alert.Type),
 		NodeID:         &nodeID,
 		LastStatus:     &status,
-		FirstSeen:      time.Now().Add(-time.Minute),
+		FirstSeen:      time.Now().Add(-6 * time.Minute),
 		LastSeen:       time.Now().Add(-time.Minute),
 		Occurrences:    1,
 		LastMessageIDs: datatypes.JSON([]byte("[]")),
@@ -298,7 +299,7 @@ func TestAlertFallsBackToSendWhenEditFails(t *testing.T) {
 	}
 }
 
-func TestGenericAlertRequiresConsecutiveFails(t *testing.T) {
+func TestGenericAlertSendsAfterOfflineDelay(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
 		t.Skip("TEST_DB_DSN not set")
@@ -340,10 +341,23 @@ func TestGenericAlertRequiresConsecutiveFails(t *testing.T) {
 		t.Fatalf("expected no send on first fail, got %d", rt.sendCount)
 	}
 
-	// Second consecutive fail: send alert.
+	// Still within delay window: no send.
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no send before delay window, got %d", rt.sendCount)
+	}
+
+	// Move fail start into the past beyond delay threshold.
+	if err := dbConn.Model(&db.AlertState{}).
+		Where("fingerprint = ?", alert.Fingerprint).
+		Update("first_seen", time.Now().Add(-6*time.Minute)).Error; err != nil {
+		t.Fatalf("update first_seen: %v", err)
+	}
+
+	// Next fail after delay: send alert.
 	svc.maybeSendAlert(context.Background(), settings, true, alert)
 	if rt.sendCount != 1 {
-		t.Fatalf("expected send on second fail, got %d", rt.sendCount)
+		t.Fatalf("expected send after delay, got %d", rt.sendCount)
 	}
 
 	// Recovery after surfaced fail: separate recovery message.
