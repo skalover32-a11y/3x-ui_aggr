@@ -267,7 +267,7 @@ function DashboardStatusBadge({ status }) {
 
 function formatProblemMessage(problem, t) {
   if (!problem) return "-";
-  const direct = problem.message || problem.error || problem.details;
+  const direct = problem.message || problem.error || problem.details || problem.description || problem.last_error || problem.title;
   if (direct) return direct;
   const alertType = String(problem.alert_type || problem.type || "").toLowerCase();
   if (alertType === "tls") {
@@ -1358,6 +1358,10 @@ function NodesPage() {
   const [orgInvitesBusy, setOrgInvitesBusy] = useState(false);
   const [orgInvitesError, setOrgInvitesError] = useState("");
   const [orgInviteDraft, setOrgInviteDraft] = useState({ expires_in_hours: 168, role: "viewer" });
+  const [orgBackupBusy, setOrgBackupBusy] = useState(false);
+  const [orgBackupError, setOrgBackupError] = useState("");
+  const [orgBackupInfo, setOrgBackupInfo] = useState("");
+  const [orgBackupFile, setOrgBackupFile] = useState(null);
   const [totpOpen, setTotpOpen] = useState(false);
   const [totpStatus, setTotpStatus] = useState(null);
   const [totpSetup, setTotpSetup] = useState(null);
@@ -3198,6 +3202,55 @@ function NodesPage() {
     }
   }
 
+  async function exportOrgBackup() {
+    const orgId = getOrgId();
+    if (!orgId) return;
+    setOrgBackupBusy(true);
+    setOrgBackupError("");
+    setOrgBackupInfo("");
+    try {
+      const payload = await request("GET", `/orgs/${orgId}/export`);
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `org-backup-${orgId}-${stamp}.json`;
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setOrgBackupInfo(t("Backup exported"));
+    } catch (err) {
+      setOrgBackupError(err.message);
+    } finally {
+      setOrgBackupBusy(false);
+    }
+  }
+
+  async function importOrgBackup() {
+    const orgId = getOrgId();
+    if (!orgId || !orgBackupFile) return;
+    setOrgBackupBusy(true);
+    setOrgBackupError("");
+    setOrgBackupInfo("");
+    try {
+      const raw = await orgBackupFile.text();
+      const payload = JSON.parse(raw);
+      await request("POST", `/orgs/${orgId}/import`, payload);
+      await loadNodes();
+      setServicesMap({});
+      setBotsMap({});
+      setOrgBackupFile(null);
+      setOrgBackupInfo(t("Backup imported"));
+    } catch (err) {
+      setOrgBackupError(err.message);
+    } finally {
+      setOrgBackupBusy(false);
+    }
+  }
+
   async function openTOTP() {
     setTotpOpen(true);
     setTotpSetup(null);
@@ -4723,6 +4776,26 @@ function NodesPage() {
                     </div>
                   )}
                 </div>
+
+                <div className="section-divider" />
+                <h4>{t("Organization backup")}</h4>
+                <div className="form-grid" autoComplete="off">
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(e) => setOrgBackupFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+                <div className="actions">
+                  <button type="button" className="secondary" onClick={exportOrgBackup} disabled={orgBackupBusy}>
+                    {t("Export backup")}
+                  </button>
+                  <button type="button" onClick={importOrgBackup} disabled={orgBackupBusy || !orgBackupFile}>
+                    {t("Import backup")}
+                  </button>
+                </div>
+                {orgBackupError && <div className="error">{orgBackupError}</div>}
+                {orgBackupInfo && <div className="hint">{orgBackupInfo}</div>}
               </>
             )}
 
@@ -4961,12 +5034,26 @@ function DashboardPage() {
     setProblemsLoading(true);
     setProblemsError("");
     try {
-      const data = await request("GET", "/alerts?active=true&limit=200");
+      const data = await request("GET", "/incidents?active=true&limit=200");
       setProblemsList(Array.isArray(data) ? data : []);
     } catch (err) {
       setProblemsError(err.message);
     } finally {
       setProblemsLoading(false);
+    }
+  }
+
+  async function ackProblem(row) {
+    if (!row?.id) return;
+    setProblemsError("");
+    try {
+      await request("POST", `/incidents/${row.id}/ack`, {});
+      await loadProblems();
+      if (problemDetails && problemDetails.id === row.id) {
+        setProblemDetails(null);
+      }
+    } catch (err) {
+      setProblemsError(err.message);
     }
   }
 
@@ -5437,7 +5524,7 @@ function DashboardPage() {
                 {problemsFiltered.map((row) => {
                   const rowNode = row.node_id || row.nodeId || row.node || row.target_id;
                   const nodeName = nodeNameById[rowNode] || rowNode || "-";
-                  const status = row.last_status || row.status || "fail";
+                  const status = row.status || row.last_status || "open";
                   const message = formatProblemMessage(row, t);
                   const occurrences = row.occurrences || row.count || 0;
                   return (
@@ -5446,12 +5533,15 @@ function DashboardPage() {
                         <span>{nodeName}</span>
                         {occurrences > 0 && <span className="badge problem-count">×{occurrences}</span>}
                       </div>
-                      <div data-label={t("Type")}>{row.alert_type || row.type || row.check_type || "-"}</div>
+                      <div data-label={t("Type")}>{row.alert_type || row.type || row.check_type || row.severity || "-"}</div>
                       <div data-label={t("Status")}>{status}</div>
                       <div data-label={t("Last seen")}>{formatTS(row.last_seen || row.updated_at || row.created_at)}</div>
                       <div data-label={t("Message")}>{message}</div>
                       <div className="actions">
                         <button type="button" onClick={() => setProblemDetails({ ...row, nodeName, message })}>{t("Open")}</button>
+                        {status !== "acked" && (
+                          <button type="button" className="secondary" onClick={() => ackProblem(row)}>{t("Ack")}</button>
+                        )}
                       </div>
                     </div>
                   );
@@ -5494,6 +5584,9 @@ function DashboardPage() {
               <div className="muted small">{t("Message")}</div>
               <div className="detail-message">{problemDetails.message || formatProblemMessage(problemDetails, t)}</div>
               <div className="actions">
+                {(problemDetails.status || problemDetails.last_status) !== "acked" && (
+                  <button type="button" className="secondary" onClick={() => ackProblem(problemDetails)}>{t("Ack")}</button>
+                )}
                 <button type="button" onClick={() => {
                   const rowNode = problemDetails.node_id || problemDetails.nodeId || problemDetails.node || problemDetails.target_id;
                   if (rowNode) navigate(`/nodes?node=${rowNode}`);

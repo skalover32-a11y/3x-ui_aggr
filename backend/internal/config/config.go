@@ -36,6 +36,7 @@ type Config struct {
 	DashboardPanelSessionTTL     time.Duration
 	DashboardAgentTimeout        time.Duration
 	DashboardAgentPrefer         bool
+	MetricsRetention             time.Duration
 	AlertCPUThreshold            float64
 	AlertMemoryThreshold         float64
 	AlertDiskFreeThreshold       float64
@@ -103,6 +104,7 @@ func Load() (*Config, error) {
 	cfg.DashboardPanelSessionTTL = parseDurationAllowZeroEnv("DASHBOARD_PANEL_SESSION_TTL", 12*time.Hour)
 	cfg.DashboardAgentTimeout = parseDurationEnv("DASHBOARD_AGENT_TIMEOUT", 5*time.Second)
 	cfg.DashboardAgentPrefer = parseBoolEnv("DASHBOARD_AGENT_PREFER", true)
+	cfg.MetricsRetention = parseDurationAllowZeroEnv("METRICS_RETENTION", 30*24*time.Hour)
 	cfg.AlertCPUThreshold = parseFloat64Env("ALERT_CPU_THRESHOLD", 2.0)
 	cfg.AlertMemoryThreshold = parseFloat64Env("ALERT_MEMORY_THRESHOLD", 90.0)
 	cfg.AlertDiskFreeThreshold = parseFloat64Env("ALERT_DISK_FREE_THRESHOLD", 10.0)

@@ -19,6 +19,9 @@ type checkRequest struct {
 	IntervalSec   *int             `json:"interval_sec"`
 	TimeoutMS     *int             `json:"timeout_ms"`
 	Retries       *int             `json:"retries"`
+	FailAfterSec  *int             `json:"fail_after_sec"`
+	RecoverAfterOK *int            `json:"recover_after_ok"`
+	MuteUntil     *time.Time       `json:"mute_until"`
 	Enabled       *bool            `json:"enabled"`
 	SeverityRules *json.RawMessage `json:"severity_rules"`
 }
@@ -31,6 +34,9 @@ type checkResponse struct {
 	IntervalSec   int             `json:"interval_sec"`
 	TimeoutMS     int             `json:"timeout_ms"`
 	Retries       int             `json:"retries"`
+	FailAfterSec  int             `json:"fail_after_sec"`
+	RecoverAfterOK int            `json:"recover_after_ok"`
+	MuteUntil     *time.Time      `json:"mute_until,omitempty"`
 	Enabled       bool            `json:"enabled"`
 	SeverityRules json.RawMessage `json:"severity_rules"`
 	CreatedAt     time.Time       `json:"created_at"`
@@ -68,6 +74,9 @@ func toCheckResponse(check *db.Check) checkResponse {
 		IntervalSec:   check.IntervalSec,
 		TimeoutMS:     check.TimeoutMS,
 		Retries:       check.Retries,
+		FailAfterSec:  check.FailAfterSec,
+		RecoverAfterOK: check.RecoverAfterOK,
+		MuteUntil:     check.MuteUntil,
 		Enabled:       check.Enabled,
 		SeverityRules: json.RawMessage(check.SeverityRules),
 		CreatedAt:     check.CreatedAt,
@@ -142,6 +151,20 @@ func (h *Handler) CreateNodeCheck(c *gin.Context) {
 	if req.Retries != nil {
 		retries = *req.Retries
 	}
+	failAfterSec := 300
+	if req.FailAfterSec != nil {
+		failAfterSec = *req.FailAfterSec
+	}
+	if failAfterSec < 0 {
+		failAfterSec = 0
+	}
+	recoverAfterOK := 2
+	if req.RecoverAfterOK != nil {
+		recoverAfterOK = *req.RecoverAfterOK
+	}
+	if recoverAfterOK < 1 {
+		recoverAfterOK = 1
+	}
 	row := db.Check{
 		TargetType:    "node",
 		TargetID:      node.ID,
@@ -149,6 +172,9 @@ func (h *Handler) CreateNodeCheck(c *gin.Context) {
 		IntervalSec:   interval,
 		TimeoutMS:     timeout,
 		Retries:       retries,
+		FailAfterSec:  failAfterSec,
+		RecoverAfterOK: recoverAfterOK,
+		MuteUntil:     req.MuteUntil,
 		Enabled:       enabled,
 		SeverityRules: severity,
 		CreatedAt:     time.Now(),
@@ -192,6 +218,20 @@ func (h *Handler) CreateServiceCheck(c *gin.Context) {
 	if req.Retries != nil {
 		retries = *req.Retries
 	}
+	failAfterSec := 300
+	if req.FailAfterSec != nil {
+		failAfterSec = *req.FailAfterSec
+	}
+	if failAfterSec < 0 {
+		failAfterSec = 0
+	}
+	recoverAfterOK := 2
+	if req.RecoverAfterOK != nil {
+		recoverAfterOK = *req.RecoverAfterOK
+	}
+	if recoverAfterOK < 1 {
+		recoverAfterOK = 1
+	}
 	row := db.Check{
 		TargetType:    "service",
 		TargetID:      service.ID,
@@ -199,6 +239,9 @@ func (h *Handler) CreateServiceCheck(c *gin.Context) {
 		IntervalSec:   interval,
 		TimeoutMS:     timeout,
 		Retries:       retries,
+		FailAfterSec:  failAfterSec,
+		RecoverAfterOK: recoverAfterOK,
+		MuteUntil:     req.MuteUntil,
 		Enabled:       enabled,
 		SeverityRules: severity,
 		CreatedAt:     time.Now(),
@@ -232,6 +275,21 @@ func (h *Handler) UpdateCheck(c *gin.Context) {
 	}
 	if req.Retries != nil {
 		check.Retries = *req.Retries
+	}
+	if req.FailAfterSec != nil {
+		check.FailAfterSec = *req.FailAfterSec
+		if check.FailAfterSec < 0 {
+			check.FailAfterSec = 0
+		}
+	}
+	if req.RecoverAfterOK != nil {
+		check.RecoverAfterOK = *req.RecoverAfterOK
+		if check.RecoverAfterOK < 1 {
+			check.RecoverAfterOK = 1
+		}
+	}
+	if req.MuteUntil != nil {
+		check.MuteUntil = req.MuteUntil
 	}
 	if req.Enabled != nil {
 		check.Enabled = *req.Enabled

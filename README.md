@@ -634,4 +634,18 @@ Host: 1.2.3.4
 Severity: WARNING
 ```
 
+## Incidents, diagnostics, backup
+New API endpoints:
+
+- `GET /api/incidents?active=true&limit=200`
+  - Returns org-scoped incidents.
+- `POST /api/incidents/:id/ack`
+  - Marks incident as acknowledged (`status=acked`), mutes linked alert state for 24h.
+- `GET /api/nodes/:id/diagnostics`
+  - Returns extended node diagnostics: latest metrics, latest node check, service/bot counters, incident summary.
+- `GET /api/orgs/:orgId/export`
+  - Exports org configuration backup (nodes, services, bots, checks, keys) as JSON.
+- `POST /api/orgs/:orgId/import`
+  - Imports org configuration backup into current org (replace mode for org-scoped data).
+
 

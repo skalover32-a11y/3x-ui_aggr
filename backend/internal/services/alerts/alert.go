@@ -35,6 +35,7 @@ type AlertMetrics struct {
 }
 type Alert struct {
 	Type        AlertType
+	OrgID       *uuid.UUID
 	NodeID      uuid.UUID
 	ServiceID   uuid.UUID
 	BotID       uuid.UUID
@@ -55,6 +56,10 @@ type Alert struct {
 	IP          string
 	Error       string
 	AlertID     string
+	IncidentID  string
 	Fingerprint string
 	Occurrences int
+	FailAfterSec  int
+	RecoverAfterOK int
+	MuteUntil      *time.Time
 }

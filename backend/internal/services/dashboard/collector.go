@@ -577,13 +577,6 @@ func computeAggregate(nodes []DashboardNode) AggregateSummary {
 	return agg
 }
 
-type trafficPoint struct {
-	NodeID uuid.UUID
-	TS     time.Time
-	NetRx  *int64
-	NetTx  *int64
-}
-
 func (s *Service) computeTrafficTotalsForNodeIDs(ctx context.Context, nodeIDs []uuid.UUID) (*int64, *int64, error) {
 	traffic24h, err := s.computeTrafficTotalForRange(ctx, nodeIDs, 24*time.Hour)
 	if err != nil {
@@ -601,46 +594,33 @@ func (s *Service) computeTrafficTotalForRange(ctx context.Context, nodeIDs []uui
 		return nil, nil
 	}
 	cutoff := time.Now().UTC().Add(-window)
-	var rows []trafficPoint
-	query := s.DB.WithContext(ctx).
-		Table("node_metrics").
-		Select("node_id, ts, net_rx_bytes as net_rx, net_tx_bytes as net_tx").
-		Where("ts >= ?", cutoff).
-		Where("net_rx_bytes IS NOT NULL AND net_tx_bytes IS NOT NULL").
-		Order("node_id, ts")
+	sql := `
+WITH ordered AS (
+  SELECT
+    node_id,
+    GREATEST(net_rx_bytes - LAG(net_rx_bytes) OVER (PARTITION BY node_id ORDER BY ts), 0) AS rx_delta,
+    GREATEST(net_tx_bytes - LAG(net_tx_bytes) OVER (PARTITION BY node_id ORDER BY ts), 0) AS tx_delta
+  FROM node_metrics
+  WHERE ts >= ?
+    AND net_rx_bytes IS NOT NULL
+    AND net_tx_bytes IS NOT NULL
+`
+	args := []any{cutoff}
 	if len(nodeIDs) > 0 {
-		query = query.Where("node_id IN ?", nodeIDs)
+		sql += "    AND node_id IN ?\n"
+		args = append(args, nodeIDs)
 	}
-	err := query.Scan(&rows).Error
-	if err != nil {
+	sql += `)
+SELECT COALESCE(SUM(COALESCE(rx_delta, 0) + COALESCE(tx_delta, 0)), 0) AS total
+FROM ordered
+`
+	var row struct {
+		Total int64 `gorm:"column:total"`
+	}
+	if err := s.DB.WithContext(ctx).Raw(sql, args...).Scan(&row).Error; err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-	var total int64
-	var current uuid.UUID
-	var prevRx, prevTx *int64
-	first := true
-	for _, row := range rows {
-		if first || row.NodeID != current {
-			current = row.NodeID
-			prevRx, prevTx = row.NetRx, row.NetTx
-			first = false
-			continue
-		}
-		if prevRx != nil && row.NetRx != nil {
-			if delta := *row.NetRx - *prevRx; delta > 0 {
-				total += delta
-			}
-		}
-		if prevTx != nil && row.NetTx != nil {
-			if delta := *row.NetTx - *prevTx; delta > 0 {
-				total += delta
-			}
-		}
-		prevRx, prevTx = row.NetRx, row.NetTx
-	}
+	total := row.Total
 	return &total, nil
 }
 

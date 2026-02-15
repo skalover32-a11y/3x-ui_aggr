@@ -133,6 +133,8 @@ func (h *Handler) createDefaultBotCheck(ctx context.Context, tx *gorm.DB, bot *d
 		IntervalSec:   30,
 		TimeoutMS:     3000,
 		Retries:       1,
+		FailAfterSec:  300,
+		RecoverAfterOK: 2,
 		Enabled:       true,
 		SeverityRules: datatypes.JSON([]byte("{}")),
 		CreatedAt:     time.Now(),

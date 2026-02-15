@@ -123,6 +123,8 @@ func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID
 		IntervalSec:   60,
 		TimeoutMS:     3000,
 		Retries:       1,
+		FailAfterSec:  300,
+		RecoverAfterOK: 2,
 		Enabled:       true,
 		SeverityRules: datatypes.JSON([]byte("{}")),
 		CreatedAt:     time.Now(),

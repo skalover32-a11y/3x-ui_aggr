@@ -131,6 +131,9 @@ type Check struct {
 	IntervalSec   int            `gorm:"not null;default:60" json:"interval_sec"`
 	TimeoutMS     int            `gorm:"not null;default:3000" json:"timeout_ms"`
 	Retries       int            `gorm:"not null;default:1" json:"retries"`
+	FailAfterSec  int            `gorm:"not null;default:300" json:"fail_after_sec"`
+	RecoverAfterOK int           `gorm:"not null;default:2" json:"recover_after_ok"`
+	MuteUntil     *time.Time     `gorm:"type:timestamptz" json:"mute_until,omitempty"`
 	Enabled       bool           `gorm:"not null;default:true" json:"enabled"`
 	SeverityRules datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"severity_rules"`
 	CreatedAt     time.Time      `json:"created_at"`
@@ -150,6 +153,7 @@ type CheckResult struct {
 type AlertState struct {
 	AlertID        *uuid.UUID     `gorm:"type:uuid;uniqueIndex" json:"alert_id"`
 	Fingerprint    string         `gorm:"type:text;primaryKey" json:"fingerprint"`
+	IncidentID     *uuid.UUID     `gorm:"type:uuid" json:"incident_id,omitempty"`
 	AlertType      string         `gorm:"type:text;not null" json:"alert_type"`
 	NodeID         *uuid.UUID     `gorm:"type:uuid" json:"node_id"`
 	ServiceID      *uuid.UUID     `gorm:"type:uuid" json:"service_id"`
@@ -159,9 +163,34 @@ type AlertState struct {
 	FirstSeen      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"first_seen"`
 	LastSeen       time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"last_seen"`
 	Occurrences    int            `gorm:"not null;default:1" json:"occurrences"`
+	OKStreak       int            `gorm:"not null;default:0" json:"ok_streak"`
 	LastMessageIDs datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb" json:"last_message_ids"`
 	MutedUntil     *time.Time     `gorm:"type:timestamptz" json:"muted_until"`
 	UpdatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
+}
+
+type Incident struct {
+	ID             uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID          *uuid.UUID `gorm:"type:uuid" json:"org_id,omitempty"`
+	Fingerprint    string     `gorm:"type:text;uniqueIndex;not null" json:"fingerprint"`
+	AlertType      string     `gorm:"type:text;not null" json:"alert_type"`
+	Severity       string     `gorm:"type:text;not null;default:'critical'" json:"severity"`
+	Status         string     `gorm:"type:text;not null;default:'open'" json:"status"`
+	NodeID         *uuid.UUID `gorm:"type:uuid" json:"node_id,omitempty"`
+	ServiceID      *uuid.UUID `gorm:"type:uuid" json:"service_id,omitempty"`
+	BotID          *uuid.UUID `gorm:"type:uuid" json:"bot_id,omitempty"`
+	CheckID        *uuid.UUID `gorm:"type:uuid" json:"check_id,omitempty"`
+	Title          string     `gorm:"type:text;not null;default:''" json:"title"`
+	Description    *string    `gorm:"type:text" json:"description,omitempty"`
+	FirstSeen      time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"first_seen"`
+	LastSeen       time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"last_seen"`
+	AcknowledgedAt *time.Time `gorm:"type:timestamptz" json:"acknowledged_at,omitempty"`
+	AcknowledgedBy *string    `gorm:"type:text" json:"acknowledged_by,omitempty"`
+	RecoveredAt    *time.Time `gorm:"type:timestamptz" json:"recovered_at,omitempty"`
+	Occurrences    int        `gorm:"not null;default:1" json:"occurrences"`
+	LastError      *string    `gorm:"type:text" json:"last_error,omitempty"`
+	CreatedAt      time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+	UpdatedAt      time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
 }
 type AuditLog struct {
 	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`

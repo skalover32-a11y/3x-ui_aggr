@@ -115,7 +115,7 @@ func main() {
 		}
 	}()
 	nodecheck.New(dbConn, alertsSvc, time.Minute).Start(context.Background())
-	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, 30*24*time.Hour).Start(context.Background())
+	metrics.New(dbConn, handler.SSHClient, enc, alertsSvc, 5*time.Minute, cfg.MetricsRetention).Start(context.Background())
 	checksWorker := checks.New(dbConn, alertsSvc, handler.SSHClient, enc, 10*time.Second)
 	handler.Checks = checksWorker
 	checksWorker.Start(context.Background())

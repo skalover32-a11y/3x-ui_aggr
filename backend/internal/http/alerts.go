@@ -17,6 +17,7 @@ import (
 
 type alertStateResponse struct {
 	Fingerprint string     `json:"fingerprint"`
+	IncidentID  *string    `json:"incident_id,omitempty"`
 	AlertType   string     `json:"alert_type"`
 	NodeID      *string    `json:"node_id"`
 	ServiceID   *string    `json:"service_id"`
@@ -105,6 +106,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		row := rows[i]
 		resp = append(resp, alertStateResponse{
 			Fingerprint: row.Fingerprint,
+			IncidentID:  uuidToStringPtr(row.IncidentID),
 			AlertType:   row.AlertType,
 			NodeID:      uuidToStringPtr(row.NodeID),
 			ServiceID:   uuidToStringPtr(row.ServiceID),

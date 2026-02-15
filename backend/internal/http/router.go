@@ -57,6 +57,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	orgsRead.GET("/users", h.ListOrgUsers)
 	orgsRead.GET("/keys", h.ListOrgKeys)
 	orgsRead.GET("/keys/:keyId/download", h.DownloadOrgKey)
+	orgsWrite.GET("/export", h.ExportOrgConfig)
 	orgsWrite.POST("/nodes", h.CreateOrgNode)
 	orgsWrite.DELETE("/nodes/:nodeId", h.DeleteOrgNode)
 	orgsWrite.POST("/nodes/:nodeId/agent/revoke", h.RevokeAgent)
@@ -68,9 +69,11 @@ func NewRouter(h *Handler) *gin.Engine {
 	orgsWrite.DELETE("/keys/:keyId", h.DeleteOrgKey)
 	orgsWrite.POST("/invites", h.OrgCreateInvite)
 	orgsWrite.POST("/invites/:id/revoke", h.OrgRevokeInvite)
+	orgsWrite.POST("/import", h.ImportOrgConfig)
 
 	auth.GET("/nodes", middleware.RequireRoles(readRoles...), h.ListNodes)
 	auth.GET("/nodes/:id", middleware.RequireRoles(readRoles...), h.GetNode)
+	auth.GET("/nodes/:id/diagnostics", middleware.RequireRoles(readRoles...), h.GetNodeDiagnostics)
 	auth.GET("/nodes/:id/status", middleware.RequireRoles(readRoles...), h.GetNodeStatus)
 	auth.GET("/nodes/:id/uptime", middleware.RequireRoles(readRoles...), h.GetNodeUptime)
 	auth.GET("/nodes/:id/metrics", middleware.RequireRoles(readRoles...), h.GetNodeMetrics)
@@ -140,6 +143,8 @@ func NewRouter(h *Handler) *gin.Engine {
 
 	auth.GET("/audit", middleware.RequireRoles(middleware.RoleAdmin), h.ListAuditLogs)
 	auth.GET("/alerts", middleware.RequireRoles(readRoles...), h.ListAlerts)
+	auth.GET("/incidents", middleware.RequireRoles(readRoles...), h.ListIncidents)
+	auth.POST("/incidents/:id/ack", middleware.RequireRoles(writeRoles...), h.AckIncident)
 	auth.GET("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.GetTelegramSettings)
 	auth.PUT("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateTelegramSettings)
 	auth.POST("/telegram/test", middleware.RequireRoles(middleware.RoleAdmin), h.SendTelegramTest)

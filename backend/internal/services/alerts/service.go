@@ -268,6 +268,7 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 	active := strings.ToLower(strings.TrimSpace(status)) != "ok"
 	alert := Alert{
 		Type:        AlertGeneric,
+		OrgID:       node.OrgID,
 		NodeID:      node.ID,
 		NodeName:    nodeLabel(node),
 		TS:          time.Now(),
@@ -279,6 +280,9 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 		Status:      status,
 		PanelURL:    node.BaseURL,
 		IP:          node.SSHHost,
+		FailAfterSec:  check.FailAfterSec,
+		RecoverAfterOK: check.RecoverAfterOK,
+		MuteUntil:      check.MuteUntil,
 	}
 	alert.Metrics.LatencyMS = latency
 	alert.Metrics.StatusCode = statusCode
@@ -307,6 +311,7 @@ func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node
 	active := status != "ok"
 	alert := Alert{
 		Type:       AlertGeneric,
+		OrgID:      node.OrgID,
 		NodeID:     node.ID,
 		BotID:      bot.ID,
 		NodeName:   nodeLabel(node),
@@ -319,6 +324,9 @@ func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node
 		Status:     status,
 		PanelURL:   node.BaseURL,
 		IP:         node.SSHHost,
+		FailAfterSec:  check.FailAfterSec,
+		RecoverAfterOK: check.RecoverAfterOK,
+		MuteUntil:      check.MuteUntil,
 	}
 	alert.Metrics.LatencyMS = latency
 	alert.Metrics.StatusCode = statusCode
@@ -408,28 +416,64 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	now := time.Now()
 	state := s.loadState(ctx, alert.Fingerprint)
 	alert.AlertID = s.ensureAlertID(ctx, state)
+	if state != nil && state.IncidentID != nil {
+		alert.IncidentID = state.IncidentID.String()
+	}
 	prevStatus := ""
 	if state != nil && state.LastStatus != nil {
 		prevStatus = strings.ToLower(strings.TrimSpace(*state.LastStatus))
 	}
 	prevMessageIDs := messageIDsFromJSONOrEmpty(state)
+	prevOKStreak := 0
+	if state != nil && state.OKStreak > 0 {
+		prevOKStreak = state.OKStreak
+	}
+
+	failDelay := s.policy.OfflineDelay
+	if alert.FailAfterSec > 0 {
+		custom := time.Duration(alert.FailAfterSec) * time.Second
+		if custom > failDelay {
+			failDelay = custom
+		}
+	}
+	if failDelay < 0 {
+		failDelay = 0
+	}
+	recoverAfterOK := alert.RecoverAfterOK
+	if recoverAfterOK < 1 {
+		recoverAfterOK = 1
+	}
+	if alert.MuteUntil != nil && now.Before(*alert.MuteUntil) {
+		s.updateState(ctx, alert, state, status, now, false, prevMessageIDs, prevOKStreak, incidentUUIDFromAlert(alert))
+		_ = s.syncIncident(ctx, alert, now, status, prevStatus)
+		return
+	}
 
 	if status == "ok" {
 		if state != nil && prevStatus == "fail" {
+			okStreak := prevOKStreak + 1
+			if okStreak < recoverAfterOK {
+				s.updateState(ctx, alert, state, "fail", now, false, prevMessageIDs, okStreak, incidentUUIDFromAlert(alert))
+				_ = s.syncIncident(ctx, alert, now, "fail", prevStatus)
+				return
+			}
 			if len(prevMessageIDs) == 0 {
 				// Fail state was not surfaced to Telegram (delay window or send failed):
 				// do not send a recovery notification.
 				alert.Occurrences = 0
-				s.updateState(ctx, alert, state, "ok", now, true, map[string]int{})
+				incidentID := s.syncIncident(ctx, alert, now, "ok", prevStatus)
+				s.updateState(ctx, alert, state, "ok", now, true, map[string]int{}, 0, incidentID)
 				return
 			}
 			alert.Occurrences = state.Occurrences
 			s.sendRecovery(ctx, settings, alert, state)
 			// Clear thread mapping on recovery so the next incident starts a new alert message.
-			s.updateState(ctx, alert, state, "ok", now, true, map[string]int{})
+			incidentID := s.syncIncident(ctx, alert, now, "ok", prevStatus)
+			s.updateState(ctx, alert, state, "ok", now, true, map[string]int{}, 0, incidentID)
 			return
 		}
-		s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSONOrEmpty(state))
+		incidentID := s.syncIncident(ctx, alert, now, "ok", prevStatus)
+		s.updateState(ctx, alert, state, "ok", now, false, messageIDsFromJSONOrEmpty(state), 0, incidentID)
 		return
 	}
 
@@ -447,8 +491,9 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		if state != nil && prevStatus == "fail" && !state.FirstSeen.IsZero() {
 			failStartedAt = state.FirstSeen
 		}
-		if now.Sub(failStartedAt) < s.policy.OfflineDelay {
-			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs)
+		if now.Sub(failStartedAt) < failDelay {
+			incidentID := s.syncIncident(ctx, alert, now, status, prevStatus)
+			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs, 0, incidentID)
 			return
 		}
 	}
@@ -457,7 +502,8 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	if state != nil && state.LastStatus != nil && *state.LastStatus == "fail" {
 		existingMessageIDs := messageIDsFromJSONOrEmpty(state)
 		if len(existingMessageIDs) > 0 && hasMessageThreadForAllChats(settings.AdminChatIDs, existingMessageIDs) {
-			s.updateState(ctx, alert, state, status, now, false, existingMessageIDs)
+			incidentID := s.syncIncident(ctx, alert, now, status, prevStatus)
+			s.updateState(ctx, alert, state, status, now, false, existingMessageIDs, 0, incidentID)
 			return
 		}
 		// If the last fail never produced a Telegram message (e.g. settings/network issue),
@@ -470,7 +516,8 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	}
 
 	if s.isMuted(ctx, alert.Fingerprint) {
-		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state))
+		incidentID := s.syncIncident(ctx, alert, now, status, prevStatus)
+		s.updateState(ctx, alert, state, status, now, false, messageIDsFromJSONOrEmpty(state), 0, incidentID)
 		return
 	}
 
@@ -509,7 +556,8 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 		messageIDs = updatedMessageIDs
 	}
 
-	s.updateState(ctx, alert, state, status, now, true, messageIDs)
+	incidentID := s.syncIncident(ctx, alert, now, status, prevStatus)
+	s.updateState(ctx, alert, state, status, now, true, messageIDs, 0, incidentID)
 }
 
 func (s *Service) SendTest(ctx context.Context, settings *Settings, msg string) error {
@@ -644,11 +692,23 @@ func (s *Service) AckByAlertID(ctx context.Context, alertID string) error {
 		return fmt.Errorf("alert not found")
 	}
 	now := time.Now()
-	return s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", state.Fingerprint).Updates(map[string]any{
-		"last_status": "ok",
+	if err := s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", state.Fingerprint).Updates(map[string]any{
+		"muted_until": now.Add(24 * time.Hour),
 		"updated_at":  now,
 		"last_seen":   now,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	if state.IncidentID != nil {
+		by := "telegram"
+		_ = s.db.WithContext(ctx).Model(&db.Incident{}).Where("id = ?", *state.IncidentID).Updates(map[string]any{
+			"status":          "acked",
+			"acknowledged_at": now,
+			"acknowledged_by": by,
+			"updated_at":      now,
+		}).Error
+	}
+	return nil
 }
 
 func (s *Service) openURLForAlert(ctx context.Context, alertID string) string {
@@ -802,7 +862,7 @@ func (s *Service) ensureAlertID(ctx context.Context, state *db.AlertState) strin
 	return id.String()
 }
 
-func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertState, status string, now time.Time, notified bool, messageIDs map[string]int) {
+func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertState, status string, now time.Time, notified bool, messageIDs map[string]int, okStreak int, incidentID *uuid.UUID) {
 	if s == nil || s.db == nil {
 		return
 	}
@@ -815,6 +875,10 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		"last_status": status,
 		"last_seen":   now,
 		"occurrences": alert.Occurrences,
+		"ok_streak":   okStreak,
+	}
+	if incidentID != nil && *incidentID != uuid.Nil {
+		payload["incident_id"] = *incidentID
 	}
 	if notified {
 		payload["updated_at"] = now
@@ -850,6 +914,7 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 	row := db.AlertState{
 		AlertID:        &alertID,
 		Fingerprint:    alert.Fingerprint,
+		IncidentID:     incidentID,
 		AlertType:      string(alert.Type),
 		NodeID:         nullableUUID(alert.NodeID),
 		ServiceID:      nullableUUID(alert.ServiceID),
@@ -859,10 +924,111 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		FirstSeen:      now,
 		LastSeen:       now,
 		Occurrences:    alert.Occurrences,
+		OKStreak:       okStreak,
 		LastMessageIDs: messageIDsToJSON(messageIDs),
 		UpdatedAt:      now,
 	}
 	_ = s.db.WithContext(ctx).Create(&row).Error
+}
+
+func incidentUUIDFromAlert(alert Alert) *uuid.UUID {
+	if strings.TrimSpace(alert.IncidentID) == "" {
+		return nil
+	}
+	id, err := uuid.Parse(strings.TrimSpace(alert.IncidentID))
+	if err != nil || id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+
+func (s *Service) syncIncident(ctx context.Context, alert Alert, now time.Time, status, prevStatus string) *uuid.UUID {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	fp := strings.TrimSpace(alert.Fingerprint)
+	if fp == "" {
+		return nil
+	}
+
+	var incident db.Incident
+	err := s.db.WithContext(ctx).Where("fingerprint = ?", fp).First(&incident).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		if status != "fail" {
+			return nil
+		}
+		desc := strings.TrimSpace(alert.Error)
+		rec := db.Incident{
+			OrgID:       alert.OrgID,
+			Fingerprint: fp,
+			AlertType:   string(alert.Type),
+			Severity:    string(alert.Severity),
+			Status:      "open",
+			NodeID:      nullableUUID(alert.NodeID),
+			ServiceID:   nullableUUID(alert.ServiceID),
+			BotID:       nullableUUID(alert.BotID),
+			CheckID:     nullableUUID(alert.CheckID),
+			Title:       strings.TrimSpace(renderTitle(alert)),
+			FirstSeen:   now,
+			LastSeen:    now,
+			Occurrences: maxInt(alert.Occurrences, 1),
+			UpdatedAt:   now,
+		}
+		if desc != "" {
+			rec.Description = &desc
+			rec.LastError = &desc
+		}
+		if err := s.db.WithContext(ctx).Create(&rec).Error; err != nil {
+			return nil
+		}
+		return &rec.ID
+	case err != nil:
+		return nil
+	}
+
+	incidentID := incident.ID
+	updates := map[string]any{
+		"last_seen":     now,
+		"updated_at":    now,
+		"org_id":        alert.OrgID,
+		"alert_type":    string(alert.Type),
+		"severity":      string(alert.Severity),
+		"node_id":       nullableUUID(alert.NodeID),
+		"service_id":    nullableUUID(alert.ServiceID),
+		"bot_id":        nullableUUID(alert.BotID),
+		"check_id":      nullableUUID(alert.CheckID),
+		"title":         strings.TrimSpace(renderTitle(alert)),
+		"description":   strings.TrimSpace(alert.Error),
+		"occurrences":   maxInt(alert.Occurrences, incident.Occurrences),
+		"last_error":    strings.TrimSpace(alert.Error),
+		"fingerprint":   fp,
+	}
+	if status == "fail" {
+		updates["status"] = "open"
+		updates["recovered_at"] = nil
+		if prevStatus != "fail" || incident.Status == "recovered" {
+			updates["first_seen"] = now
+			updates["acknowledged_at"] = nil
+			updates["acknowledged_by"] = nil
+		}
+	} else {
+		if incident.Status != "recovered" {
+			updates["status"] = "recovered"
+			updates["recovered_at"] = now
+		}
+	}
+	if err := s.db.WithContext(ctx).Model(&db.Incident{}).Where("id = ?", incidentID).Updates(updates).Error; err != nil {
+		return nil
+	}
+	return &incidentID
+}
+
+func maxInt(a, b int) int {
+	if a >= b {
+		return a
+	}
+	return b
 }
 
 func (s *Service) sendRecovery(ctx context.Context, settings *Settings, alert Alert, state *db.AlertState) {

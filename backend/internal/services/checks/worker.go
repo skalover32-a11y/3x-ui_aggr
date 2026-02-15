@@ -214,8 +214,8 @@ func (w *Worker) backfillServiceChecks(ctx context.Context) {
 		return
 	}
 	res := w.DB.WithContext(ctx).Exec(`
-		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, enabled, severity_rules, created_at, updated_at)
-		SELECT 'service', s.id, 'HTTP', 60, 3000, 1, true, '{}'::jsonb, now(), now()
+		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, fail_after_sec, recover_after_ok, enabled, severity_rules, created_at, updated_at)
+		SELECT 'service', s.id, 'HTTP', 60, 3000, 1, 300, 2, true, '{}'::jsonb, now(), now()
 		FROM services s
 		WHERE NOT EXISTS (
 			SELECT 1 FROM checks c WHERE c.target_type = 'service' AND c.target_id = s.id
@@ -235,8 +235,8 @@ func (w *Worker) backfillBotChecks(ctx context.Context) {
 		return
 	}
 	res := w.DB.WithContext(ctx).Exec(`
-		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, enabled, severity_rules, created_at, updated_at)
-		SELECT 'bot', b.id, upper(b.kind), 30, 3000, 1, true, '{}'::jsonb, now(), now()
+		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, fail_after_sec, recover_after_ok, enabled, severity_rules, created_at, updated_at)
+		SELECT 'bot', b.id, upper(b.kind), 30, 3000, 1, 300, 2, true, '{}'::jsonb, now(), now()
 		FROM bots b
 		WHERE NOT EXISTS (
 			SELECT 1 FROM checks c WHERE c.target_type = 'bot' AND c.target_id = b.id
@@ -821,6 +821,8 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 				IntervalSec:   60,
 				TimeoutMS:     3000,
 				Retries:       1,
+				FailAfterSec:  300,
+				RecoverAfterOK: 2,
 				Enabled:       true,
 				SeverityRules: datatypes.JSON([]byte("{}")),
 				CreatedAt:     time.Now(),
@@ -870,6 +872,8 @@ func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResul
 				IntervalSec:   30,
 				TimeoutMS:     3000,
 				Retries:       1,
+				FailAfterSec:  300,
+				RecoverAfterOK: 2,
 				Enabled:       true,
 				SeverityRules: datatypes.JSON([]byte("{}")),
 				CreatedAt:     time.Now(),
