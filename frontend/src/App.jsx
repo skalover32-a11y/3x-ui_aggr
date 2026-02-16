@@ -2914,11 +2914,13 @@ function NodesPage() {
     );
   }
 
-    function renderBotsTable(bots) {
+    function renderBotsTable(bots, options = {}) {
+      const showNode = options.showNode !== false;
+      const tableClass = showNode ? "data-table nodes-table bots-table with-node" : "data-table nodes-table bots-table";
       return (
-        <div className="data-table nodes-table bots-table with-node">
+        <div className={tableClass}>
           <div className="data-row head">
-            <div>{t("Node")}</div>
+            {showNode && <div>{t("Node")}</div>}
             <div>{t("Check")}</div>
             <div>{t("Kind")}</div>
             <div>{t("Last status")}</div>
@@ -2934,10 +2936,12 @@ function NodesPage() {
             const statusReason = summarizeStatusError(last?.error);
             return (
               <div className="data-row" key={bot.id}>
-                <div>
-                  <div className="node-title">{node?.name || "-"}</div>
-                  <div className="muted small">{formatNodeIP(node)}</div>
-                </div>
+                {showNode && (
+                  <div>
+                    <div className="node-title">{node?.name || "-"}</div>
+                    <div className="muted small">{formatNodeIP(node)}</div>
+                  </div>
+                )}
                 <div>
                   <div className="node-title" title={bot.name || ""}>{bot.name || "-"}</div>
                   <div className="muted small check-target" title={botTargetLabel(bot)}>{botTargetLabel(bot)}</div>
@@ -3002,7 +3006,7 @@ function NodesPage() {
           </div>
           {botsError && <div className="error">{botsError}</div>}
           <div className="table-card">
-            {renderBotsTable(bots)}
+            {renderBotsTable(bots, { showNode: false })}
           </div>
         </>
       );
@@ -3017,7 +3021,7 @@ function NodesPage() {
           )}
           {botsError && <div className="error bots-status">{botsError}</div>}
           <div className="table-card">
-            {renderBotsTable(bots)}
+            {renderBotsTable(bots, { showNode: true })}
           </div>
         </>
       );
@@ -6539,8 +6543,8 @@ function KeyStoragePage() {
                 </div>
               ))}
               {keys.length === 0 && !loading && (
-                <div className="table-row">
-                  <div>{t("No data")}</div>
+                <div className="data-row key-storage-empty-row">
+                  <div className="muted">{t("No data")}</div>
                 </div>
               )}
             </div>
