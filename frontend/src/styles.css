@@ -979,6 +979,10 @@ button.ghost:hover {
   gap: 16px;
   align-items: center;
   justify-content: space-between;
+  background: rgba(12, 18, 28, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
   margin-bottom: 16px;
 }
 
@@ -997,11 +1001,11 @@ button.ghost:hover {
 }
 
 .files-select select {
-  background: #0f1724;
+  background: #0b1220;
   border: 1px solid #2a3344;
   color: #e2e8f0;
-  border-radius: 8px;
-  padding: 6px 8px;
+  border-radius: 10px;
+  padding: 7px 10px;
 }
 
 .files-actions {
@@ -1012,10 +1016,10 @@ button.ghost:hover {
 }
 
 .files-search {
-  background: #0f1724;
+  background: #0b1220;
   border: 1px solid #2a3344;
   color: #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 8px 10px;
   min-width: 220px;
 }
@@ -1107,6 +1111,10 @@ button.ghost:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(12, 18, 28, 0.72);
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
@@ -1123,14 +1131,15 @@ button.ghost:hover {
   display: grid;
   grid-template-columns: 260px 1fr;
   gap: 16px;
+  align-items: start;
 }
 
 .files-sidebar {
-  background: #0f1724;
-  border: 1px solid #1f2937;
-  border-radius: 12px;
+  background: rgba(12, 18, 28, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 16px;
   padding: 12px;
-  max-height: 70vh;
+  max-height: 72vh;
   overflow: auto;
 }
 
@@ -1169,14 +1178,14 @@ button.ghost:hover {
 
 .tree-item.active,
 .tree-item:hover {
-  border-color: #334155;
-  background: #111827;
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 58, 138, 0.2);
 }
 
 .tree-toggle {
   align-self: flex-end;
   background: #0b1220;
-  border: 1px solid #1f2937;
+  border: 1px solid #2a3344;
   color: #e2e8f0;
   padding: 2px 6px;
   border-radius: 6px;
@@ -1191,12 +1200,59 @@ button.ghost:hover {
   gap: 6px;
 }
 
+.files-list {
+  background: rgba(12, 18, 28, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .files-list .table {
   width: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+.files-list .table .table-row {
+  grid-template-columns: minmax(220px, 1.4fr) minmax(100px, 0.7fr) minmax(170px, 0.9fr) minmax(110px, 0.7fr) minmax(260px, 1.25fr);
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.files-list .table .table-row.head {
+  background: rgba(11, 18, 32, 0.6);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.files-list .table .table-row .actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.files-list .table .table-row .actions button {
+  width: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.files-list .table .table-row > div:not(.actions) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .file-name {
   cursor: pointer;
+  font-weight: 600;
 }
 
 .file-name.is-dir {
@@ -2356,12 +2412,12 @@ body {
 }
 
 .data-table.key-storage-table.key-storage-list .data-row {
-  grid-template-columns: minmax(180px, 1.35fr) minmax(220px, 1.5fr) minmax(190px, 1.15fr) minmax(110px, 0.65fr) minmax(150px, 0.9fr) minmax(170px, 0.9fr) minmax(220px, 1.05fr);
+  grid-template-columns: minmax(120px, 1.15fr) minmax(160px, 1.25fr) minmax(140px, 1fr) minmax(74px, 0.5fr) minmax(110px, 0.8fr) minmax(140px, 0.85fr) minmax(160px, 0.95fr);
   align-items: start;
 }
 
 .data-table.key-storage-table.key-storage-list .data-row.head {
-  grid-template-columns: minmax(180px, 1.35fr) minmax(220px, 1.5fr) minmax(190px, 1.15fr) minmax(110px, 0.65fr) minmax(150px, 0.9fr) minmax(170px, 0.9fr) minmax(220px, 1.05fr);
+  grid-template-columns: minmax(120px, 1.15fr) minmax(160px, 1.25fr) minmax(140px, 1fr) minmax(74px, 0.5fr) minmax(110px, 0.8fr) minmax(140px, 0.85fr) minmax(160px, 0.95fr);
 }
 
 .data-table.key-storage-table .data-row input,
@@ -2400,31 +2456,14 @@ body {
 .key-storage-card {
   background: linear-gradient(180deg, rgba(12, 18, 28, 0.95), rgba(8, 14, 24, 0.92));
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #334155 rgba(7, 11, 17, 0.9);
-}
-
-.key-storage-card::-webkit-scrollbar {
-  height: 10px;
-}
-
-.key-storage-card::-webkit-scrollbar-track {
-  background: rgba(7, 11, 17, 0.9);
-  border-radius: 999px;
-}
-
-.key-storage-card::-webkit-scrollbar-thumb {
-  background: linear-gradient(90deg, #24354b, #334155);
-  border-radius: 999px;
-  border: 2px solid rgba(7, 11, 17, 0.9);
 }
 
 .key-storage-card .data-table {
-  min-width: 980px;
+  min-width: 0;
 }
 
 .key-storage-list-card .data-table {
-  min-width: 1280px;
+  min-width: 0;
 }
 
 .key-storage-table .key-primary {

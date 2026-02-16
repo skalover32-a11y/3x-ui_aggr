@@ -398,7 +398,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
     { key: "bots", label: t("Bots"), path: "/nodes?view=bots" },
   ];
   if (isOrgAdmin || isGlobalAdmin) {
-    infraItems.push({ key: "add", label: t("Add"), path: "/nodes?add=1", addBadge: true });
+    infraItems.push({ key: "add", label: t("Add"), path: "/nodes?add=1" });
   }
   const toolsItems = (isOrgAdmin || isGlobalAdmin)
     ? [
@@ -471,7 +471,6 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
                   onClick={() => navigate(item.path)}
                 >
                   <span>{item.label}</span>
-                  {item.addBadge && <span className="sidebar-add-icon">+</span>}
                 </button>
               ))}
           </>
@@ -6425,7 +6424,7 @@ function KeyStoragePage() {
           </div>
         </header>
 
-        <div className="page">
+        <div className="page page-wide">
           <div className="page-header">
             <div>
               <h1>{t("Key storage")}</h1>
