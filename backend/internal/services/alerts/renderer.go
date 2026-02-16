@@ -239,7 +239,7 @@ func buildKeyboard(alert Alert, publicBaseURL string) *InlineKeyboard {
 	if alertID != "" {
 		callbackRow = []InlineButton{
 			{Text: "✅ Ack", CallbackData: fmt.Sprintf("a:%s", alertID)},
-			{Text: "🔇 Mute 1h", CallbackData: fmt.Sprintf("m1:%s", alertID)},
+			{Text: "🔇 Mute", CallbackData: fmt.Sprintf("mute:%s", alertID)},
 			{Text: "🔁 Retry", CallbackData: fmt.Sprintf("r:%s", alertID)},
 		}
 	}

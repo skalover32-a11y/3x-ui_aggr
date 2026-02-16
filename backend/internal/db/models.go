@@ -39,7 +39,7 @@ type Node struct {
 	SSHPasswordEnc    *string        `gorm:"type:text" json:"-"`
 	SSHKeyEnc         string         `gorm:"type:text;not null" json:"-"`
 	VerifyTLS         bool           `gorm:"not null;default:true" json:"verify_tls"`
-	RuntimeVersion       *string        `gorm:"type:text" json:"runtime_version"`
+	RuntimeVersion    *string        `gorm:"type:text" json:"runtime_version"`
 	PanelVersion      *string        `gorm:"type:text" json:"service_version"`
 	VersionsCheckedAt *time.Time     `json:"versions_checked_at"`
 	CreatedAt         time.Time      `json:"created_at"`
@@ -124,20 +124,20 @@ type Bot struct {
 }
 
 type Check struct {
-	ID            uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	TargetType    string         `gorm:"type:text;not null" json:"target_type"`
-	TargetID      uuid.UUID      `gorm:"type:uuid;not null" json:"target_id"`
-	Type          string         `gorm:"type:text;not null" json:"type"`
-	IntervalSec   int            `gorm:"not null;default:60" json:"interval_sec"`
-	TimeoutMS     int            `gorm:"not null;default:3000" json:"timeout_ms"`
-	Retries       int            `gorm:"not null;default:1" json:"retries"`
-	FailAfterSec  int            `gorm:"not null;default:300" json:"fail_after_sec"`
-	RecoverAfterOK int           `gorm:"not null;default:2" json:"recover_after_ok"`
-	MuteUntil     *time.Time     `gorm:"type:timestamptz" json:"mute_until,omitempty"`
-	Enabled       bool           `gorm:"not null;default:true" json:"enabled"`
-	SeverityRules datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"severity_rules"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	TargetType     string         `gorm:"type:text;not null" json:"target_type"`
+	TargetID       uuid.UUID      `gorm:"type:uuid;not null" json:"target_id"`
+	Type           string         `gorm:"type:text;not null" json:"type"`
+	IntervalSec    int            `gorm:"not null;default:60" json:"interval_sec"`
+	TimeoutMS      int            `gorm:"not null;default:3000" json:"timeout_ms"`
+	Retries        int            `gorm:"not null;default:1" json:"retries"`
+	FailAfterSec   int            `gorm:"not null;default:300" json:"fail_after_sec"`
+	RecoverAfterOK int            `gorm:"not null;default:2" json:"recover_after_ok"`
+	MuteUntil      *time.Time     `gorm:"type:timestamptz" json:"mute_until,omitempty"`
+	Enabled        bool           `gorm:"not null;default:true" json:"enabled"`
+	SeverityRules  datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"severity_rules"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 type CheckResult struct {
@@ -252,7 +252,7 @@ type NodeMetricsLatest struct {
 	NetIface       *string   `json:"net_iface"`
 	UptimeSec      *int64    `json:"uptime_sec"`
 	PanelVersion   *string   `json:"service_version"`
-	RuntimeRunning    *bool     `json:"runtime_running"`
+	RuntimeRunning *bool     `json:"runtime_running"`
 	PanelRunning   *bool     `json:"service_running"`
 	PingMs         *int64    `json:"ping_ms"`
 	TCPConnections *int64    `json:"tcp_connections"`
@@ -282,16 +282,18 @@ func (ActiveUserLatest) TableName() string {
 }
 
 type TelegramSettings struct {
-	ID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	ID              uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	OrgID           *uuid.UUID `gorm:"type:uuid;index" json:"org_id,omitempty"`
-	BotTokenEnc     string    `gorm:"type:text;not null" json:"-"`
-	AdminChatID     string    `gorm:"type:text;not null" json:"admin_chat_id"`
-	AlertConnection bool      `gorm:"not null;default:true" json:"alert_connection"`
-	AlertCPU        bool      `gorm:"not null;default:true" json:"alert_cpu"`
-	AlertMemory     bool      `gorm:"not null;default:true" json:"alert_memory"`
-	AlertDisk       bool      `gorm:"not null;default:true" json:"alert_disk"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	BotTokenEnc     string     `gorm:"type:text;not null" json:"-"`
+	AdminChatID     string     `gorm:"type:text;not null" json:"admin_chat_id"`
+	AlertConnection bool       `gorm:"not null;default:true" json:"alert_connection"`
+	AlertCPU        bool       `gorm:"not null;default:true" json:"alert_cpu"`
+	AlertMemory     bool       `gorm:"not null;default:true" json:"alert_memory"`
+	AlertDisk       bool       `gorm:"not null;default:true" json:"alert_disk"`
+	AckMuteMinutes  int        `gorm:"not null;default:1440" json:"ack_mute_minutes"`
+	MuteMinutes     int        `gorm:"not null;default:60" json:"mute_minutes"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type OrgKey struct {
@@ -423,4 +425,3 @@ type OpsJobItem struct {
 	StartedAt  *time.Time `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt *time.Time `gorm:"type:timestamptz" json:"finished_at"`
 }
-

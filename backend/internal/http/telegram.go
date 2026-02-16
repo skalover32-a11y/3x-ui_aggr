@@ -27,6 +27,8 @@ type telegramSettingsResponse struct {
 	AlertCPU          bool     `json:"alert_cpu"`
 	AlertMemory       bool     `json:"alert_memory"`
 	AlertDisk         bool     `json:"alert_disk"`
+	AckMuteMinutes    int      `json:"ack_mute_minutes"`
+	MuteMinutes       int      `json:"mute_minutes"`
 	WebhookConfigured bool     `json:"webhook_configured"`
 	WebhookError      string   `json:"webhook_error,omitempty"`
 }
@@ -39,6 +41,8 @@ type telegramSettingsRequest struct {
 	AlertCPU        bool     `json:"alert_cpu"`
 	AlertMemory     bool     `json:"alert_memory"`
 	AlertDisk       bool     `json:"alert_disk"`
+	AckMuteMinutes  int      `json:"ack_mute_minutes"`
+	MuteMinutes     int      `json:"mute_minutes"`
 }
 
 func (h *Handler) GetTelegramSettings(c *gin.Context) {
@@ -50,7 +54,9 @@ func (h *Handler) GetTelegramSettings(c *gin.Context) {
 	row, err := h.getTelegramSettings(c, orgID)
 	if err != nil {
 		respondStatus(c, http.StatusOK, telegramSettingsResponse{
-			BotTokenSet: false,
+			BotTokenSet:    false,
+			AckMuteMinutes: defaultAckMuteMinutes,
+			MuteMinutes:    defaultMuteMinutes,
 		})
 		return
 	}
@@ -62,6 +68,8 @@ func (h *Handler) GetTelegramSettings(c *gin.Context) {
 		AlertCPU:        row.AlertCPU,
 		AlertMemory:     row.AlertMemory,
 		AlertDisk:       row.AlertDisk,
+		AckMuteMinutes:  normalizePolicyValue(row.AckMuteMinutes, defaultAckMuteMinutes),
+		MuteMinutes:     normalizePolicyValue(row.MuteMinutes, defaultMuteMinutes),
 	})
 }
 
@@ -116,6 +124,15 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		}
 		botTokenEnc = enc
 	}
+	ackMuteMinutes := req.AckMuteMinutes
+	if ackMuteMinutes <= 0 {
+		ackMuteMinutes = current.AckMuteMinutes
+	}
+	muteMinutes := req.MuteMinutes
+	if muteMinutes <= 0 {
+		muteMinutes = current.MuteMinutes
+	}
+	ackMuteMinutes, muteMinutes = normalizeAlertPolicyMinutes(ackMuteMinutes, muteMinutes)
 
 	row := db.TelegramSettings{
 		OrgID:           &orgID,
@@ -125,6 +142,8 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		AlertCPU:        req.AlertCPU,
 		AlertMemory:     req.AlertMemory,
 		AlertDisk:       req.AlertDisk,
+		AckMuteMinutes:  ackMuteMinutes,
+		MuteMinutes:     muteMinutes,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -141,6 +160,8 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 			"alert_cpu":        row.AlertCPU,
 			"alert_memory":     row.AlertMemory,
 			"alert_disk":       row.AlertDisk,
+			"ack_mute_minutes": row.AckMuteMinutes,
+			"mute_minutes":     row.MuteMinutes,
 			"updated_at":       time.Now(),
 		}
 		if err := tx.Model(&db.TelegramSettings{}).Where("id = ?", existing.ID).Updates(updates).Error; err != nil {
@@ -174,6 +195,8 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		"alert_cpu":          req.AlertCPU,
 		"alert_memory":       req.AlertMemory,
 		"alert_disk":         req.AlertDisk,
+		"ack_mute_minutes":   ackMuteMinutes,
+		"mute_minutes":       muteMinutes,
 		"webhook_configured": webhookConfigured,
 		"webhook_error":      webhookErr,
 	}, nil)
@@ -185,9 +208,18 @@ func (h *Handler) UpdateTelegramSettings(c *gin.Context) {
 		AlertCPU:          req.AlertCPU,
 		AlertMemory:       req.AlertMemory,
 		AlertDisk:         req.AlertDisk,
+		AckMuteMinutes:    ackMuteMinutes,
+		MuteMinutes:       muteMinutes,
 		WebhookConfigured: webhookConfigured,
 		WebhookError:      webhookErr,
 	})
+}
+
+func normalizePolicyValue(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 type telegramSetWebhookRequest struct {

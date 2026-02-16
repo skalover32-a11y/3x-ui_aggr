@@ -35,22 +35,43 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 	nodeID := strings.TrimSpace(c.Query("node_id"))
 	var rows []db.AuditLog
 	query := h.DB.WithContext(c.Request.Context()).Order("ts desc").Limit(limit).Offset(offset)
-	nodeIDs, err := h.accessibleNodeIDs(c)
+	user, err := h.actorUser(c)
 	if err != nil {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
-	if len(nodeIDs) == 0 {
-		respondStatus(c, http.StatusOK, rows)
+	activeOrgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	nodeIDs, err := h.accessibleNodeIDs(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
 	ids := make([]string, 0, len(nodeIDs))
 	for id := range nodeIDs {
 		ids = append(ids, id.String())
 	}
-	query = query.Where("node_id IN ?", ids)
 	if nodeID != "" {
+		if len(ids) == 0 {
+			respondStatus(c, http.StatusOK, rows)
+			return
+		}
+		query = query.Where("node_id IN ?", ids)
 		query = query.Where("node_id = ?", nodeID)
+	} else if len(ids) > 0 {
+		if activeOrgID != nil {
+			query = query.Where("(node_id IN ? OR (node_id IS NULL AND payload_json ->> 'org_id' = ?))", ids, activeOrgID.String())
+		} else {
+			query = query.Where("node_id IN ?", ids)
+		}
+	} else if activeOrgID != nil {
+		query = query.Where("node_id IS NULL AND payload_json ->> 'org_id' = ?", activeOrgID.String())
+	} else {
+		respondStatus(c, http.StatusOK, rows)
+		return
 	}
 	if err := query.Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_READ", "failed to load audit log")

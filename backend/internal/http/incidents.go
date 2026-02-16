@@ -130,6 +130,9 @@ func (h *Handler) AckIncident(c *gin.Context) {
 		}
 	}
 	now := time.Now()
+	orgID := h.orgIDForIncident(c.Request.Context(), &row)
+	ackMuteMinutes, _ := h.alertPolicyForOrg(c.Request.Context(), orgID)
+	mutedUntil := now.Add(time.Duration(ackMuteMinutes) * time.Minute)
 	if err := h.DB.WithContext(c.Request.Context()).Model(&db.Incident{}).Where("id = ?", row.ID).Updates(map[string]any{
 		"status":          "acked",
 		"acknowledged_at": now,
@@ -140,10 +143,14 @@ func (h *Handler) AckIncident(c *gin.Context) {
 		return
 	}
 	_ = h.DB.WithContext(c.Request.Context()).Model(&db.AlertState{}).Where("incident_id = ?", row.ID).Updates(map[string]any{
-		"muted_until": now.Add(24 * time.Hour),
+		"muted_until": mutedUntil,
 		"updated_at":  now,
 	}).Error
-	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+	respondStatus(c, http.StatusOK, gin.H{
+		"status":           "ok",
+		"ack_mute_minutes": ackMuteMinutes,
+		"muted_until":      mutedUntil,
+	})
 }
 
 func incidentAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, row *db.Incident) bool {

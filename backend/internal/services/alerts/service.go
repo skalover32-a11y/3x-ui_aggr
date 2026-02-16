@@ -19,7 +19,10 @@ import (
 )
 
 const (
-	dedupTTL = 5 * time.Minute
+	dedupTTL              = 5 * time.Minute
+	defaultAckMuteMinutes = 24 * 60
+	defaultButtonMuteMins = 60
+	maxPolicyMinutes      = 30 * 24 * 60
 )
 
 type Policy struct {
@@ -78,6 +81,8 @@ type Settings struct {
 	AlertCPU        bool
 	AlertMemory     bool
 	AlertDisk       bool
+	AckMuteMinutes  int
+	MuteMinutes     int
 }
 
 type alertMessageID struct {
@@ -140,6 +145,7 @@ func (s *Service) settingsFromRow(row *db.TelegramSettings) (*Settings, error) {
 	if len(adminIDs) == 0 {
 		return nil, nil
 	}
+	ackMute, mute := normalizePolicyMinutes(row.AckMuteMinutes, row.MuteMinutes)
 	return &Settings{
 		BotToken:        token,
 		AdminChatIDs:    adminIDs,
@@ -147,6 +153,8 @@ func (s *Service) settingsFromRow(row *db.TelegramSettings) (*Settings, error) {
 		AlertCPU:        row.AlertCPU,
 		AlertMemory:     row.AlertMemory,
 		AlertDisk:       row.AlertDisk,
+		AckMuteMinutes:  ackMute,
+		MuteMinutes:     mute,
 	}, nil
 }
 
@@ -267,20 +275,20 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 	}
 	active := strings.ToLower(strings.TrimSpace(status)) != "ok"
 	alert := Alert{
-		Type:        AlertGeneric,
-		OrgID:       node.OrgID,
-		NodeID:      node.ID,
-		NodeName:    nodeLabel(node),
-		TS:          time.Now(),
-		Severity:    SeverityCritical,
-		ServiceKind: "",
-		CheckType:   strings.TrimSpace(check.Type),
-		Target:      serviceTarget(node, service),
-		TargetType:  "service",
-		Status:      status,
-		PanelURL:    node.BaseURL,
-		IP:          node.SSHHost,
-		FailAfterSec:  check.FailAfterSec,
+		Type:           AlertGeneric,
+		OrgID:          node.OrgID,
+		NodeID:         node.ID,
+		NodeName:       nodeLabel(node),
+		TS:             time.Now(),
+		Severity:       SeverityCritical,
+		ServiceKind:    "",
+		CheckType:      strings.TrimSpace(check.Type),
+		Target:         serviceTarget(node, service),
+		TargetType:     "service",
+		Status:         status,
+		PanelURL:       node.BaseURL,
+		IP:             node.SSHHost,
+		FailAfterSec:   check.FailAfterSec,
 		RecoverAfterOK: check.RecoverAfterOK,
 		MuteUntil:      check.MuteUntil,
 	}
@@ -310,21 +318,21 @@ func (s *Service) NotifyGenericBot(ctx context.Context, settings *Settings, node
 	}
 	active := status != "ok"
 	alert := Alert{
-		Type:       AlertGeneric,
-		OrgID:      node.OrgID,
-		NodeID:     node.ID,
-		BotID:      bot.ID,
-		NodeName:   nodeLabel(node),
-		TS:         time.Now(),
-		Severity:   SeverityCritical,
-		BotKind:    strings.TrimSpace(bot.Kind),
-		CheckType:  strings.TrimSpace(check.Type),
-		Target:     botTarget(bot),
-		TargetType: "bot",
-		Status:     status,
-		PanelURL:   node.BaseURL,
-		IP:         node.SSHHost,
-		FailAfterSec:  check.FailAfterSec,
+		Type:           AlertGeneric,
+		OrgID:          node.OrgID,
+		NodeID:         node.ID,
+		BotID:          bot.ID,
+		NodeName:       nodeLabel(node),
+		TS:             time.Now(),
+		Severity:       SeverityCritical,
+		BotKind:        strings.TrimSpace(bot.Kind),
+		CheckType:      strings.TrimSpace(check.Type),
+		Target:         botTarget(bot),
+		TargetType:     "bot",
+		Status:         status,
+		PanelURL:       node.BaseURL,
+		IP:             node.SSHHost,
+		FailAfterSec:   check.FailAfterSec,
 		RecoverAfterOK: check.RecoverAfterOK,
 		MuteUntil:      check.MuteUntil,
 	}
@@ -595,7 +603,8 @@ func (s *Service) HandleCallback(ctx context.Context, token, data string) (strin
 	switch action {
 	case "mute":
 		if minutes <= 0 {
-			minutes = 60
+			_, policyMute := s.policyForAlertID(ctx, alertID)
+			minutes = policyMute
 		}
 		if err := s.MuteByAlertID(ctx, alertID, time.Duration(minutes)*time.Minute); err != nil {
 			if strings.TrimSpace(alertID) != "" {
@@ -691,9 +700,10 @@ func (s *Service) AckByAlertID(ctx context.Context, alertID string) error {
 	if state == nil {
 		return fmt.Errorf("alert not found")
 	}
+	ackMuteMinutes, _ := s.policyForState(ctx, state)
 	now := time.Now()
 	if err := s.db.WithContext(ctx).Model(&db.AlertState{}).Where("fingerprint = ?", state.Fingerprint).Updates(map[string]any{
-		"muted_until": now.Add(24 * time.Hour),
+		"muted_until": now.Add(time.Duration(ackMuteMinutes) * time.Minute),
 		"updated_at":  now,
 		"last_seen":   now,
 	}).Error; err != nil {
@@ -721,6 +731,89 @@ func (s *Service) openURLForAlert(ctx context.Context, alertID string) string {
 	}
 	base := strings.TrimRight(s.publicBaseURL, "/")
 	return fmt.Sprintf("%s/nodes?node=%s", base, state.NodeID.String())
+}
+
+func normalizePolicyMinutes(ackMuteMinutes, muteMinutes int) (int, int) {
+	ack := ackMuteMinutes
+	if ack <= 0 {
+		ack = defaultAckMuteMinutes
+	}
+	if ack > maxPolicyMinutes {
+		ack = maxPolicyMinutes
+	}
+	mute := muteMinutes
+	if mute <= 0 {
+		mute = defaultButtonMuteMins
+	}
+	if mute > maxPolicyMinutes {
+		mute = maxPolicyMinutes
+	}
+	return ack, mute
+}
+
+func (s *Service) policyForAlertID(ctx context.Context, alertID string) (int, int) {
+	state := s.loadStateByAlertID(ctx, alertID)
+	return s.policyForState(ctx, state)
+}
+
+func (s *Service) policyForState(ctx context.Context, state *db.AlertState) (int, int) {
+	ack, mute := normalizePolicyMinutes(0, 0)
+	if s == nil || s.db == nil || state == nil {
+		return ack, mute
+	}
+	orgID := s.orgIDForState(ctx, state)
+	if orgID == nil || *orgID == uuid.Nil {
+		return ack, mute
+	}
+	var row db.TelegramSettings
+	if err := s.db.WithContext(ctx).
+		Where("org_id = ?", *orgID).
+		Order("created_at desc").
+		First(&row).Error; err != nil {
+		return ack, mute
+	}
+	return normalizePolicyMinutes(row.AckMuteMinutes, row.MuteMinutes)
+}
+
+func (s *Service) orgIDForState(ctx context.Context, state *db.AlertState) *uuid.UUID {
+	if s == nil || s.db == nil || state == nil {
+		return nil
+	}
+	if state.IncidentID != nil && *state.IncidentID != uuid.Nil {
+		var incident db.Incident
+		if err := s.db.WithContext(ctx).Select("org_id").First(&incident, "id = ?", *state.IncidentID).Error; err == nil && incident.OrgID != nil {
+			id := *incident.OrgID
+			return &id
+		}
+	}
+	if state.NodeID != nil && *state.NodeID != uuid.Nil {
+		var node db.Node
+		if err := s.db.WithContext(ctx).Select("org_id").First(&node, "id = ?", *state.NodeID).Error; err == nil && node.OrgID != nil {
+			id := *node.OrgID
+			return &id
+		}
+	}
+	if state.ServiceID != nil && *state.ServiceID != uuid.Nil {
+		var svc db.Service
+		if err := s.db.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *state.ServiceID).Error; err == nil {
+			var node db.Node
+			if err := s.db.WithContext(ctx).Select("org_id").First(&node, "id = ?", svc.NodeID).Error; err == nil && node.OrgID != nil {
+				id := *node.OrgID
+				return &id
+			}
+		}
+	}
+	if state.BotID != nil && *state.BotID != uuid.Nil {
+		var bot db.Bot
+		if err := s.db.WithContext(ctx).Select("node_id").First(&bot, "id = ?", *state.BotID).Error; err == nil {
+			var node db.Node
+			if err := s.db.WithContext(ctx).Select("org_id").First(&node, "id = ?", bot.NodeID).Error; err == nil && node.OrgID != nil {
+				id := *node.OrgID
+				return &id
+			}
+		}
+	}
+	return nil
 }
 
 func panelTargetType(code *string) string {
@@ -989,20 +1082,20 @@ func (s *Service) syncIncident(ctx context.Context, alert Alert, now time.Time, 
 
 	incidentID := incident.ID
 	updates := map[string]any{
-		"last_seen":     now,
-		"updated_at":    now,
-		"org_id":        alert.OrgID,
-		"alert_type":    string(alert.Type),
-		"severity":      string(alert.Severity),
-		"node_id":       nullableUUID(alert.NodeID),
-		"service_id":    nullableUUID(alert.ServiceID),
-		"bot_id":        nullableUUID(alert.BotID),
-		"check_id":      nullableUUID(alert.CheckID),
-		"title":         strings.TrimSpace(renderTitle(alert)),
-		"description":   strings.TrimSpace(alert.Error),
-		"occurrences":   maxInt(alert.Occurrences, incident.Occurrences),
-		"last_error":    strings.TrimSpace(alert.Error),
-		"fingerprint":   fp,
+		"last_seen":   now,
+		"updated_at":  now,
+		"org_id":      alert.OrgID,
+		"alert_type":  string(alert.Type),
+		"severity":    string(alert.Severity),
+		"node_id":     nullableUUID(alert.NodeID),
+		"service_id":  nullableUUID(alert.ServiceID),
+		"bot_id":      nullableUUID(alert.BotID),
+		"check_id":    nullableUUID(alert.CheckID),
+		"title":       strings.TrimSpace(renderTitle(alert)),
+		"description": strings.TrimSpace(alert.Error),
+		"occurrences": maxInt(alert.Occurrences, incident.Occurrences),
+		"last_error":  strings.TrimSpace(alert.Error),
+		"fingerprint": fp,
 	}
 	if status == "fail" {
 		updates["status"] = "open"

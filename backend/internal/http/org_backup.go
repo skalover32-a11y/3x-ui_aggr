@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -118,6 +120,28 @@ type orgBackupPayload struct {
 	Bots       []orgBackupBot     `json:"bots"`
 	Checks     []orgBackupCheck   `json:"checks"`
 	Keys       []orgBackupKey     `json:"keys"`
+}
+
+type orgBackupCounts struct {
+	Nodes    int `json:"nodes"`
+	Services int `json:"services"`
+	Bots     int `json:"bots"`
+	Checks   int `json:"checks"`
+	Keys     int `json:"keys"`
+}
+
+type orgBackupPreview struct {
+	DryRun   bool            `json:"dry_run"`
+	OrgID    uuid.UUID       `json:"org_id"`
+	Incoming orgBackupCounts `json:"incoming"`
+	Existing orgBackupCounts `json:"existing"`
+	Valid    orgBackupCounts `json:"valid"`
+	Skipped  orgBackupCounts `json:"skipped"`
+	Warnings []string        `json:"warnings,omitempty"`
+}
+
+func (c orgBackupCounts) Empty() bool {
+	return c.Nodes == 0 && c.Services == 0 && c.Bots == 0 && c.Checks == 0 && c.Keys == 0
 }
 
 func (h *Handler) ExportOrgConfig(c *gin.Context) {
@@ -297,6 +321,11 @@ func (h *Handler) ExportOrgConfig(c *gin.Context) {
 		Checks:     checkBackup,
 		Keys:       keyBackup,
 	}
+	counts := backupCounts(payload)
+	h.auditEvent(c, nil, "ORG_BACKUP_EXPORT", "ok", nil, gin.H{
+		"org_id": orgID.String(),
+		"counts": counts,
+	}, nil)
 
 	filename := "org-backup-" + slugifyFilename(org.Name) + "-" + time.Now().UTC().Format("20060102-150405") + ".json"
 	c.Header("Content-Disposition", "attachment; filename="+filename)
@@ -309,19 +338,64 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_ORG", "invalid org")
 		return
 	}
+	dryRun := parseBoolQuery(c.Query("dry_run"))
 	var payload orgBackupPayload
 	if !parseJSONBody(c, &payload) {
 		return
 	}
-	if len(payload.Nodes) == 0 && len(payload.Services) == 0 && len(payload.Bots) == 0 && len(payload.Checks) == 0 && len(payload.Keys) == 0 {
+	incoming := backupCounts(payload)
+	if incoming.Empty() {
 		respondError(c, http.StatusBadRequest, "EMPTY_BACKUP", "backup payload is empty")
 		return
 	}
 
 	ctx := c.Request.Context()
-	nodeMap := make(map[uuid.UUID]uuid.UUID, len(payload.Nodes))
-	serviceMap := make(map[uuid.UUID]uuid.UUID, len(payload.Services))
-	botMap := make(map[uuid.UUID]uuid.UUID, len(payload.Bots))
+	existing, err := h.loadOrgBackupCounts(ctx, orgID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to load current organization state")
+		return
+	}
+	validPayload, skipped, warnings := validateOrgBackupPayload(payload)
+	valid := backupCounts(validPayload)
+	if valid.Empty() {
+		respondStatus(c, http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "EMPTY_VALID_BACKUP",
+				"message": "backup payload has no valid entities after validation",
+			},
+			"dry_run":  true,
+			"incoming": incoming,
+			"existing": existing,
+			"valid":    valid,
+			"skipped":  skipped,
+			"warnings": warnings,
+		})
+		return
+	}
+	preview := orgBackupPreview{
+		DryRun:   dryRun,
+		OrgID:    orgID,
+		Incoming: incoming,
+		Existing: existing,
+		Valid:    valid,
+		Skipped:  skipped,
+		Warnings: warnings,
+	}
+	if dryRun {
+		h.auditEvent(c, nil, "ORG_BACKUP_IMPORT_DRY_RUN", "ok", nil, gin.H{
+			"org_id":   orgID.String(),
+			"incoming": incoming,
+			"existing": existing,
+			"valid":    valid,
+			"skipped":  skipped,
+		}, nil)
+		respondStatus(c, http.StatusOK, preview)
+		return
+	}
+
+	nodeMap := make(map[uuid.UUID]uuid.UUID, len(validPayload.Nodes))
+	serviceMap := make(map[uuid.UUID]uuid.UUID, len(validPayload.Services))
+	botMap := make(map[uuid.UUID]uuid.UUID, len(validPayload.Bots))
 
 	if err := h.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := purgeOrgBackupData(tx, orgID); err != nil {
@@ -335,7 +409,7 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 			}
 		}
 
-		for _, row := range payload.Nodes {
+		for _, row := range validPayload.Nodes {
 			newID := uuid.New()
 			nodeMap[row.ID] = newID
 			kind := strings.ToUpper(strings.TrimSpace(row.Kind))
@@ -402,7 +476,7 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 			}
 		}
 
-		for _, row := range payload.Services {
+		for _, row := range validPayload.Services {
 			newNodeID, ok := nodeMap[row.NodeID]
 			if !ok {
 				continue
@@ -438,7 +512,7 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 			}
 		}
 
-		for _, row := range payload.Bots {
+		for _, row := range validPayload.Bots {
 			newNodeID, ok := nodeMap[row.NodeID]
 			if !ok {
 				continue
@@ -472,7 +546,7 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 			}
 		}
 
-		for _, row := range payload.Checks {
+		for _, row := range validPayload.Checks {
 			targetType := strings.ToLower(strings.TrimSpace(row.TargetType))
 			targetID := uuid.Nil
 			switch targetType {
@@ -526,7 +600,7 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 			}
 		}
 
-		for _, row := range payload.Keys {
+		for _, row := range validPayload.Keys {
 			var nodeID *uuid.UUID
 			if row.NodeID != nil {
 				if mapped := nodeMap[*row.NodeID]; mapped != uuid.Nil {
@@ -557,19 +631,31 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 		}
 		return nil
 	}); err != nil {
+		h.auditEvent(c, nil, "ORG_BACKUP_IMPORT", "error", nil, gin.H{
+			"org_id":   orgID.String(),
+			"incoming": incoming,
+			"existing": existing,
+			"valid":    valid,
+			"skipped":  skipped,
+		}, errString(err))
 		respondError(c, http.StatusInternalServerError, "DB_IMPORT", "failed to import organization backup")
 		return
 	}
+	h.auditEvent(c, nil, "ORG_BACKUP_IMPORT", "ok", nil, gin.H{
+		"org_id":   orgID.String(),
+		"incoming": incoming,
+		"existing": existing,
+		"valid":    valid,
+		"skipped":  skipped,
+	}, nil)
 
 	respondStatus(c, http.StatusOK, gin.H{
-		"status": "ok",
-		"counts": gin.H{
-			"nodes":    len(payload.Nodes),
-			"services": len(payload.Services),
-			"bots":     len(payload.Bots),
-			"checks":   len(payload.Checks),
-			"keys":     len(payload.Keys),
-		},
+		"status":   "ok",
+		"incoming": incoming,
+		"existing": existing,
+		"valid":    valid,
+		"skipped":  skipped,
+		"warnings": warnings,
 	})
 }
 
@@ -665,4 +751,200 @@ func cloneJSON(data datatypes.JSON) datatypes.JSON {
 	out := make([]byte, len(data))
 	copy(out, data)
 	return datatypes.JSON(out)
+}
+
+func backupCounts(payload orgBackupPayload) orgBackupCounts {
+	return orgBackupCounts{
+		Nodes:    len(payload.Nodes),
+		Services: len(payload.Services),
+		Bots:     len(payload.Bots),
+		Checks:   len(payload.Checks),
+		Keys:     len(payload.Keys),
+	}
+}
+
+func validateOrgBackupPayload(payload orgBackupPayload) (orgBackupPayload, orgBackupCounts, []string) {
+	out := orgBackupPayload{
+		Version:    payload.Version,
+		ExportedAt: payload.ExportedAt,
+		OrgID:      payload.OrgID,
+		OrgName:    payload.OrgName,
+		Nodes:      make([]orgBackupNode, 0, len(payload.Nodes)),
+		Services:   make([]orgBackupService, 0, len(payload.Services)),
+		Bots:       make([]orgBackupBot, 0, len(payload.Bots)),
+		Checks:     make([]orgBackupCheck, 0, len(payload.Checks)),
+		Keys:       make([]orgBackupKey, 0, len(payload.Keys)),
+	}
+	skipped := orgBackupCounts{}
+	warnings := make([]string, 0)
+	appendWarning := func(msg string) {
+		if strings.TrimSpace(msg) == "" {
+			return
+		}
+		if len(warnings) >= 50 {
+			return
+		}
+		warnings = append(warnings, msg)
+	}
+
+	nodeSeen := map[uuid.UUID]struct{}{}
+	for idx, row := range payload.Nodes {
+		if row.ID == uuid.Nil {
+			skipped.Nodes++
+			appendWarning(fmt.Sprintf("nodes[%d]: skipped because id is empty", idx))
+			continue
+		}
+		if _, exists := nodeSeen[row.ID]; exists {
+			skipped.Nodes++
+			appendWarning(fmt.Sprintf("nodes[%d]: skipped duplicate id %s", idx, row.ID))
+			continue
+		}
+		nodeSeen[row.ID] = struct{}{}
+		out.Nodes = append(out.Nodes, row)
+	}
+
+	serviceSeen := map[uuid.UUID]struct{}{}
+	for idx, row := range payload.Services {
+		if row.ID == uuid.Nil {
+			skipped.Services++
+			appendWarning(fmt.Sprintf("services[%d]: skipped because id is empty", idx))
+			continue
+		}
+		if _, exists := serviceSeen[row.ID]; exists {
+			skipped.Services++
+			appendWarning(fmt.Sprintf("services[%d]: skipped duplicate id %s", idx, row.ID))
+			continue
+		}
+		if _, ok := nodeSeen[row.NodeID]; !ok {
+			skipped.Services++
+			appendWarning(fmt.Sprintf("services[%d]: skipped, missing node_id %s", idx, row.NodeID))
+			continue
+		}
+		serviceSeen[row.ID] = struct{}{}
+		out.Services = append(out.Services, row)
+	}
+
+	botSeen := map[uuid.UUID]struct{}{}
+	for idx, row := range payload.Bots {
+		if row.ID == uuid.Nil {
+			skipped.Bots++
+			appendWarning(fmt.Sprintf("bots[%d]: skipped because id is empty", idx))
+			continue
+		}
+		if _, exists := botSeen[row.ID]; exists {
+			skipped.Bots++
+			appendWarning(fmt.Sprintf("bots[%d]: skipped duplicate id %s", idx, row.ID))
+			continue
+		}
+		if _, ok := nodeSeen[row.NodeID]; !ok {
+			skipped.Bots++
+			appendWarning(fmt.Sprintf("bots[%d]: skipped, missing node_id %s", idx, row.NodeID))
+			continue
+		}
+		botSeen[row.ID] = struct{}{}
+		out.Bots = append(out.Bots, row)
+	}
+
+	checkSeen := map[uuid.UUID]struct{}{}
+	for idx, row := range payload.Checks {
+		if row.ID == uuid.Nil {
+			skipped.Checks++
+			appendWarning(fmt.Sprintf("checks[%d]: skipped because id is empty", idx))
+			continue
+		}
+		if _, exists := checkSeen[row.ID]; exists {
+			skipped.Checks++
+			appendWarning(fmt.Sprintf("checks[%d]: skipped duplicate id %s", idx, row.ID))
+			continue
+		}
+		targetType := strings.ToLower(strings.TrimSpace(row.TargetType))
+		targetOK := false
+		switch targetType {
+		case "node":
+			_, targetOK = nodeSeen[row.TargetID]
+		case "service":
+			_, targetOK = serviceSeen[row.TargetID]
+		case "bot":
+			_, targetOK = botSeen[row.TargetID]
+		}
+		if !targetOK {
+			skipped.Checks++
+			appendWarning(fmt.Sprintf("checks[%d]: skipped, missing target %s/%s", idx, targetType, row.TargetID))
+			continue
+		}
+		row.TargetType = targetType
+		checkSeen[row.ID] = struct{}{}
+		out.Checks = append(out.Checks, row)
+	}
+
+	for idx, row := range payload.Keys {
+		if row.NodeID != nil {
+			if _, ok := nodeSeen[*row.NodeID]; !ok {
+				appendWarning(fmt.Sprintf("keys[%d]: node_id %s not found, key will be imported without node mapping", idx, *row.NodeID))
+				row.NodeID = nil
+			}
+		}
+		out.Keys = append(out.Keys, row)
+	}
+
+	if len(warnings) == 50 {
+		warnings = append(warnings, "additional warnings omitted")
+	}
+	return out, skipped, warnings
+}
+
+func (h *Handler) loadOrgBackupCounts(ctx context.Context, orgID uuid.UUID) (orgBackupCounts, error) {
+	counts := orgBackupCounts{}
+	if h == nil || h.DB == nil {
+		return counts, nil
+	}
+
+	var nodes []uuid.UUID
+	if err := h.DB.WithContext(ctx).
+		Model(&db.Node{}).
+		Where("org_id = ?", orgID).
+		Pluck("id", &nodes).Error; err != nil {
+		return counts, err
+	}
+	counts.Nodes = len(nodes)
+
+	var services []uuid.UUID
+	if len(nodes) > 0 {
+		if err := h.DB.WithContext(ctx).
+			Model(&db.Service{}).
+			Where("node_id IN ?", nodes).
+			Pluck("id", &services).Error; err != nil {
+			return counts, err
+		}
+	}
+	counts.Services = len(services)
+
+	var bots []uuid.UUID
+	if len(nodes) > 0 {
+		if err := h.DB.WithContext(ctx).
+			Model(&db.Bot{}).
+			Where("node_id IN ?", nodes).
+			Pluck("id", &bots).Error; err != nil {
+			return counts, err
+		}
+	}
+	counts.Bots = len(bots)
+
+	if len(nodes) > 0 || len(services) > 0 || len(bots) > 0 {
+		var total int64
+		if err := h.DB.WithContext(ctx).
+			Model(&db.Check{}).
+			Where("(target_type = 'node' AND target_id IN ?) OR (target_type = 'service' AND target_id IN ?) OR (target_type = 'bot' AND target_id IN ?)", nonEmptyUUIDs(nodes), nonEmptyUUIDs(services), nonEmptyUUIDs(bots)).
+			Count(&total).Error; err != nil {
+			return counts, err
+		}
+		counts.Checks = int(total)
+	}
+
+	var keyCount int64
+	if err := h.DB.WithContext(ctx).Model(&db.OrgKey{}).Where("org_id = ?", orgID).Count(&keyCount).Error; err != nil {
+		return counts, err
+	}
+	counts.Keys = int(keyCount)
+	return counts, nil
 }

@@ -122,7 +122,7 @@ func TestKeyboardButtonsCurrentScope(t *testing.T) {
 	if strings.Contains(joinedCallbacks, "o:"+alertID) {
 		t.Fatalf("unexpected open callback button: %s", joinedCallbacks)
 	}
-	if !strings.Contains(joinedCallbacks, "a:"+alertID) || !strings.Contains(joinedCallbacks, "m1:"+alertID) || !strings.Contains(joinedCallbacks, "r:"+alertID) {
+	if !strings.Contains(joinedCallbacks, "a:"+alertID) || !strings.Contains(joinedCallbacks, "mute:"+alertID) || !strings.Contains(joinedCallbacks, "r:"+alertID) {
 		t.Fatalf("missing required callback buttons: %s", joinedCallbacks)
 	}
 	joinedTexts := strings.ToLower(strings.Join(buttonTexts, "|"))

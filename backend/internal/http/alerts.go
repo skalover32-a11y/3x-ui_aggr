@@ -129,7 +129,7 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_FINGERPRINT", "fingerprint required")
 		return
 	}
-	durationSec := 3600
+	durationSec := 0
 	if raw := c.Query("duration"); raw != "" {
 		if val, err := strconv.Atoi(raw); err == nil {
 			durationSec = val
@@ -143,9 +143,6 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		if req.DurationSec > 0 {
 			durationSec = req.DurationSec
 		}
-	}
-	if durationSec <= 0 {
-		durationSec = 3600
 	}
 	if h.Alerts == nil {
 		respondError(c, http.StatusServiceUnavailable, "ALERTS_DISABLED", "alerts service not configured")
@@ -161,11 +158,19 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	if durationSec <= 0 {
+		orgID := h.orgIDForAlertState(c.Request.Context(), &state)
+		_, muteMinutes := h.alertPolicyForOrg(c.Request.Context(), orgID)
+		durationSec = muteMinutes * 60
+	}
+	if durationSec <= 0 {
+		durationSec = defaultMuteMinutes * 60
+	}
 	if err := h.Alerts.MuteFingerprint(c.Request.Context(), fingerprint, time.Duration(durationSec)*time.Second); err != nil {
 		respondError(c, http.StatusInternalServerError, "MUTE_FAILED", "failed to mute alert")
 		return
 	}
-	respondStatus(c, http.StatusOK, gin.H{"status": "ok"})
+	respondStatus(c, http.StatusOK, gin.H{"status": "ok", "duration_sec": durationSec})
 }
 
 func (h *Handler) RetryAlert(c *gin.Context) {

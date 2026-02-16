@@ -321,6 +321,70 @@ function formatProblemMessage(problem, t) {
   return fingerprint;
 }
 
+function parseAuditPayload(row) {
+  if (!row) return null;
+  const candidates = [row.payload_json, row.payload];
+  for (const value of candidates) {
+    if (!value) continue;
+    if (typeof value === "object") return value;
+    if (typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch {
+        // ignore malformed payload values
+      }
+    }
+  }
+  return null;
+}
+
+function formatAuditCounts(label, counts) {
+  if (!counts || typeof counts !== "object") return "";
+  const nodes = Number(counts.nodes || 0);
+  const services = Number(counts.services || 0);
+  const bots = Number(counts.bots || 0);
+  const checks = Number(counts.checks || 0);
+  const keys = Number(counts.keys || 0);
+  return `${label}: n=${nodes}, s=${services}, b=${bots}, c=${checks}, k=${keys}`;
+}
+
+function formatAuditMessage(row, t) {
+  if (!row) return "-";
+  const base = row.message || row.error || "";
+  const action = String(row.action || "");
+  if (!action.startsWith("ORG_BACKUP_")) {
+    return base || "-";
+  }
+  const payload = parseAuditPayload(row);
+  if (!payload) return base || "-";
+  const parts = [];
+  const incoming = formatAuditCounts(t("incoming"), payload.incoming);
+  const existing = formatAuditCounts(t("existing"), payload.existing);
+  const valid = formatAuditCounts(t("valid"), payload.valid);
+  const skipped = formatAuditCounts(t("skipped"), payload.skipped);
+  if (incoming) parts.push(incoming);
+  if (existing) parts.push(existing);
+  if (valid) parts.push(valid);
+  if (skipped) parts.push(skipped);
+  if (parts.length === 0) {
+    return base || "-";
+  }
+  if (base) {
+    return `${base} | ${parts.join(" | ")}`;
+  }
+  return parts.join(" | ");
+}
+
+function formatAuditScope(row) {
+  if (!row) return "-";
+  if (row.node_id) return row.node_id;
+  const payload = parseAuditPayload(row);
+  if (payload && payload.org_id) {
+    return `org:${payload.org_id}`;
+  }
+  return "-";
+}
+
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -1332,6 +1396,8 @@ function NodesPage() {
     alert_cpu: true,
     alert_memory: true,
     alert_disk: true,
+    ack_mute_minutes: 1440,
+    mute_minutes: 60,
   });
   const [telegramTokenSet, setTelegramTokenSet] = useState(false);
   const [telegramSaved, setTelegramSaved] = useState(false);
@@ -1362,6 +1428,7 @@ function NodesPage() {
   const [orgBackupError, setOrgBackupError] = useState("");
   const [orgBackupInfo, setOrgBackupInfo] = useState("");
   const [orgBackupFile, setOrgBackupFile] = useState(null);
+  const [orgBackupPreview, setOrgBackupPreview] = useState(null);
   const [totpOpen, setTotpOpen] = useState(false);
   const [totpStatus, setTotpStatus] = useState(null);
   const [totpSetup, setTotpSetup] = useState(null);
@@ -1672,6 +1739,8 @@ function NodesPage() {
             alert_cpu: data.alert_cpu ?? true,
             alert_memory: data.alert_memory ?? true,
             alert_disk: data.alert_disk ?? true,
+            ack_mute_minutes: data.ack_mute_minutes ?? 1440,
+            mute_minutes: data.mute_minutes ?? 60,
           }));
           setTelegramTokenSet(Boolean(data.bot_token_set));
         })
@@ -2666,7 +2735,7 @@ function NodesPage() {
         setBotsError(t("No active alerts for this bot"));
         return;
       }
-      await request("POST", `/alerts/${rows[0].fingerprint}/mute`, { duration: 3600 });
+      await request("POST", `/alerts/${rows[0].fingerprint}/mute`);
     } catch (err) {
       setBotsError(err.message);
     }
@@ -3208,6 +3277,7 @@ function NodesPage() {
     setOrgBackupBusy(true);
     setOrgBackupError("");
     setOrgBackupInfo("");
+    setOrgBackupPreview(null);
     try {
       const payload = await request("GET", `/orgs/${orgId}/export`);
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -3229,6 +3299,26 @@ function NodesPage() {
     }
   }
 
+  async function previewOrgBackupImport() {
+    const orgId = getOrgId();
+    if (!orgId || !orgBackupFile) return;
+    setOrgBackupBusy(true);
+    setOrgBackupError("");
+    setOrgBackupInfo("");
+    setOrgBackupPreview(null);
+    try {
+      const raw = await orgBackupFile.text();
+      const payload = JSON.parse(raw);
+      const preview = await request("POST", `/orgs/${orgId}/import?dry_run=1`, payload);
+      setOrgBackupPreview(preview || null);
+      setOrgBackupInfo(t("Preview generated"));
+    } catch (err) {
+      setOrgBackupError(err.message);
+    } finally {
+      setOrgBackupBusy(false);
+    }
+  }
+
   async function importOrgBackup() {
     const orgId = getOrgId();
     if (!orgId || !orgBackupFile) return;
@@ -3243,6 +3333,7 @@ function NodesPage() {
       setServicesMap({});
       setBotsMap({});
       setOrgBackupFile(null);
+      setOrgBackupPreview(null);
       setOrgBackupInfo(t("Backup imported"));
     } catch (err) {
       setOrgBackupError(err.message);
@@ -4096,6 +4187,22 @@ function NodesPage() {
                 placeholder="123456789"
                 onChange={(values) => setTelegramForm({ ...telegramForm, admin_chat_ids: values })}
               />
+              <input
+                type="number"
+                min="1"
+                name="telegram_ack_mute_minutes"
+                placeholder={t("ACK mute TTL (minutes)")}
+                value={telegramForm.ack_mute_minutes}
+                onChange={(e) => setTelegramForm({ ...telegramForm, ack_mute_minutes: Number(e.target.value) || 0 })}
+              />
+              <input
+                type="number"
+                min="1"
+                name="telegram_mute_minutes"
+                placeholder={t("Mute TTL (minutes)")}
+                value={telegramForm.mute_minutes}
+                onChange={(e) => setTelegramForm({ ...telegramForm, mute_minutes: Number(e.target.value) || 0 })}
+              />
               <label className="checkbox">
                 <input
                   type="checkbox"
@@ -4185,7 +4292,12 @@ function NodesPage() {
                 onClick={async () => {
                   setTelegramSaved(false);
                   try {
-                    await saveTelegramSettings(telegramForm);
+                    const payload = {
+                      ...telegramForm,
+                      ack_mute_minutes: Math.max(1, Number(telegramForm.ack_mute_minutes) || 0),
+                      mute_minutes: Math.max(1, Number(telegramForm.mute_minutes) || 0),
+                    };
+                    await saveTelegramSettings(payload);
                     const data = await getTelegramSettings();
                     setTelegramForm((prev) => ({
                       ...prev,
@@ -4195,6 +4307,8 @@ function NodesPage() {
                       alert_cpu: data.alert_cpu ?? true,
                       alert_memory: data.alert_memory ?? true,
                       alert_disk: data.alert_disk ?? true,
+                      ack_mute_minutes: data.ack_mute_minutes ?? 1440,
+                      mute_minutes: data.mute_minutes ?? 60,
                     }));
                     setTelegramTokenSet(Boolean(data.bot_token_set));
                     setTelegramSaved(true);
@@ -4783,12 +4897,20 @@ function NodesPage() {
                   <input
                     type="file"
                     accept=".json,application/json"
-                    onChange={(e) => setOrgBackupFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      setOrgBackupFile(e.target.files?.[0] || null);
+                      setOrgBackupPreview(null);
+                      setOrgBackupInfo("");
+                      setOrgBackupError("");
+                    }}
                   />
                 </div>
                 <div className="actions">
                   <button type="button" className="secondary" onClick={exportOrgBackup} disabled={orgBackupBusy}>
                     {t("Export backup")}
+                  </button>
+                  <button type="button" className="secondary" onClick={previewOrgBackupImport} disabled={orgBackupBusy || !orgBackupFile}>
+                    {t("Preview import")}
                   </button>
                   <button type="button" onClick={importOrgBackup} disabled={orgBackupBusy || !orgBackupFile}>
                     {t("Import backup")}
@@ -4796,6 +4918,41 @@ function NodesPage() {
                 </div>
                 {orgBackupError && <div className="error">{orgBackupError}</div>}
                 {orgBackupInfo && <div className="hint">{orgBackupInfo}</div>}
+                {orgBackupPreview && (
+                  <>
+                    <div className="table compact users-table">
+                      <div className="table-row head">
+                        <div>{t("Entity")}</div>
+                        <div>{t("Existing")}</div>
+                        <div>{t("Incoming")}</div>
+                        <div>{t("Valid")}</div>
+                        <div>{t("Skipped")}</div>
+                      </div>
+                      {[
+                        ["nodes", "Nodes"],
+                        ["services", "Services"],
+                        ["bots", "Bots"],
+                        ["checks", "Checks"],
+                        ["keys", "Key storage"],
+                      ].map(([key, label]) => (
+                        <div className="table-row" key={key}>
+                          <div>{t(label)}</div>
+                          <div>{orgBackupPreview.existing?.[key] ?? 0}</div>
+                          <div>{orgBackupPreview.incoming?.[key] ?? 0}</div>
+                          <div>{orgBackupPreview.valid?.[key] ?? 0}</div>
+                          <div>{orgBackupPreview.skipped?.[key] ?? 0}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {Array.isArray(orgBackupPreview.warnings) && orgBackupPreview.warnings.length > 0 && (
+                      <div className="hint">
+                        {orgBackupPreview.warnings.slice(0, 10).map((msg, idx) => (
+                          <div key={`${idx}-${msg}`}>{msg}</div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
               </>
             )}
 
@@ -4907,8 +5064,8 @@ function NodesPage() {
                 <div data-label={t("Actor")}>{row.actor_user || row.actor}</div>
                 <div data-label={t("Action")}>{row.action}</div>
                 <div data-label={t("Status")}>{row.status}</div>
-                <div data-label={t("Node")}>{row.node_id || "-"}</div>
-                <div data-label={t("Message")}>{row.message || row.error || "-"}</div>
+                <div data-label={t("Node")}>{formatAuditScope(row)}</div>
+                <div data-label={t("Message")}>{formatAuditMessage(row, t)}</div>
               </div>
             ))}
             </div>

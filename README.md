@@ -614,7 +614,8 @@ curl -s "http://localhost:8080/api/bots/<bot_id>/results?minutes=60" \
 ```
 
 ## Alerts: mute / retry / run-now
-- **Mute 1h** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.
+- **Mute** sets `muted_until` and suppresses repeated notifications for that alert fingerprint.
+- Mute/Ack TTL are org-scoped and configurable in Telegram settings UI (`mute_minutes`, `ack_mute_minutes`).
 - **Retry** triggers an immediate run-now check for the related service/bot.
 - When a failed check becomes **ok**, a recovery message is sent/edited.
 - Telegram notifications are deduplicated per fingerprint (same status) for 5 minutes.
@@ -640,12 +641,14 @@ New API endpoints:
 - `GET /api/incidents?active=true&limit=200`
   - Returns org-scoped incidents.
 - `POST /api/incidents/:id/ack`
-  - Marks incident as acknowledged (`status=acked`), mutes linked alert state for 24h.
+  - Marks incident as acknowledged (`status=acked`), mutes linked alert state for org-configured `ack_mute_minutes`.
 - `GET /api/nodes/:id/diagnostics`
   - Returns extended node diagnostics: latest metrics, latest node check, service/bot counters, incident summary.
 - `GET /api/orgs/:orgId/export`
   - Exports org configuration backup (nodes, services, bots, checks, keys) as JSON.
 - `POST /api/orgs/:orgId/import`
   - Imports org configuration backup into current org (replace mode for org-scoped data).
+- `POST /api/orgs/:orgId/import?dry_run=1`
+  - Validates backup payload and returns preview (`incoming/existing/valid/skipped` + warnings) without applying changes.
 
 
