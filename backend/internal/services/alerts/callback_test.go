@@ -368,6 +368,131 @@ func TestGenericAlertSendsAfterOfflineDelay(t *testing.T) {
 	}
 }
 
+func TestGenericAlertDelayResetsAfterInterimOK(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:     "token",
+		AdminChatIDs: []string{"1"},
+	}
+	nodeID := uuid.New()
+	checkID := uuid.New()
+	alert := Alert{
+		Type:           AlertGeneric,
+		NodeID:         nodeID,
+		CheckID:        checkID,
+		NodeName:       "node",
+		TargetType:     "service",
+		CheckType:      "HTTP",
+		Target:         "http://example.local/health",
+		Severity:       SeverityCritical,
+		TS:             time.Now(),
+		RecoverAfterOK: 2,
+	}
+
+	// Start fail window.
+	alert.Status = "fail"
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no send on initial fail, got %d", rt.sendCount)
+	}
+
+	// Simulate that fail window is already old.
+	if err := dbConn.Model(&db.AlertState{}).
+		Where("fingerprint = ?", alert.Fingerprint).
+		Update("first_seen", time.Now().Add(-6*time.Minute)).Error; err != nil {
+		t.Fatalf("update first_seen: %v", err)
+	}
+
+	// Single OK is not enough to recover (recover_after_ok=2), but it must reset fail delay.
+	alert.Status = "ok"
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no recovery message for unsurfaced fail, got %d", rt.sendCount)
+	}
+
+	// Immediate fail after interim OK must not alert yet (delay restarted).
+	alert.Status = "fail"
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no send after interim ok reset, got %d", rt.sendCount)
+	}
+
+	var state db.AlertState
+	if err := dbConn.First(&state, "fingerprint = ?", alert.Fingerprint).Error; err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if state.FirstSeen.Before(time.Now().Add(-2 * time.Minute)) {
+		t.Fatalf("expected first_seen reset on fail after interim ok, got %s", state.FirstSeen.Format(time.RFC3339))
+	}
+}
+
+func TestGenericAlertRequiresMinConsecutiveFails(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(
+		dbConn,
+		nil,
+		"https://example.com",
+		WithPolicy(Policy{
+			OfflineDelay:        0,
+			MinConsecutiveFails: 2,
+		}),
+	)
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:     "token",
+		AdminChatIDs: []string{"1"},
+	}
+	alert := Alert{
+		Type:       AlertGeneric,
+		NodeID:     uuid.New(),
+		CheckID:    uuid.New(),
+		NodeName:   "node",
+		TargetType: "service",
+		CheckType:  "HTTP",
+		Target:     "http://example.local/health",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		Status:     "fail",
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no send on first fail, got %d", rt.sendCount)
+	}
+	svc.maybeSendAlert(context.Background(), settings, true, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected send on second consecutive fail, got %d", rt.sendCount)
+	}
+}
+
 func TestAlertResendsWhenChatListChanged(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {

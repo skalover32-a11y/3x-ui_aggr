@@ -59,6 +59,7 @@ make run
 - `ALERT_MEMORY_THRESHOLD` (optional, default `90.0`, percent used RAM threshold)
 - `ALERT_DISK_FREE_THRESHOLD` (optional, default `10.0`, percent free disk threshold)
 - `ALERT_OFFLINE_DELAY` (optional, default `5m`, delay before sending offline fail alerts)
+- `ALERT_MIN_CONSECUTIVE_FAILS` (optional, default `2`, minimum consecutive `fail` samples before sending new `connection`/`generic`/`tls` alert to Telegram)
 - `NODE_AGENT_ADDR` (node-agent, optional, default `:9090`)
 - `NODE_AGENT_TOKEN` (node-agent, optional bearer token)
 - `NODE_AGENT_ALLOWLIST` (node-agent, optional comma-separated IP allowlist)

@@ -41,6 +41,7 @@ type Config struct {
 	AlertMemoryThreshold         float64
 	AlertDiskFreeThreshold       float64
 	AlertOfflineDelay            time.Duration
+	AlertMinConsecutiveFails     int
 	SudoPasswords                []string
 	AllowCIDR                    string
 	RepoPath                     string
@@ -109,6 +110,7 @@ func Load() (*Config, error) {
 	cfg.AlertMemoryThreshold = parseFloat64Env("ALERT_MEMORY_THRESHOLD", 90.0)
 	cfg.AlertDiskFreeThreshold = parseFloat64Env("ALERT_DISK_FREE_THRESHOLD", 10.0)
 	cfg.AlertOfflineDelay = parseDurationAllowZeroEnv("ALERT_OFFLINE_DELAY", 5*time.Minute)
+	cfg.AlertMinConsecutiveFails = parseIntEnv("ALERT_MIN_CONSECUTIVE_FAILS", 2)
 	if cfg.DBDSN == "" || cfg.AdminUser == "" || cfg.AdminPass == "" || cfg.JWTSecret == "" || cfg.MasterKeyB64 == "" || cfg.TokenSalt == "" {
 		return nil, fmt.Errorf("missing required env vars")
 	}

@@ -26,18 +26,20 @@ const (
 )
 
 type Policy struct {
-	CPULoadThreshold float64
-	MemPercentHigh   float64
-	DiskFreeLow      float64
-	OfflineDelay     time.Duration
+	CPULoadThreshold    float64
+	MemPercentHigh      float64
+	DiskFreeLow         float64
+	OfflineDelay        time.Duration
+	MinConsecutiveFails int
 }
 
 func defaultPolicy() Policy {
 	return Policy{
-		CPULoadThreshold: 2.0,
-		MemPercentHigh:   90.0,
-		DiskFreeLow:      10.0,
-		OfflineDelay:     5 * time.Minute,
+		CPULoadThreshold:    2.0,
+		MemPercentHigh:      90.0,
+		DiskFreeLow:         10.0,
+		OfflineDelay:        5 * time.Minute,
+		MinConsecutiveFails: 2,
 	}
 }
 
@@ -59,6 +61,9 @@ func WithPolicy(policy Policy) Option {
 		}
 		if policy.OfflineDelay >= 0 {
 			s.policy.OfflineDelay = policy.OfflineDelay
+		}
+		if policy.MinConsecutiveFails > 0 {
+			s.policy.MinConsecutiveFails = policy.MinConsecutiveFails
 		}
 	}
 }
@@ -496,7 +501,8 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 
 	if requiresOfflineDelay(alert.Type) && len(prevMessageIDs) == 0 {
 		failStartedAt := now
-		if state != nil && prevStatus == "fail" && !state.FirstSeen.IsZero() {
+		// A fail after any partial recovery (ok streak) starts a new offline delay window.
+		if state != nil && prevStatus == "fail" && prevOKStreak == 0 && !state.FirstSeen.IsZero() {
 			failStartedAt = state.FirstSeen
 		}
 		if now.Sub(failStartedAt) < failDelay {
@@ -504,6 +510,12 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 			s.updateState(ctx, alert, state, status, now, false, prevMessageIDs, 0, incidentID)
 			return
 		}
+	}
+	minFails := s.minConsecutiveFails(alert.Type)
+	if len(prevMessageIDs) == 0 && alert.Occurrences < minFails {
+		incidentID := s.syncIncident(ctx, alert, now, status, prevStatus)
+		s.updateState(ctx, alert, state, status, now, false, prevMessageIDs, 0, incidentID)
+		return
 	}
 
 	repeatedFailWithoutThread := false
@@ -987,7 +999,8 @@ func (s *Service) updateState(ctx context.Context, alert Alert, state *db.AlertS
 		if state.LastStatus != nil {
 			prev = strings.ToLower(strings.TrimSpace(*state.LastStatus))
 		}
-		if prev != "fail" {
+		// Reset fail start when the stream returns to fail after interim ok samples.
+		if prev != "fail" || state.OKStreak > 0 {
 			payload["first_seen"] = now
 		}
 	}
@@ -1185,6 +1198,20 @@ func messageIDsFromJSONOrEmpty(state *db.AlertState) map[string]int {
 
 func requiresOfflineDelay(alertType AlertType) bool {
 	return alertType == AlertGeneric || alertType == AlertConnection
+}
+
+func (s *Service) minConsecutiveFails(alertType AlertType) int {
+	if alertType != AlertGeneric && alertType != AlertConnection && alertType != AlertTLS {
+		return 1
+	}
+	minFails := defaultPolicy().MinConsecutiveFails
+	if s != nil && s.policy.MinConsecutiveFails > 0 {
+		minFails = s.policy.MinConsecutiveFails
+	}
+	if minFails < 1 {
+		return 1
+	}
+	return minFails
 }
 
 func hasMessageThreadForAllChats(chatIDs []string, messageIDs map[string]int) bool {

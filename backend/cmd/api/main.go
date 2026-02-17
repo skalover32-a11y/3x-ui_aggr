@@ -49,10 +49,11 @@ func main() {
 		enc,
 		cfg.PublicBaseURL,
 		alerts.WithPolicy(alerts.Policy{
-			CPULoadThreshold: cfg.AlertCPUThreshold,
-			MemPercentHigh:   cfg.AlertMemoryThreshold,
-			DiskFreeLow:      cfg.AlertDiskFreeThreshold,
-			OfflineDelay:     cfg.AlertOfflineDelay,
+			CPULoadThreshold:    cfg.AlertCPUThreshold,
+			MemPercentHigh:      cfg.AlertMemoryThreshold,
+			DiskFreeLow:         cfg.AlertDiskFreeThreshold,
+			OfflineDelay:        cfg.AlertOfflineDelay,
+			MinConsecutiveFails: cfg.AlertMinConsecutiveFails,
 		}),
 	)
 	rpID := strings.TrimSpace(cfg.AuthRPID)
