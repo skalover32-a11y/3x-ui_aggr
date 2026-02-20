@@ -652,4 +652,17 @@ New API endpoints:
 - `POST /api/orgs/:orgId/import?dry_run=1`
   - Validates backup payload and returns preview (`incoming/existing/valid/skipped` + warnings) without applying changes.
 
+## Prometheus integration (UI-managed)
+Prometheus is configured per organization from UI (Access & Security -> Prometheus). Credentials are stored encrypted in DB.
+
+API endpoints:
+- `GET /api/prometheus/settings`
+  - Returns org-scoped Prometheus config without plaintext secrets (`password_set` / `bearer_token_set` flags only).
+- `PUT /api/prometheus/settings`
+  - Saves org-scoped Prometheus config (`enabled`, `base_url`, auth, TLS verify mode, timeout, default step).
+- `POST /api/prometheus/test`
+  - Runs an instant test query (default `up`) using stored settings and returns `up/down` summary.
+- `POST /api/prometheus/query`
+  - Runs PromQL through backend (instant or range) with org-scoped credentials.
+
 

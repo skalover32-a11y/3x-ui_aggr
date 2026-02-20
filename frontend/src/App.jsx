@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, getPrometheusSettings, savePrometheusSettings, testPrometheusConnection, queryPrometheus, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
 
@@ -385,6 +385,44 @@ function formatAuditScope(row) {
   return "-";
 }
 
+function formatPromMetricLabels(metric) {
+  if (!metric || typeof metric !== "object") return "-";
+  const entries = Object.entries(metric);
+  if (!entries.length) return "-";
+  return entries.map(([k, v]) => `${k}=${v}`).join(", ");
+}
+
+function formatPromValue(value) {
+  if (!Array.isArray(value) || value.length < 2) return "-";
+  const ts = Number(value[0]);
+  const raw = value[1];
+  const timeText = Number.isFinite(ts) ? new Date(ts * 1000).toLocaleTimeString() : "-";
+  return `${raw} @ ${timeText}`;
+}
+
+function buildPromResultRows(resultType, result) {
+  if (!Array.isArray(result)) return [];
+  if (resultType === "vector") {
+    return result.slice(0, 30).map((row, idx) => ({
+      key: `${idx}`,
+      metric: formatPromMetricLabels(row?.metric),
+      value: formatPromValue(row?.value),
+    }));
+  }
+  if (resultType === "matrix") {
+    return result.slice(0, 30).map((row, idx) => {
+      const values = Array.isArray(row?.values) ? row.values : [];
+      const last = values.length > 0 ? values[values.length - 1] : null;
+      return {
+        key: `${idx}`,
+        metric: formatPromMetricLabels(row?.metric),
+        value: `${formatPromValue(last)} (${values.length} points)`,
+      };
+    });
+  }
+  return [];
+}
+
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -412,6 +450,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
   ];
   if (isOrgAdmin || isGlobalAdmin) {
+    securityItems.unshift({ key: "prometheus", label: t("Prometheus"), path: "/nodes?view=prometheus" });
     securityItems.unshift({ key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" });
     securityItems.push({ key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" });
   }
@@ -1403,6 +1442,28 @@ function NodesPage() {
   const [telegramTestMsg, setTelegramTestMsg] = useState("");
   const [telegramTestStatus, setTelegramTestStatus] = useState("");
   const [telegramTestResults, setTelegramTestResults] = useState([]);
+  const [prometheusOpen, setPrometheusOpen] = useState(false);
+  const [prometheusSaved, setPrometheusSaved] = useState(false);
+  const [prometheusForm, setPrometheusForm] = useState({
+    enabled: false,
+    base_url: "",
+    auth_type: "none",
+    username: "",
+    password: "",
+    bearer_token: "",
+    tls_insecure_skip_verify: false,
+    timeout_ms: 5000,
+    default_step_sec: 60,
+  });
+  const [prometheusPasswordSet, setPrometheusPasswordSet] = useState(false);
+  const [prometheusBearerSet, setPrometheusBearerSet] = useState(false);
+  const [prometheusTestBusy, setPrometheusTestBusy] = useState(false);
+  const [prometheusTestStatus, setPrometheusTestStatus] = useState("");
+  const [prometheusQueryText, setPrometheusQueryText] = useState("up");
+  const [prometheusQueryBusy, setPrometheusQueryBusy] = useState(false);
+  const [prometheusQueryResult, setPrometheusQueryResult] = useState(null);
+  const [prometheusInstant, setPrometheusInstant] = useState(true);
+  const [prometheusRangeMinutes, setPrometheusRangeMinutes] = useState(60);
   const [usersOpen, setUsersOpen] = useState(false);
   const [usersDraft, setUsersDraft] = useState({ name: "", role: "operator", password: "" });
   const [usersList, setUsersList] = useState([]);
@@ -1705,6 +1766,8 @@ function NodesPage() {
       setSidebarActive("bots");
     } else if (view === "alerts") {
       setSidebarActive("alerts");
+    } else if (view === "prometheus") {
+      setSidebarActive("prometheus");
     } else if (view === "audit") {
       setSidebarActive("audit");
     } else if (view === "2fa") {
@@ -1742,6 +1805,34 @@ function NodesPage() {
             mute_minutes: data.mute_minutes ?? 60,
           }));
           setTelegramTokenSet(Boolean(data.bot_token_set));
+        })
+        .catch((err) => setError(err.message));
+    }
+    if (view === "prometheus") {
+      if (!isAdmin && !isOrgAdmin) {
+        navigate("/nodes?view=panel");
+        return;
+      }
+      setPrometheusSaved(false);
+      setPrometheusTestStatus("");
+      setPrometheusQueryResult(null);
+      setPrometheusOpen(true);
+      getPrometheusSettings()
+        .then((data) => {
+          setPrometheusForm((prev) => ({
+            ...prev,
+            enabled: Boolean(data.enabled),
+            base_url: data.base_url || "",
+            auth_type: data.auth_type || "none",
+            username: data.username || "",
+            password: "",
+            bearer_token: "",
+            tls_insecure_skip_verify: Boolean(data.tls_insecure_skip_verify),
+            timeout_ms: Number(data.timeout_ms || 5000),
+            default_step_sec: Number(data.default_step_sec || 60),
+          }));
+          setPrometheusPasswordSet(Boolean(data.password_set));
+          setPrometheusBearerSet(Boolean(data.bearer_token_set));
         })
         .catch((err) => setError(err.message));
     }
@@ -4323,6 +4414,236 @@ function NodesPage() {
                 {t("Save")}
               </button>
               <button type="button" onClick={() => setTelegramOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {prometheusOpen && (
+        <div className="modal overlay-modal">
+          <div className="modal-content">
+            <h3>{t("Prometheus")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(prometheusForm.enabled)}
+                  onChange={(e) => setPrometheusForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                />
+                {t("Enabled")}
+              </label>
+              <input
+                placeholder="http://prometheus:9090"
+                name="prometheus_base_url"
+                autoComplete="off"
+                value={prometheusForm.base_url}
+                onChange={(e) => setPrometheusForm((prev) => ({ ...prev, base_url: e.target.value }))}
+              />
+              <select
+                name="prometheus_auth_type"
+                value={prometheusForm.auth_type}
+                onChange={(e) => setPrometheusForm((prev) => ({ ...prev, auth_type: e.target.value }))}
+              >
+                <option value="none">{t("No auth")}</option>
+                <option value="basic">{t("Basic auth")}</option>
+                <option value="bearer">{t("Bearer token")}</option>
+              </select>
+              {prometheusForm.auth_type === "basic" && (
+                <>
+                  <input
+                    placeholder={t("Username")}
+                    name="prometheus_username"
+                    autoComplete="off"
+                    value={prometheusForm.username}
+                    onChange={(e) => setPrometheusForm((prev) => ({ ...prev, username: e.target.value }))}
+                  />
+                  <input
+                    placeholder={prometheusPasswordSet ? t("Password (leave blank to keep)") : t("Password")}
+                    type="password"
+                    name="prometheus_password"
+                    autoComplete="new-password"
+                    value={prometheusForm.password}
+                    onChange={(e) => setPrometheusForm((prev) => ({ ...prev, password: e.target.value }))}
+                  />
+                </>
+              )}
+              {prometheusForm.auth_type === "bearer" && (
+                <input
+                  placeholder={prometheusBearerSet ? t("Bearer token (leave blank to keep)") : t("Bearer token")}
+                  type="password"
+                  name="prometheus_bearer_token"
+                  autoComplete="new-password"
+                  value={prometheusForm.bearer_token}
+                  onChange={(e) => setPrometheusForm((prev) => ({ ...prev, bearer_token: e.target.value }))}
+                />
+              )}
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(prometheusForm.tls_insecure_skip_verify)}
+                  onChange={(e) => setPrometheusForm((prev) => ({ ...prev, tls_insecure_skip_verify: e.target.checked }))}
+                />
+                {t("Skip TLS verification")}
+              </label>
+              <input
+                type="number"
+                min="1000"
+                max="60000"
+                placeholder={t("Timeout (ms)")}
+                value={prometheusForm.timeout_ms}
+                onChange={(e) => setPrometheusForm((prev) => ({ ...prev, timeout_ms: Number(e.target.value) || 0 }))}
+              />
+              <input
+                type="number"
+                min="5"
+                max="3600"
+                placeholder={t("Default step (sec)")}
+                value={prometheusForm.default_step_sec}
+                onChange={(e) => setPrometheusForm((prev) => ({ ...prev, default_step_sec: Number(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="hint">{t("Prometheus query console uses stored org-scoped credentials.")}</div>
+            <div className="audit-controls">
+              <input
+                name="prometheus_query"
+                autoComplete="off"
+                placeholder={t("PromQL query")}
+                value={prometheusQueryText}
+                onChange={(e) => setPrometheusQueryText(e.target.value)}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={prometheusInstant}
+                  onChange={(e) => setPrometheusInstant(e.target.checked)}
+                />
+                {t("Instant")}
+              </label>
+              {!prometheusInstant && (
+                <input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  placeholder={t("Range minutes")}
+                  value={prometheusRangeMinutes}
+                  onChange={(e) => setPrometheusRangeMinutes(Number(e.target.value) || 60)}
+                />
+              )}
+              <button
+                type="button"
+                disabled={prometheusTestBusy}
+                onClick={async () => {
+                  setPrometheusTestStatus("");
+                  setPrometheusTestBusy(true);
+                  try {
+                    const query = (prometheusQueryText || "").trim() || "up";
+                    const res = await testPrometheusConnection({ query });
+                    setPrometheusTestStatus(`OK: up ${res.up}/${res.samples}, down ${res.down}`);
+                  } catch (err) {
+                    setError(err.message);
+                  } finally {
+                    setPrometheusTestBusy(false);
+                  }
+                }}
+              >
+                {prometheusTestBusy ? t("Testing...") : t("Test connection")}
+              </button>
+              <button
+                type="button"
+                disabled={prometheusQueryBusy}
+                onClick={async () => {
+                  setPrometheusQueryBusy(true);
+                  try {
+                    const query = (prometheusQueryText || "").trim();
+                    if (!query) {
+                      throw new Error(t("Query is required"));
+                    }
+                    const payload = {
+                      query,
+                      instant: prometheusInstant,
+                    };
+                    if (!prometheusInstant) {
+                      const end = new Date();
+                      const minutes = Math.max(1, Number(prometheusRangeMinutes) || 60);
+                      const start = new Date(end.getTime() - minutes * 60 * 1000);
+                      payload.start = start.toISOString();
+                      payload.end = end.toISOString();
+                      payload.step_sec = Math.max(5, Number(prometheusForm.default_step_sec) || 60);
+                    }
+                    const res = await queryPrometheus(payload);
+                    setPrometheusQueryResult(res);
+                  } catch (err) {
+                    setError(err.message);
+                  } finally {
+                    setPrometheusQueryBusy(false);
+                  }
+                }}
+              >
+                {prometheusQueryBusy ? t("Loading...") : t("Run query")}
+              </button>
+            </div>
+            {prometheusSaved && <div className="hint">{t("Saved")}</div>}
+            {prometheusTestStatus && <div className="hint">{prometheusTestStatus}</div>}
+            {prometheusQueryResult && (
+              <>
+                <div className="hint">
+                  {`status=${prometheusQueryResult.status || "-"}, type=${prometheusQueryResult.result_type || "-"}, took=${prometheusQueryResult.took_ms || 0}ms`}
+                </div>
+                {buildPromResultRows(prometheusQueryResult.result_type, prometheusQueryResult.result).length > 0 ? (
+                  <div className="table compact">
+                    <div className="table-row head">
+                      <div>{t("Metric")}</div>
+                      <div>{t("Value")}</div>
+                    </div>
+                    {buildPromResultRows(prometheusQueryResult.result_type, prometheusQueryResult.result).map((row) => (
+                      <div className="table-row" key={row.key}>
+                        <div>{row.metric}</div>
+                        <div>{row.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <pre className="code-block">{JSON.stringify(prometheusQueryResult.result || [], null, 2)}</pre>
+                )}
+              </>
+            )}
+            <div className="actions">
+              <button
+                type="button"
+                onClick={async () => {
+                  setPrometheusSaved(false);
+                  try {
+                    const payload = {
+                      ...prometheusForm,
+                      auth_type: prometheusForm.auth_type || "none",
+                      timeout_ms: Math.max(1000, Number(prometheusForm.timeout_ms) || 5000),
+                      default_step_sec: Math.max(5, Number(prometheusForm.default_step_sec) || 60),
+                    };
+                    await savePrometheusSettings(payload);
+                    const data = await getPrometheusSettings();
+                    setPrometheusForm((prev) => ({
+                      ...prev,
+                      enabled: Boolean(data.enabled),
+                      base_url: data.base_url || "",
+                      auth_type: data.auth_type || "none",
+                      username: data.username || "",
+                      password: "",
+                      bearer_token: "",
+                      tls_insecure_skip_verify: Boolean(data.tls_insecure_skip_verify),
+                      timeout_ms: Number(data.timeout_ms || 5000),
+                      default_step_sec: Number(data.default_step_sec || 60),
+                    }));
+                    setPrometheusPasswordSet(Boolean(data.password_set));
+                    setPrometheusBearerSet(Boolean(data.bearer_token_set));
+                    setPrometheusSaved(true);
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}
+              >
+                {t("Save")}
+              </button>
+              <button type="button" onClick={() => setPrometheusOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>

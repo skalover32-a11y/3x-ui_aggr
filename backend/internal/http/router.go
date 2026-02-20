@@ -148,6 +148,10 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.GET("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.GetTelegramSettings)
 	auth.PUT("/telegram/settings", middleware.RequireRoles(middleware.RoleAdmin), h.UpdateTelegramSettings)
 	auth.POST("/telegram/test", middleware.RequireRoles(middleware.RoleAdmin), h.SendTelegramTest)
+	auth.GET("/prometheus/settings", middleware.RequireRoles(middleware.RoleAdmin), h.GetPrometheusSettings)
+	auth.PUT("/prometheus/settings", middleware.RequireRoles(middleware.RoleAdmin), h.UpdatePrometheusSettings)
+	auth.POST("/prometheus/test", middleware.RequireRoles(middleware.RoleAdmin), h.TestPrometheusConnection)
+	auth.POST("/prometheus/query", middleware.RequireRoles(readRoles...), h.QueryPrometheus)
 	auth.POST("/alerts/:fingerprint/mute", middleware.RequireRoles(writeRoles...), h.MuteAlert)
 	auth.POST("/alerts/:fingerprint/retry", middleware.RequireRoles(writeRoles...), h.RetryAlert)
 

@@ -296,6 +296,22 @@ type TelegramSettings struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
+type PrometheusSettings struct {
+	ID                    uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID                 *uuid.UUID `gorm:"type:uuid;not null;uniqueIndex" json:"org_id,omitempty"`
+	Enabled               bool       `gorm:"not null;default:false" json:"enabled"`
+	BaseURL               string     `gorm:"type:text;not null;default:''" json:"base_url"`
+	AuthType              string     `gorm:"type:text;not null;default:'none'" json:"auth_type"`
+	Username              string     `gorm:"type:text;not null;default:''" json:"username"`
+	PasswordEnc           string     `gorm:"type:text;not null;default:''" json:"-"`
+	BearerTokenEnc        string     `gorm:"type:text;not null;default:''" json:"-"`
+	TLSInsecureSkipVerify bool       `gorm:"column:tls_insecure_skip_verify;not null;default:false" json:"tls_insecure_skip_verify"`
+	TimeoutMS             int        `gorm:"not null;default:5000" json:"timeout_ms"`
+	DefaultStepSec        int        `gorm:"not null;default:60" json:"default_step_sec"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+}
+
 type OrgKey struct {
 	ID            uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	OrgID         uuid.UUID  `gorm:"type:uuid;not null;index:idx_org_keys_org_id" json:"org_id"`

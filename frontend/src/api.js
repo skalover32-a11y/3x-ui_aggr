@@ -270,3 +270,19 @@ export async function sendTelegramTest(payload) {
   }
   return data;
 }
+
+export async function getPrometheusSettings() {
+  return request("GET", "/prometheus/settings");
+}
+
+export async function savePrometheusSettings(payload) {
+  return request("PUT", "/prometheus/settings", payload || {});
+}
+
+export async function testPrometheusConnection(payload) {
+  return request("POST", "/prometheus/test", payload || {});
+}
+
+export async function queryPrometheus(payload) {
+  return request("POST", "/prometheus/query", payload || {});
+}
