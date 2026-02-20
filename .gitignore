@@ -1,2 +1,4 @@
 .env
 .stfolder/
+data/prom_sd/*.json
+!data/prom_sd/.gitkeep

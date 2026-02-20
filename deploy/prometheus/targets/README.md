@@ -1,23 +1,16 @@
-# Custom Prometheus targets
+# Legacy static targets
 
-Put JSON files with file_sd format into this folder.
+This folder is kept for legacy/manual examples only.
 
-Example `node_exporters.json`:
+Current org-scoped integration writes file_sd files automatically to:
 
-```json
-[
-  {
-    "targets": ["10.0.0.10:9100", "10.0.0.11:9100"],
-    "labels": {
-      "job": "node_exporter",
-      "env": "prod"
-    }
-  }
-]
-```
+- `./data/prom_sd/org_<org-id>.json` on host
+- `/etc/prometheus/sd/org_<org-id>.json` inside Prometheus container
 
-Then reload Prometheus config:
+Prometheus config reads from `/etc/prometheus/sd/org_*.json`.
 
-```bash
-curl -X POST http://localhost:19090/-/reload
-```
+For `vlf-agent`, Prometheus scrapes `http://<target>/metrics`.
+Recommended node-agent config:
+
+- `allow_cidrs` should include your Prometheus server IP/CIDR
+- `metrics_require_auth: false` (default)

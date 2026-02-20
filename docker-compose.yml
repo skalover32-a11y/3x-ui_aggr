@@ -47,6 +47,9 @@ services:
       SUDO_PASSWORDS: ${SUDO_PASSWORDS}
       AGG_ALLOW_CIDR: ${AGG_ALLOW_CIDR}
       AGG_REPO_PATH: ${AGG_REPO_PATH}
+      AGG_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,7 +85,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./deploy/prometheus/targets:/etc/prometheus/targets:ro
+      - ./data/prom_sd:/etc/prometheus/sd:ro
       - prometheus_data:/prometheus
     ports:
       - "19090:9090"

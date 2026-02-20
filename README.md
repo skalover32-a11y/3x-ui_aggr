@@ -73,6 +73,7 @@ make run
 - `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)
 - `AGG_ALLOW_CIDR` (optional, default allow CIDR for agent deploy)
 - `AGG_REPO_PATH` (optional, default `/opt/vlf_aggregator`, used to build vlf-agent)
+- `AGG_DATA_DIR` (optional, default `./data`, stores generated Prometheus file_sd files in `prom_sd/`)
 
 ## Invite-only signup
 Registration is invite-only. Admin creates invites, users sign up with invite code.
@@ -652,42 +653,60 @@ New API endpoints:
 - `POST /api/orgs/:orgId/import?dry_run=1`
   - Validates backup payload and returns preview (`incoming/existing/valid/skipped` + warnings) without applying changes.
 
-## Prometheus integration (UI-managed)
-Prometheus is configured per organization from UI (Access & Security -> Prometheus). Credentials are stored encrypted in DB.
+## Prometheus integration (org-scoped Observability)
+Prometheus is managed from UI in the **Observability** section (`/observability`) with two tabs:
 
-API endpoints:
-- `GET /api/prometheus/settings`
-  - Returns org-scoped Prometheus config without plaintext secrets (`password_set` / `bearer_token_set` flags only).
-- `PUT /api/prometheus/settings`
-  - Saves org-scoped Prometheus config (`enabled`, `base_url`, auth, TLS verify mode, timeout, default step).
-- `POST /api/prometheus/test`
-  - Runs an instant test query (default `up`) using stored settings and returns `up/down` summary.
-- `POST /api/prometheus/query`
-  - Runs PromQL through backend (instant or range) with org-scoped credentials.
+- `Targets` - org-scoped target CRUD, enable/disable, test target, reload Prometheus
+- `Settings` - mode (`embedded`/`external`), `prom_url`, reload method, defaults
 
-### Run Prometheus on the same server (recommended)
-`docker-compose.yml` includes a local Prometheus service:
+### Org-scoped API
+- `GET /api/orgs/:orgId/observability/prom/settings`
+- `PUT /api/orgs/:orgId/observability/prom/settings`
+- `GET /api/orgs/:orgId/observability/prom/targets`
+- `POST /api/orgs/:orgId/observability/prom/targets`
+- `PATCH /api/orgs/:orgId/observability/prom/targets/:targetId`
+- `DELETE /api/orgs/:orgId/observability/prom/targets/:targetId`
+- `POST /api/orgs/:orgId/observability/prom/targets/test`
+- `POST /api/orgs/:orgId/observability/prom/reload`
+- `GET /api/orgs/:orgId/observability/prom/sd` (admin only, preview/download)
+
+### Embedded mode on same server
+`docker-compose.yml` includes local Prometheus:
 - Prometheus UI/API: `http://<server>:19090`
-- Default scrape jobs:
-  - `prometheus` (self)
-  - `aggregator_backend` (`backend:8080/metrics`)
+- Scrape jobs: `prometheus`, `aggregator_backend`, and org file_sd targets
 
 Start/recreate:
 ```bash
 docker compose up -d prometheus backend
 ```
 
-In VLF UI -> Access & Security -> Prometheus:
-- `Enabled`: on
-- `Base URL`: `http://prometheus:9090`
-- `Auth`: `No auth`
-- Save -> Test connection (`up`)
+file_sd is generated automatically by backend after any target/settings change:
+- Host path: `./data/prom_sd/org_<org-id>.json`
+- Prometheus container path: `/etc/prometheus/sd/org_<org-id>.json`
 
-Custom targets:
-- Add `file_sd` JSON files into `deploy/prometheus/targets/`
-- Reload config without restart:
-```bash
-curl -X POST http://localhost:19090/-/reload
-```
+Use **Observability -> Targets -> Reload Prometheus** (or call reload API) to apply immediately.
+
+### Node-agent metrics integration
+`vlf-agent` exposes Prometheus metrics on:
+- `GET /metrics` (Prometheus text exposition)
+
+Key metric names:
+- `vlf_agent_up`
+- `vlf_agent_cpu_percent`
+- `vlf_agent_memory_used_bytes`
+- `vlf_agent_disk_used_bytes`
+- `vlf_agent_network_receive_bytes_total`
+- `vlf_agent_network_transmit_bytes_total`
+- `vlf_agent_uptime_seconds`
+- `vlf_agent_service_running`
+- `vlf_agent_runtime_running`
+
+Agent config (`/etc/vlf-agent/config.yaml`):
+- `allow_cidrs` must include Prometheus server IP/CIDR
+- `metrics_require_auth: false` (default, easiest for scrape)
+
+Deploy script flags:
+- `--metrics-open` (default behavior)
+- `--metrics-require-auth` (if you want `/metrics` to require bearer auth)
 
 
