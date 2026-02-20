@@ -665,4 +665,29 @@ API endpoints:
 - `POST /api/prometheus/query`
   - Runs PromQL through backend (instant or range) with org-scoped credentials.
 
+### Run Prometheus on the same server (recommended)
+`docker-compose.yml` includes a local Prometheus service:
+- Prometheus UI/API: `http://<server>:19090`
+- Default scrape jobs:
+  - `prometheus` (self)
+  - `aggregator_backend` (`backend:8080/metrics`)
+
+Start/recreate:
+```bash
+docker compose up -d prometheus backend
+```
+
+In VLF UI -> Access & Security -> Prometheus:
+- `Enabled`: on
+- `Base URL`: `http://prometheus:9090`
+- `Auth`: `No auth`
+- Save -> Test connection (`up`)
+
+Custom targets:
+- Add `file_sd` JSON files into `deploy/prometheus/targets/`
+- Reload config without restart:
+```bash
+curl -X POST http://localhost:19090/-/reload
+```
+
 

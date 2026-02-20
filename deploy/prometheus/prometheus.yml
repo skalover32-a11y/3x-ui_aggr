@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - prometheus:9090
+
+  - job_name: aggregator_backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - backend:8080
+
+  # Optional: add custom static targets through file_sd (for exporters with /metrics).
+  # Example file format:
+  # [
+  #   { "targets": ["10.0.0.10:9100"], "labels": { "env": "prod", "node": "host-1" } }
+  # ]
+  - job_name: custom_targets
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/*.json
