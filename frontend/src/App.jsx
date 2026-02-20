@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-router-dom";
-import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, getPrometheusSettings, savePrometheusSettings, testPrometheusConnection, queryPrometheus, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
+import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, getPrometheusSettings, savePrometheusSettings, testPrometheusConnection, queryPrometheus, getPromObservabilitySettings, savePromObservabilitySettings, listPromObservabilityTargets, createPromObservabilityTarget, updatePromObservabilityTarget, deletePromObservabilityTarget, testPromObservabilityTarget, reloadPromObservability, getPromObservabilitySD, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
 
@@ -423,6 +423,42 @@ function buildPromResultRows(resultType, result) {
   return [];
 }
 
+function labelsMapToLines(labels) {
+  if (!labels || typeof labels !== "object") return "";
+  return Object.entries(labels)
+    .filter(([k, v]) => String(k || "").trim() !== "" && String(v || "").trim() !== "")
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+}
+
+function linesToLabelsMap(raw) {
+  const out = {};
+  String(raw || "")
+    .split(/\r?\n|,/)
+    .forEach((line) => {
+      const item = String(line || "").trim();
+      if (!item) return;
+      const idx = item.indexOf("=");
+      if (idx <= 0) return;
+      const key = item.slice(0, idx).trim();
+      const value = item.slice(idx + 1).trim();
+      if (!key || !value) return;
+      out[key] = value;
+    });
+  return out;
+}
+
+function formatPromLabelPairs(labels, max = 4) {
+  if (!labels || typeof labels !== "object") return "-";
+  const pairs = Object.entries(labels);
+  if (pairs.length === 0) return "-";
+  const head = pairs.slice(0, max).map(([k, v]) => `${k}=${v}`);
+  if (pairs.length > max) {
+    head.push(`+${pairs.length - max}`);
+  }
+  return head.join(", ");
+}
+
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -445,12 +481,17 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
         { key: "dbwork", label: t("DB work"), path: "/db" },
       ]
     : [];
+  const observabilityItems = (isOrgAdmin || isGlobalAdmin)
+    ? [
+        { key: "observabilityTargets", label: t("Targets"), path: "/observability?tab=targets" },
+        { key: "observabilitySettings", label: t("Settings"), path: "/observability?tab=settings" },
+      ]
+    : [];
   const securityItems = [
     { key: "twofa", label: t("2FA settings"), path: "/nodes?view=2fa" },
     { key: "passkeys", label: t("Passkeys"), path: "/nodes?view=passkeys" },
   ];
   if (isOrgAdmin || isGlobalAdmin) {
-    securityItems.unshift({ key: "prometheus", label: t("Prometheus"), path: "/nodes?view=prometheus" });
     securityItems.unshift({ key: "alerts", label: t("Telegram alerts"), path: "/nodes?view=alerts" });
     securityItems.push({ key: "audit", label: t("Audit Log"), path: "/nodes?view=audit" });
   }
@@ -461,14 +502,17 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   }
   const infraKeys = infraItems.map((item) => item.key);
   const toolsKeys = toolsItems.map((item) => item.key);
+  const observabilityKeys = observabilityItems.map((item) => item.key);
   const securityKeys = securityItems.map((item) => item.key);
   const [infraOpen, setInfraOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [observabilityOpen, setObservabilityOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
 
   useEffect(() => {
     if (infraKeys.includes(active)) setInfraOpen(true);
     if (toolsKeys.includes(active)) setToolsOpen(true);
+    if (observabilityKeys.includes(active)) setObservabilityOpen(true);
     if (securityKeys.includes(active)) setSecurityOpen(true);
   }, [active]);
 
@@ -526,6 +570,29 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
             </button>
             {toolsOpen &&
               toolsItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sidebar-item ${active === item.key ? "active" : ""}`}
+                  onClick={() => navigate(item.path)}
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+          </>
+        )}
+
+        {observabilityItems.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="sidebar-section-toggle"
+              onClick={() => setObservabilityOpen((prev) => !prev)}
+            >
+              <span>{t("Observability")}</span>
+            </button>
+            {observabilityOpen &&
+              observabilityItems.map((item) => (
                 <button
                   key={item.key}
                   type="button"
@@ -6875,6 +6942,573 @@ function KeyStoragePage() {
   );
 }
 
+function ObservabilityPage() {
+  const { t, lang, setLang } = useI18n();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const orgRole = getOrgRole();
+  const user = getUser();
+  const isGlobalAdmin = getIsGlobalAdmin();
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
+  const canManage = isGlobalAdmin || isOrgAdmin;
+  const [error, setError] = useState("");
+  const [targetsBusy, setTargetsBusy] = useState(false);
+  const [targets, setTargets] = useState([]);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [reloadBusy, setReloadBusy] = useState(false);
+  const [reloadMessage, setReloadMessage] = useState("");
+  const [sdBusy, setSDBusy] = useState(false);
+  const [editor, setEditor] = useState({ open: false, target: null });
+  const [editorBusy, setEditorBusy] = useState(false);
+  const [testModal, setTestModal] = useState({ open: false, busy: false, result: null, title: "" });
+  const [settingsForm, setSettingsForm] = useState({
+    mode: "embedded",
+    prom_url: "http://prometheus:9090",
+    reload_method: "http",
+    prom_container_name: "prometheus",
+    default_scheme: "http",
+    default_metrics_path: "/metrics",
+    default_interval: "15s",
+    default_timeout: "5s",
+    allow_external_reload: false,
+    default_labels_text: "",
+  });
+  const [targetForm, setTargetForm] = useState({
+    name: "",
+    scheme: "http",
+    address: "",
+    metrics_path: "/metrics",
+    interval: "15s",
+    timeout: "5s",
+    enabled: true,
+    auth_type: "none",
+    auth_username: "",
+    auth_password: "",
+    auth_bearer_token: "",
+    labels_text: "",
+  });
+
+  const activeTab = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("tab") === "settings" ? "settings" : "targets";
+  }, [location.search]);
+  const activeSidebar = activeTab === "settings" ? "observabilitySettings" : "observabilityTargets";
+
+  useEffect(() => {
+    if (!canManage) return;
+    loadSettings();
+    loadTargets();
+  }, [canManage]);
+
+  function openCreateTarget() {
+    setTargetForm({
+      name: "",
+      scheme: settingsForm.default_scheme || "http",
+      address: "",
+      metrics_path: settingsForm.default_metrics_path || "/metrics",
+      interval: settingsForm.default_interval || "15s",
+      timeout: settingsForm.default_timeout || "5s",
+      enabled: true,
+      auth_type: "none",
+      auth_username: "",
+      auth_password: "",
+      auth_bearer_token: "",
+      labels_text: "",
+    });
+    setEditor({ open: true, target: null });
+  }
+
+  function openEditTarget(target) {
+    setTargetForm({
+      name: target.name || "",
+      scheme: target.scheme || "http",
+      address: target.address || "",
+      metrics_path: target.metrics_path || "/metrics",
+      interval: target.interval || "15s",
+      timeout: target.timeout || "5s",
+      enabled: Boolean(target.enabled),
+      auth_type: target.auth_type || "none",
+      auth_username: target.auth_username || "",
+      auth_password: "",
+      auth_bearer_token: "",
+      labels_text: labelsMapToLines(target.labels || {}),
+    });
+    setEditor({ open: true, target });
+  }
+
+  async function loadSettings() {
+    setSettingsBusy(true);
+    setSettingsSaved(false);
+    try {
+      const data = await getPromObservabilitySettings();
+      setSettingsForm({
+        mode: data.mode || "embedded",
+        prom_url: data.prom_url || "",
+        reload_method: data.reload_method || "http",
+        prom_container_name: data.prom_container_name || "prometheus",
+        default_scheme: data.default_scheme || "http",
+        default_metrics_path: data.default_metrics_path || "/metrics",
+        default_interval: data.default_interval || "15s",
+        default_timeout: data.default_timeout || "5s",
+        allow_external_reload: Boolean(data.allow_external_reload),
+        default_labels_text: labelsMapToLines(data.default_labels || {}),
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function loadTargets() {
+    setTargetsBusy(true);
+    try {
+      const data = await listPromObservabilityTargets();
+      setTargets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTargetsBusy(false);
+    }
+  }
+
+  async function saveSettings() {
+    setSettingsSaved(false);
+    setSettingsBusy(true);
+    try {
+      const payload = {
+        mode: settingsForm.mode || "embedded",
+        prom_url: (settingsForm.prom_url || "").trim(),
+        reload_method: settingsForm.reload_method || "http",
+        prom_container_name: (settingsForm.prom_container_name || "").trim(),
+        default_scheme: settingsForm.default_scheme || "http",
+        default_metrics_path: (settingsForm.default_metrics_path || "").trim() || "/metrics",
+        default_interval: (settingsForm.default_interval || "").trim() || "15s",
+        default_timeout: (settingsForm.default_timeout || "").trim() || "5s",
+        allow_external_reload: Boolean(settingsForm.allow_external_reload),
+        default_labels: linesToLabelsMap(settingsForm.default_labels_text),
+      };
+      await savePromObservabilitySettings(payload);
+      await loadSettings();
+      setSettingsSaved(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function saveTarget() {
+    setEditorBusy(true);
+    try {
+      const payload = {
+        name: (targetForm.name || "").trim(),
+        scheme: targetForm.scheme || "http",
+        address: (targetForm.address || "").trim(),
+        metrics_path: (targetForm.metrics_path || "").trim() || "/metrics",
+        interval: (targetForm.interval || "").trim() || "15s",
+        timeout: (targetForm.timeout || "").trim() || "5s",
+        enabled: Boolean(targetForm.enabled),
+        auth_type: targetForm.auth_type || "none",
+        auth_username: (targetForm.auth_username || "").trim(),
+        labels: linesToLabelsMap(targetForm.labels_text),
+      };
+      if (payload.auth_type === "basic" && (targetForm.auth_password || "").trim() !== "") {
+        payload.auth_password = targetForm.auth_password;
+      }
+      if (payload.auth_type === "bearer" && (targetForm.auth_bearer_token || "").trim() !== "") {
+        payload.auth_bearer_token = targetForm.auth_bearer_token;
+      }
+      if (editor.target?.id) {
+        await updatePromObservabilityTarget(editor.target.id, payload);
+      } else {
+        if (payload.auth_type === "basic" && !payload.auth_password) {
+          throw new Error(t("Password is required"));
+        }
+        if (payload.auth_type === "bearer" && !payload.auth_bearer_token) {
+          throw new Error(t("Bearer token is required"));
+        }
+        await createPromObservabilityTarget(payload);
+      }
+      setEditor({ open: false, target: null });
+      await loadTargets();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEditorBusy(false);
+    }
+  }
+
+  async function toggleTargetEnabled(target) {
+    try {
+      await updatePromObservabilityTarget(target.id, { enabled: !target.enabled });
+      await loadTargets();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function removeTarget(target) {
+    if (!confirm(t("Delete source entry?"))) return;
+    try {
+      await deletePromObservabilityTarget(target.id);
+      await loadTargets();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function testTarget(target) {
+    setTestModal({ open: true, busy: true, result: null, title: target?.name || t("Test") });
+    try {
+      const res = await testPromObservabilityTarget({ target_id: target.id });
+      setTestModal((prev) => ({ ...prev, busy: false, result: res }));
+    } catch (err) {
+      setTestModal((prev) => ({ ...prev, busy: false, result: { ok: false, error: err.message } }));
+    }
+  }
+
+  async function reloadPrometheus() {
+    setReloadBusy(true);
+    setReloadMessage("");
+    try {
+      const res = await reloadPromObservability();
+      const text = res.ok ? (res.message || t("Done")) : (res.error || res.message || t("Failed"));
+      setReloadMessage(text);
+    } catch (err) {
+      setReloadMessage(err.message);
+    } finally {
+      setReloadBusy(false);
+    }
+  }
+
+  async function downloadSD() {
+    setSDBusy(true);
+    try {
+      const data = await getPromObservabilitySD();
+      const payload = data?.raw || data?.targets || [];
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "prom_sd.json";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSDBusy(false);
+    }
+  }
+
+  if (!canManage) {
+    return (
+      <div className="app-shell">
+        <SidebarNav active={activeSidebar} isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+        <div className="app-main">
+          <div className="page center">
+            <div className="error">{t("Access denied")}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <SidebarNav active={activeSidebar} isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+      <div className="app-main">
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <OrgSwitcher />
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
+                <option value="ru">{t("Russian")}</option>
+                <option value="fa">{t("Persian")}</option>
+              </select>
+            </div>
+            <div className="header-user">
+              {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+              <button
+                onClick={async () => {
+                  try {
+                    await request("POST", "/auth/logout", {});
+                  } catch {
+                  }
+                  clearAuth();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("Logout")}
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div className="page page-wide">
+          <div className="page-header">
+            <div>
+              <h1>{t("Observability")}</h1>
+              <div className="muted small">{t("Prometheus targets and org-scoped settings")}</div>
+            </div>
+            <div className="page-actions">
+              <button
+                type="button"
+                className={activeTab === "targets" ? "" : "secondary"}
+                onClick={() => navigate("/observability?tab=targets")}
+              >
+                {t("Targets")}
+              </button>
+              <button
+                type="button"
+                className={activeTab === "settings" ? "" : "secondary"}
+                onClick={() => navigate("/observability?tab=settings")}
+              >
+                {t("Settings")}
+              </button>
+              {activeTab === "targets" && (
+                <>
+                  <button type="button" onClick={openCreateTarget}>{t("Add")}</button>
+                  <button type="button" className="secondary" onClick={loadTargets} disabled={targetsBusy}>{t("Refresh")}</button>
+                  <button type="button" className="secondary" onClick={reloadPrometheus} disabled={reloadBusy}>
+                    {reloadBusy ? t("Loading...") : t("Reload Prometheus")}
+                  </button>
+                </>
+              )}
+              {activeTab === "settings" && (
+                <>
+                  <button type="button" onClick={saveSettings} disabled={settingsBusy}>
+                    {settingsBusy ? t("Loading...") : t("Save")}
+                  </button>
+                  <button type="button" className="secondary" onClick={downloadSD} disabled={sdBusy}>
+                    {sdBusy ? t("Loading...") : t("Download")}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {error && <div className="error">{error}</div>}
+          {reloadMessage && <div className="hint">{reloadMessage}</div>}
+          {settingsSaved && activeTab === "settings" && <div className="hint">{t("Saved")}</div>}
+
+          {activeTab === "targets" && (
+            <div className="table-card">
+              <div className="data-table prom-targets-table">
+                <div className="data-row head">
+                  <div>{t("Name")}</div>
+                  <div>{t("Target")}</div>
+                  <div>{t("Enabled")}</div>
+                  <div>{t("Interval (sec)")}</div>
+                  <div>{t("Labels")}</div>
+                  <div>{t("Actions")}</div>
+                </div>
+                {targets.map((target) => (
+                  <div className="data-row" key={target.id}>
+                    <div>
+                      <div className="node-title">{target.name || "-"}</div>
+                      <div className="muted small">{target.scheme}://{target.address}{target.metrics_path}</div>
+                    </div>
+                    <div title={target.address}>{target.address || "-"}</div>
+                    <div>{target.enabled ? t("On") : t("Off")}</div>
+                    <div>{`${target.interval || "-"} / ${target.timeout || "-"}`}</div>
+                    <div title={labelsMapToLines(target.labels || {})}>{formatPromLabelPairs(target.labels || {})}</div>
+                    <div className="actions">
+                      <button type="button" className="secondary" onClick={() => testTarget(target)}>{t("Test")}</button>
+                      <button type="button" className="secondary" onClick={() => openEditTarget(target)}>{t("Edit")}</button>
+                      <button type="button" className="secondary" onClick={() => toggleTargetEnabled(target)}>
+                        {target.enabled ? t("Disable") : t("Enable")}
+                      </button>
+                      <button type="button" className="danger" onClick={() => removeTarget(target)}>{t("Delete")}</button>
+                    </div>
+                  </div>
+                ))}
+                {targets.length === 0 && !targetsBusy && (
+                  <div className="data-row prom-empty-row">
+                    <div className="muted">{t("No data")}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "settings" && (
+            <div className="table-card">
+              <div className="form-grid" autoComplete="off">
+                <select value={settingsForm.mode} onChange={(e) => setSettingsForm((prev) => ({ ...prev, mode: e.target.value }))}>
+                  <option value="embedded">Embedded</option>
+                  <option value="external">External</option>
+                </select>
+                <input
+                  placeholder="http://prometheus:9090"
+                  value={settingsForm.prom_url}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, prom_url: e.target.value }))}
+                />
+                <select value={settingsForm.reload_method} onChange={(e) => setSettingsForm((prev) => ({ ...prev, reload_method: e.target.value }))}>
+                  <option value="http">HTTP reload</option>
+                  <option value="docker_hup">Docker HUP</option>
+                  <option value="manual">Manual</option>
+                </select>
+                <input
+                  placeholder={t("Prometheus container")}
+                  value={settingsForm.prom_container_name}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, prom_container_name: e.target.value }))}
+                />
+                <select value={settingsForm.default_scheme} onChange={(e) => setSettingsForm((prev) => ({ ...prev, default_scheme: e.target.value }))}>
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+                <input
+                  placeholder="/metrics"
+                  value={settingsForm.default_metrics_path}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, default_metrics_path: e.target.value }))}
+                />
+                <input
+                  placeholder={t("Interval")}
+                  value={settingsForm.default_interval}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, default_interval: e.target.value }))}
+                />
+                <input
+                  placeholder={t("Timeout")}
+                  value={settingsForm.default_timeout}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, default_timeout: e.target.value }))}
+                />
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settingsForm.allow_external_reload)}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, allow_external_reload: e.target.checked }))}
+                  />
+                  {t("Allow external reload")}
+                </label>
+                <textarea
+                  className="prom-labels-textarea"
+                  rows="6"
+                  placeholder={"env=prod\nteam=core"}
+                  value={settingsForm.default_labels_text}
+                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, default_labels_text: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {editor.open && (
+          <div className="modal overlay-modal">
+            <div className="modal-content">
+              <h3>{editor.target ? t("Edit") : t("Add")}</h3>
+              <div className="form-grid" autoComplete="off">
+                <input
+                  placeholder={t("Name")}
+                  value={targetForm.name}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, name: e.target.value }))}
+                />
+                <input
+                  placeholder="host:port"
+                  value={targetForm.address}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, address: e.target.value }))}
+                />
+                <select value={targetForm.scheme} onChange={(e) => setTargetForm((prev) => ({ ...prev, scheme: e.target.value }))}>
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+                <input
+                  placeholder="/metrics"
+                  value={targetForm.metrics_path}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, metrics_path: e.target.value }))}
+                />
+                <input
+                  placeholder="15s"
+                  value={targetForm.interval}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, interval: e.target.value }))}
+                />
+                <input
+                  placeholder="5s"
+                  value={targetForm.timeout}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, timeout: e.target.value }))}
+                />
+                <select value={targetForm.auth_type} onChange={(e) => setTargetForm((prev) => ({ ...prev, auth_type: e.target.value }))}>
+                  <option value="none">{t("No auth")}</option>
+                  <option value="basic">{t("Basic auth")}</option>
+                  <option value="bearer">{t("Bearer token")}</option>
+                </select>
+                {targetForm.auth_type === "basic" && (
+                  <>
+                    <input
+                      placeholder={t("Username")}
+                      value={targetForm.auth_username}
+                      onChange={(e) => setTargetForm((prev) => ({ ...prev, auth_username: e.target.value }))}
+                    />
+                    <input
+                      type="password"
+                      placeholder={editor.target ? t("Password (leave blank to keep)") : t("Password")}
+                      value={targetForm.auth_password}
+                      onChange={(e) => setTargetForm((prev) => ({ ...prev, auth_password: e.target.value }))}
+                    />
+                  </>
+                )}
+                {targetForm.auth_type === "bearer" && (
+                  <input
+                    type="password"
+                    placeholder={editor.target ? t("Bearer token (leave blank to keep)") : t("Bearer token")}
+                    value={targetForm.auth_bearer_token}
+                    onChange={(e) => setTargetForm((prev) => ({ ...prev, auth_bearer_token: e.target.value }))}
+                  />
+                )}
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(targetForm.enabled)}
+                    onChange={(e) => setTargetForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+                  />
+                  {t("Enabled")}
+                </label>
+                <textarea
+                  className="prom-labels-textarea"
+                  rows="5"
+                  placeholder={"region=eu\nteam=ops"}
+                  value={targetForm.labels_text}
+                  onChange={(e) => setTargetForm((prev) => ({ ...prev, labels_text: e.target.value }))}
+                />
+              </div>
+              <div className="actions">
+                <button type="button" onClick={saveTarget} disabled={editorBusy}>
+                  {editorBusy ? t("Loading...") : t("Save")}
+                </button>
+                <button type="button" className="secondary" onClick={() => setEditor({ open: false, target: null })}>{t("Cancel")}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {testModal.open && (
+          <div className="modal overlay-modal">
+            <div className="modal-content">
+              <h3>{`${t("Test")} ${testModal.title || ""}`.trim()}</h3>
+              {testModal.busy && <div className="hint">{t("Loading...")}</div>}
+              {!testModal.busy && testModal.result && (
+                <div className="prom-test-result">
+                  <div className="hint">{`ok=${Boolean(testModal.result.ok)} status=${testModal.result.status || "-"}`}</div>
+                  <div className="hint">{`code=${testModal.result.status_code || 0} latency=${testModal.result.latency_ms || 0}ms`}</div>
+                  {testModal.result.error && <div className="error">{testModal.result.error}</div>}
+                  {testModal.result.preview && <pre className="code-block">{testModal.result.preview}</pre>}
+                </div>
+              )}
+              <div className="actions">
+                <button type="button" onClick={() => setTestModal({ open: false, busy: false, result: null, title: "" })}>{t("Close")}</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DbWorkPage() {
   const { t } = useI18n();
   const role = getRole();
@@ -7125,6 +7759,14 @@ export default function App() {
           element={
             <RequireAuth>
               <DbWorkPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/observability"
+          element={
+            <RequireAuth>
+              <ObservabilityPage />
             </RequireAuth>
           }
         />

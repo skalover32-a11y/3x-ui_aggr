@@ -286,3 +286,47 @@ export async function testPrometheusConnection(payload) {
 export async function queryPrometheus(payload) {
   return request("POST", "/prometheus/query", payload || {});
 }
+
+function orgScopedPath(suffix) {
+  const orgId = getOrgId();
+  if (!orgId) {
+    throw new Error("No organization assigned");
+  }
+  return `/orgs/${orgId}${suffix}`;
+}
+
+export async function getPromObservabilitySettings() {
+  return request("GET", orgScopedPath("/observability/prom/settings"));
+}
+
+export async function savePromObservabilitySettings(payload) {
+  return request("PUT", orgScopedPath("/observability/prom/settings"), payload || {});
+}
+
+export async function listPromObservabilityTargets() {
+  return request("GET", orgScopedPath("/observability/prom/targets"));
+}
+
+export async function createPromObservabilityTarget(payload) {
+  return request("POST", orgScopedPath("/observability/prom/targets"), payload || {});
+}
+
+export async function updatePromObservabilityTarget(targetId, payload) {
+  return request("PATCH", orgScopedPath(`/observability/prom/targets/${targetId}`), payload || {});
+}
+
+export async function deletePromObservabilityTarget(targetId) {
+  return request("DELETE", orgScopedPath(`/observability/prom/targets/${targetId}`), {});
+}
+
+export async function testPromObservabilityTarget(payload) {
+  return request("POST", orgScopedPath("/observability/prom/targets/test"), payload || {});
+}
+
+export async function reloadPromObservability() {
+  return request("POST", orgScopedPath("/observability/prom/reload"), {});
+}
+
+export async function getPromObservabilitySD() {
+  return request("GET", orgScopedPath("/observability/prom/sd"));
+}
