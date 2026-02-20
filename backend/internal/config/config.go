@@ -45,6 +45,7 @@ type Config struct {
 	SudoPasswords                []string
 	AllowCIDR                    string
 	RepoPath                     string
+	DataDir                      string
 }
 
 func Load() (*Config, error) {
@@ -63,6 +64,10 @@ func Load() (*Config, error) {
 	cfg.SudoPasswords = parseCSVEnv("SUDO_PASSWORDS", nil)
 	cfg.AllowCIDR = strings.TrimSpace(os.Getenv("AGG_ALLOW_CIDR"))
 	cfg.RepoPath = strings.TrimSpace(os.Getenv("AGG_REPO_PATH"))
+	cfg.DataDir = strings.TrimSpace(os.Getenv("AGG_DATA_DIR"))
+	if cfg.DataDir == "" {
+		cfg.DataDir = "./data"
+	}
 	accessTTL := strings.TrimSpace(os.Getenv("ACCESS_TOKEN_TTL"))
 	if accessTTL != "" {
 		val, err := time.ParseDuration(accessTTL)

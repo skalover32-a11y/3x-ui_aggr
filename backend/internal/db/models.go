@@ -312,6 +312,50 @@ type PrometheusSettings struct {
 	UpdatedAt             time.Time  `json:"updated_at"`
 }
 
+type PromSetting struct {
+	ID                  uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID               uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex" json:"org_id"`
+	Mode                string         `gorm:"type:text;not null;default:'embedded'" json:"mode"`
+	PromURL             string         `gorm:"type:text;not null;default:''" json:"prom_url"`
+	ReloadMethod        string         `gorm:"type:text;not null;default:'http'" json:"reload_method"`
+	PromContainerName   string         `gorm:"type:text;not null;default:'prometheus'" json:"prom_container_name"`
+	DefaultScheme       string         `gorm:"type:text;not null;default:'http'" json:"default_scheme"`
+	DefaultMetricsPath  string         `gorm:"type:text;not null;default:'/metrics'" json:"default_metrics_path"`
+	DefaultInterval     string         `gorm:"type:text;not null;default:'15s'" json:"default_interval"`
+	DefaultTimeout      string         `gorm:"type:text;not null;default:'5s'" json:"default_timeout"`
+	DefaultLabels       datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"default_labels"`
+	AllowExternalReload bool           `gorm:"not null;default:false" json:"allow_external_reload"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+}
+
+func (PromSetting) TableName() string {
+	return "prom_settings"
+}
+
+type PromTarget struct {
+	ID              uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"org_id"`
+	Name            string         `gorm:"type:text;not null" json:"name"`
+	Scheme          string         `gorm:"type:text;not null;default:'http'" json:"scheme"`
+	Address         string         `gorm:"type:text;not null" json:"address"`
+	MetricsPath     string         `gorm:"type:text;not null;default:'/metrics'" json:"metrics_path"`
+	Interval        string         `gorm:"type:text;not null;default:'15s'" json:"interval"`
+	Timeout         string         `gorm:"type:text;not null;default:'5s'" json:"timeout"`
+	Labels          datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"labels"`
+	Enabled         bool           `gorm:"not null;default:true" json:"enabled"`
+	AuthType        string         `gorm:"type:text;not null;default:'none'" json:"auth_type"`
+	AuthUsername    string         `gorm:"type:text;not null;default:''" json:"auth_username"`
+	AuthPasswordEnc string         `gorm:"type:text;not null;default:''" json:"-"`
+	AuthBearerEnc   string         `gorm:"column:auth_bearer_token_enc;type:text;not null;default:''" json:"-"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+func (PromTarget) TableName() string {
+	return "prom_targets"
+}
+
 type OrgKey struct {
 	ID            uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	OrgID         uuid.UUID  `gorm:"type:uuid;not null;index:idx_org_keys_org_id" json:"org_id"`

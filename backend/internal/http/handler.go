@@ -49,6 +49,7 @@ type Handler struct {
 	TokenSalt             string
 	PublicBaseURL         string
 	TelegramWebhookSecret string
+	DataDir               string
 }
 
 func (h *Handler) getNode(ctx context.Context, idStr string) (*db.Node, error) {

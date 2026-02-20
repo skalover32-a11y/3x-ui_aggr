@@ -104,6 +104,7 @@ func main() {
 		TokenSalt:             cfg.TokenSalt,
 		PublicBaseURL:         cfg.PublicBaseURL,
 		TelegramWebhookSecret: cfg.TelegramWebhookSecret,
+		DataDir:               cfg.DataDir,
 	}
 	if _, err := handler.EnsureRootOrg(context.Background()); err != nil {
 		log.Printf("ensure root org failed: %v", err)
