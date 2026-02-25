@@ -41,6 +41,7 @@ const (
 	JobTypeReboot      = "reboot_nodes"
 	JobTypeUpdate      = "update_nodes"
 	JobTypeDeploy      = "deploy_agent"
+	JobTypeInstallVLF  = "install_vlf_proto"
 	JobTypeUpdateSvc   = "update_services"
 	JobTypeRebootAgent = "reboot_node"
 	JobTypeRestartSvc  = "restart_service"
@@ -50,6 +51,20 @@ const maxParallelism = 10
 const maxConcurrentJobs = 3
 const agentFirstContactTimeout = 30 * time.Second
 const agentFirstContactPollInterval = time.Second
+
+const (
+	defaultInstallerRepoURL     = "https://github.com/skalover32-a11y/VLF-Proto.git"
+	defaultInstallerRef         = "main"
+	defaultInstallerGoVersion   = "1.25.1"
+	defaultInstallerInstallDir  = "/opt/vlf-proto"
+	defaultInstallerPortTCP     = 443
+	defaultInstallerPortUDP     = 443
+	defaultInstallerPortUDPAlt  = 8443
+	defaultInstallerMetricsAddr = "127.0.0.1"
+	defaultInstallerMetricsPort = 8080
+	defaultInstallerClientID    = "gateway-client"
+	defaultInstallerLogLevel    = "info"
+)
 
 type Service struct {
 	DB            *gorm.DB
@@ -94,6 +109,25 @@ type JobParams struct {
 	MetricsRequireAuth bool   `json:"metrics_require_auth"`
 	InstallDocker      bool   `json:"install_docker"`
 	RestartService     string `json:"restart_service"`
+
+	InstallerRepoURL       string `json:"installer_repo_url"`
+	InstallerRef           string `json:"installer_ref"`
+	InstallerGoVersion     string `json:"installer_go_version"`
+	InstallerInstallDir    string `json:"installer_install_dir"`
+	InstallerPortTCP       int    `json:"installer_port_tcp"`
+	InstallerPortUDP       int    `json:"installer_port_udp"`
+	InstallerPortUDPAlt    int    `json:"installer_port_udp_alt"`
+	InstallerEnableMetrics bool   `json:"installer_enable_metrics"`
+	InstallerMetricsAddr   string `json:"installer_metrics_addr"`
+	InstallerMetricsPort   int    `json:"installer_metrics_port"`
+	InstallerEnableUFW     bool   `json:"installer_enable_ufw"`
+	InstallerDomain        string `json:"installer_domain"`
+	InstallerTLSServerName string `json:"installer_tls_server_name"`
+	InstallerClientID      string `json:"installer_client_id"`
+	InstallerSecret        string `json:"installer_secret"`
+	InstallerLogLevel      string `json:"installer_log_level"`
+	InstallerShowSecrets   bool   `json:"installer_show_secrets"`
+	InstallerForce         bool   `json:"installer_force"`
 }
 
 func New(dbConn *gorm.DB, exec NodeExecutor, agentExec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
@@ -164,6 +198,11 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 		}
 		if typ == JobTypeDeploy {
 			if strings.TrimSpace(jobParams.Confirm) != "DEPLOY_AGENT" {
+				return nil, errors.New("confirmation required")
+			}
+		}
+		if typ == JobTypeInstallVLF {
+			if strings.TrimSpace(jobParams.Confirm) != "INSTALL_VLF_PROTO" {
 				return nil, errors.New("confirmation required")
 			}
 		}
@@ -475,6 +514,9 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	if job.Type == JobTypeRebootAgent {
 		timeout = 5 * time.Minute
 	}
+	if job.Type == JobTypeInstallVLF {
+		timeout = 20 * time.Minute
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -531,6 +573,16 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				exitCode = 1
 			}
 		}
+	case JobTypeInstallVLF:
+		installer, ok := s.Executor.(VLFProtoInstaller)
+		if !ok {
+			runErr = errors.New("vlf-proto installer is not supported by executor")
+			exitCode = 1
+			break
+		}
+		params := buildInstallVLFProtoParams(job.Params)
+		params.SudoPasswords = s.SudoPasswords
+		output, exitCode, runErr = installer.InstallVLFProto(cctx, node, params)
 	default:
 		runErr = errors.New("unsupported job type")
 		exitCode = 1
@@ -640,6 +692,82 @@ func parseUpdateParams(raw datatypes.JSON) UpdateParams {
 	}
 }
 
+func buildInstallVLFProtoParams(raw datatypes.JSON) InstallVLFProtoParams {
+	params := parseJobParams(raw)
+	rawMap := map[string]any{}
+	_ = json.Unmarshal(raw, &rawMap)
+
+	out := InstallVLFProtoParams{
+		RepoURL:       strings.TrimSpace(params.InstallerRepoURL),
+		Ref:           strings.TrimSpace(params.InstallerRef),
+		GoVersion:     strings.TrimSpace(params.InstallerGoVersion),
+		InstallDir:    strings.TrimSpace(params.InstallerInstallDir),
+		PortTCP:       params.InstallerPortTCP,
+		PortUDP:       params.InstallerPortUDP,
+		PortUDPAlt:    params.InstallerPortUDPAlt,
+		MetricsAddr:   strings.TrimSpace(params.InstallerMetricsAddr),
+		MetricsPort:   params.InstallerMetricsPort,
+		Domain:        strings.TrimSpace(params.InstallerDomain),
+		TLSServerName: strings.TrimSpace(params.InstallerTLSServerName),
+		ClientID:      strings.TrimSpace(params.InstallerClientID),
+		Secret:        strings.TrimSpace(params.InstallerSecret),
+		LogLevel:      strings.TrimSpace(params.InstallerLogLevel),
+	}
+
+	if out.RepoURL == "" {
+		out.RepoURL = defaultInstallerRepoURL
+	}
+	if out.Ref == "" {
+		out.Ref = defaultInstallerRef
+	}
+	if out.GoVersion == "" {
+		out.GoVersion = defaultInstallerGoVersion
+	}
+	if out.InstallDir == "" {
+		out.InstallDir = defaultInstallerInstallDir
+	}
+	if out.PortTCP <= 0 {
+		out.PortTCP = defaultInstallerPortTCP
+	}
+	if out.PortUDP <= 0 {
+		out.PortUDP = defaultInstallerPortUDP
+	}
+	if out.PortUDPAlt <= 0 {
+		out.PortUDPAlt = defaultInstallerPortUDPAlt
+	}
+	if out.MetricsAddr == "" {
+		out.MetricsAddr = defaultInstallerMetricsAddr
+	}
+	if out.MetricsPort <= 0 {
+		out.MetricsPort = defaultInstallerMetricsPort
+	}
+	if out.ClientID == "" {
+		out.ClientID = defaultInstallerClientID
+	}
+	if out.LogLevel == "" {
+		out.LogLevel = defaultInstallerLogLevel
+	}
+
+	out.EnableMetrics = true
+	if _, ok := rawMap["installer_enable_metrics"]; ok {
+		out.EnableMetrics = params.InstallerEnableMetrics
+	}
+	out.EnableUFW = false
+	if _, ok := rawMap["installer_enable_ufw"]; ok {
+		out.EnableUFW = params.InstallerEnableUFW
+	}
+	out.ShowSecrets = false
+	if _, ok := rawMap["installer_show_secrets"]; ok {
+		out.ShowSecrets = params.InstallerShowSecrets
+	}
+	out.Force = true
+	if _, ok := rawMap["installer_force"]; ok {
+		out.Force = params.InstallerForce
+	}
+
+	return out
+}
+
 func trimLog(input string, headSize int, tailSize int) string {
 	if headSize <= 0 && tailSize <= 0 {
 		return ""
@@ -704,6 +832,8 @@ func describeJobAction(jobType string, params JobParams) string {
 		return "reboot (agent)"
 	case JobTypeRestartSvc:
 		return fmt.Sprintf("restart service %s (agent)", strings.TrimSpace(params.RestartService))
+	case JobTypeInstallVLF:
+		return "install VLF-Proto (one-click installer)"
 	default:
 		return jobType
 	}
@@ -1176,7 +1306,7 @@ func (s *Service) ensureAgentTargets(ctx context.Context, ids []uuid.UUID) error
 
 func isSupportedJobType(typ string) bool {
 	switch typ {
-	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeUpdateSvc, JobTypeRebootAgent, JobTypeRestartSvc:
+	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeInstallVLF, JobTypeUpdateSvc, JobTypeRebootAgent, JobTypeRestartSvc:
 		return true
 	default:
 		return false

@@ -39,3 +39,31 @@ type DeployAgentParams struct {
 	NodeHost           string
 	PreLog             string
 }
+
+// VLFProtoInstaller is an optional capability for executors that can run
+// one-click VLF-Proto installer flow on nodes.
+type VLFProtoInstaller interface {
+	InstallVLFProto(ctx context.Context, node *db.Node, params InstallVLFProtoParams) (string, int, error)
+}
+
+type InstallVLFProtoParams struct {
+	RepoURL       string
+	Ref           string
+	GoVersion     string
+	InstallDir    string
+	PortTCP       int
+	PortUDP       int
+	PortUDPAlt    int
+	EnableMetrics bool
+	MetricsAddr   string
+	MetricsPort   int
+	EnableUFW     bool
+	Domain        string
+	TLSServerName string
+	ClientID      string
+	Secret        string
+	LogLevel      string
+	ShowSecrets   bool
+	Force         bool
+	SudoPasswords []string
+}

@@ -183,6 +183,79 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 	return logs.String(), 0, nil
 }
 
+func (e *SSHExecutor) InstallVLFProto(ctx context.Context, node *db.Node, params InstallVLFProtoParams) (string, int, error) {
+	if node == nil {
+		return "", 1, errors.New("node missing")
+	}
+	client, err := e.openClient(node)
+	if err != nil {
+		return "", 1, err
+	}
+	defer client.Close()
+
+	logs := &strings.Builder{}
+	writeLog(logs, "preflight ok")
+
+	sudoPass, usePass, err := detectSudo(ctx, client, params.SudoPasswords)
+	if err != nil {
+		writeLog(logs, "sudo check failed")
+		return logs.String(), 2, err
+	}
+
+	installCmd := buildVLFProtoInstallCommand(params)
+	out, code, err := runRemote(ctx, client, sudoCmd(installCmd, sudoPass, usePass))
+	if strings.TrimSpace(out) != "" {
+		writeLog(logs, strings.TrimSpace(out))
+	}
+	if err != nil {
+		writeLog(logs, "vlf-proto install failed")
+		if code == 0 {
+			code = 3
+		}
+		return logs.String(), code, err
+	}
+	writeLog(logs, "vlf-proto install finished")
+	return logs.String(), 0, nil
+}
+
+func buildVLFProtoInstallCommand(params InstallVLFProtoParams) string {
+	args := []string{
+		"--repo", shellEscape(strings.TrimSpace(params.RepoURL)),
+		"--ref", shellEscape(strings.TrimSpace(params.Ref)),
+		"--go-version", shellEscape(strings.TrimSpace(params.GoVersion)),
+		"--install-dir", shellEscape(strings.TrimSpace(params.InstallDir)),
+		"--port-tcp", strconv.Itoa(params.PortTCP),
+		"--port-udp", strconv.Itoa(params.PortUDP),
+		"--port-udp-alt", strconv.Itoa(params.PortUDPAlt),
+		"--metrics-addr", shellEscape(strings.TrimSpace(params.MetricsAddr)),
+		"--metrics-port", strconv.Itoa(params.MetricsPort),
+		"--client-id", shellEscape(strings.TrimSpace(params.ClientID)),
+		"--log-level", shellEscape(strings.TrimSpace(params.LogLevel)),
+	}
+	if !params.EnableMetrics {
+		args = append(args, "--no-metrics")
+	}
+	if params.EnableUFW {
+		args = append(args, "--ufw")
+	}
+	if strings.TrimSpace(params.Domain) != "" {
+		args = append(args, "--domain", shellEscape(strings.TrimSpace(params.Domain)))
+	}
+	if strings.TrimSpace(params.TLSServerName) != "" {
+		args = append(args, "--tls-server-name", shellEscape(strings.TrimSpace(params.TLSServerName)))
+	}
+	if strings.TrimSpace(params.Secret) != "" {
+		args = append(args, "--secret", shellEscape(strings.TrimSpace(params.Secret)))
+	}
+	if params.ShowSecrets {
+		args = append(args, "--show-secrets")
+	}
+	if params.Force {
+		args = append(args, "--force")
+	}
+	return "curl -fsSL https://raw.githubusercontent.com/skalover32-a11y/VLF-Proto/main/scripts/install.sh | bash -s -- " + strings.Join(args, " ")
+}
+
 func (e *SSHExecutor) CheckAgentInstalled(ctx context.Context, node *db.Node, agentPort int) (bool, string, error) {
 	client, err := e.openClient(node)
 	if err != nil {

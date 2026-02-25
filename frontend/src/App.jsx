@@ -1610,6 +1610,8 @@ function NodesPage() {
   const [actionPlan, setActionPlan] = useState({ open: false, node: null, action: null, steps: [], confirm: "" });
   const [actionBusy, setActionBusy] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [installVLFOpen, setInstallVLFOpen] = useState(false);
+  const [installVLFError, setInstallVLFError] = useState("");
   const [deployProgress, setDeployProgress] = useState({ open: false, jobId: "", status: null });
   const [deployItems, setDeployItems] = useState([]);
   const [deployLogs, setDeployLogs] = useState({});
@@ -1640,6 +1642,30 @@ function NodesPage() {
     install_docker: false,
     force_redeploy: true,
     parallelism: 3,
+    all: false,
+    sandbox_only: false,
+    confirm: "",
+  });
+  const [installVLFForm, setInstallVLFForm] = useState({
+    repo_url: "https://github.com/skalover32-a11y/VLF-Proto.git",
+    ref: "main",
+    go_version: "1.25.1",
+    install_dir: "/opt/vlf-proto",
+    port_tcp: 443,
+    port_udp: 443,
+    port_udp_alt: 8443,
+    enable_metrics: true,
+    metrics_addr: "127.0.0.1",
+    metrics_port: 8080,
+    enable_ufw: false,
+    domain: "",
+    tls_server_name: "",
+    client_id: "gateway-client",
+    secret: "",
+    log_level: "info",
+    show_secrets: false,
+    force: true,
+    parallelism: 2,
     all: false,
     sandbox_only: false,
     confirm: "",
@@ -2280,6 +2306,11 @@ function NodesPage() {
     loadAgentDeployDefaults();
   }
 
+  function openInstallVLFProto() {
+    setInstallVLFError("");
+    setInstallVLFOpen(true);
+  }
+
   function openTaskModal(type) {
     setTaskError("");
     setTaskForm((prev) => ({
@@ -2462,6 +2493,58 @@ function NodesPage() {
       await loadDeployItems(job.id);
     } catch (err) {
       setDeployError(err.message);
+    }
+  }
+
+  async function startInstallVLFProto() {
+    setInstallVLFError("");
+    const params = {
+      installer_repo_url: (installVLFForm.repo_url || "").trim(),
+      installer_ref: (installVLFForm.ref || "").trim(),
+      installer_go_version: (installVLFForm.go_version || "").trim(),
+      installer_install_dir: (installVLFForm.install_dir || "").trim(),
+      installer_port_tcp: Number(installVLFForm.port_tcp) || 443,
+      installer_port_udp: Number(installVLFForm.port_udp) || 443,
+      installer_port_udp_alt: Number(installVLFForm.port_udp_alt) || 8443,
+      installer_enable_metrics: !!installVLFForm.enable_metrics,
+      installer_metrics_addr: (installVLFForm.metrics_addr || "").trim(),
+      installer_metrics_port: Number(installVLFForm.metrics_port) || 8080,
+      installer_enable_ufw: !!installVLFForm.enable_ufw,
+      installer_domain: (installVLFForm.domain || "").trim(),
+      installer_tls_server_name: (installVLFForm.tls_server_name || "").trim(),
+      installer_client_id: (installVLFForm.client_id || "").trim(),
+      installer_secret: (installVLFForm.secret || "").trim(),
+      installer_log_level: (installVLFForm.log_level || "").trim(),
+      installer_show_secrets: !!installVLFForm.show_secrets,
+      installer_force: !!installVLFForm.force,
+      confirm: (installVLFForm.confirm || "").trim(),
+      sandbox: !!installVLFForm.sandbox_only,
+    };
+    if (!installVLFForm.all && selectedNodeIDs.length === 0) {
+      setInstallVLFError(t("Select at least one node"));
+      return;
+    }
+    if (!params.installer_repo_url) {
+      setInstallVLFError(t("Repository URL is required"));
+      return;
+    }
+    if (installVLFForm.all && params.confirm !== "INSTALL_VLF_PROTO") {
+      setInstallVLFError(t("Type {token} to confirm", { token: "INSTALL_VLF_PROTO" }));
+      return;
+    }
+    const payload = {
+      node_ids: installVLFForm.all ? [] : selectedNodeIDs,
+      all: !!installVLFForm.all,
+      parallelism: Number(installVLFForm.parallelism) || 2,
+      params,
+    };
+    try {
+      const job = await request("POST", "/ops/install-vlf-proto", payload);
+      setInstallVLFOpen(false);
+      setTaskProgress({ open: true, jobId: job.id, status: job.status || "queued", title: "install_vlf_proto" });
+      await loadTaskItems(job.id);
+    } catch (err) {
+      setInstallVLFError(err.message);
     }
   }
 
@@ -3772,6 +3855,9 @@ function NodesPage() {
               <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
                 {t("Deploy agent")}
               </button>
+              <button type="button" className="secondary" onClick={openInstallVLFProto} disabled={filteredNodes.length === 0}>
+                {t("Install VLF-Proto")}
+              </button>
               <button type="button" className="secondary" onClick={() => openTaskModal("update_services")} disabled={filteredNodes.length === 0}>
                 {t("Update services")}
               </button>
@@ -4911,6 +4997,159 @@ function NodesPage() {
             <div className="actions">
               <button type="button" onClick={startDeployAgent}>{t("Start deploy")}</button>
               <button type="button" onClick={() => setDeployOpen(false)}>{t("Close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {installVLFOpen && (
+        <div className="modal overlay-modal">
+          <div className="modal-content wide">
+            <h3>{t("Install VLF-Proto")}</h3>
+            <div className="form-grid" autoComplete="off">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.all}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, all: e.target.checked })}
+                />
+                {t("All nodes")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.sandbox_only}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, sandbox_only: e.target.checked })}
+                />
+                {t("Sandbox only")}
+              </label>
+              <input
+                placeholder={t("Repository URL")}
+                value={installVLFForm.repo_url}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, repo_url: e.target.value })}
+              />
+              <input
+                placeholder={t("Git ref")}
+                value={installVLFForm.ref}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, ref: e.target.value })}
+              />
+              <input
+                placeholder={t("Go version")}
+                value={installVLFForm.go_version}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, go_version: e.target.value })}
+              />
+              <input
+                placeholder={t("Install directory")}
+                value={installVLFForm.install_dir}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, install_dir: e.target.value })}
+              />
+              <input
+                type="number"
+                placeholder={t("TCP port")}
+                value={installVLFForm.port_tcp}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, port_tcp: Number(e.target.value) })}
+              />
+              <input
+                type="number"
+                placeholder={t("UDP port")}
+                value={installVLFForm.port_udp}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, port_udp: Number(e.target.value) })}
+              />
+              <input
+                type="number"
+                placeholder={t("UDP alt port")}
+                value={installVLFForm.port_udp_alt}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, port_udp_alt: Number(e.target.value) })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.enable_metrics}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, enable_metrics: e.target.checked })}
+                />
+                {t("Enable metrics")}
+              </label>
+              <input
+                placeholder={t("Metrics address")}
+                value={installVLFForm.metrics_addr}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, metrics_addr: e.target.value })}
+              />
+              <input
+                type="number"
+                placeholder={t("Metrics port")}
+                value={installVLFForm.metrics_port}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, metrics_port: Number(e.target.value) })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.enable_ufw}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, enable_ufw: e.target.checked })}
+                />
+                {t("Enable UFW")}
+              </label>
+              <input
+                placeholder={t("Domain")}
+                value={installVLFForm.domain}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, domain: e.target.value })}
+              />
+              <input
+                placeholder={t("TLS server name")}
+                value={installVLFForm.tls_server_name}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, tls_server_name: e.target.value })}
+              />
+              <input
+                placeholder={t("Client ID")}
+                value={installVLFForm.client_id}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, client_id: e.target.value })}
+              />
+              <input
+                placeholder={t("Secret")}
+                value={installVLFForm.secret}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, secret: e.target.value })}
+              />
+              <input
+                placeholder={t("Log level")}
+                value={installVLFForm.log_level}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, log_level: e.target.value })}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.show_secrets}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, show_secrets: e.target.checked })}
+                />
+                {t("Show secrets in logs")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={installVLFForm.force}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, force: e.target.checked })}
+                />
+                {t("Force reinstall")}
+              </label>
+              <input
+                type="number"
+                placeholder={t("Parallelism")}
+                value={installVLFForm.parallelism}
+                onChange={(e) => setInstallVLFForm({ ...installVLFForm, parallelism: Number(e.target.value) })}
+              />
+              {installVLFForm.all && (
+                <input
+                  placeholder={t("Type {token} to confirm", { token: "INSTALL_VLF_PROTO" })}
+                  value={installVLFForm.confirm}
+                  onChange={(e) => setInstallVLFForm({ ...installVLFForm, confirm: e.target.value })}
+                />
+              )}
+              <div className="muted small">
+                {t("Selected: {count}", { count: selectedNodeIDs.length })}
+              </div>
+            </div>
+            {installVLFError && <div className="error">{installVLFError}</div>}
+            <div className="actions">
+              <button type="button" onClick={startInstallVLFProto}>{t("Start install")}</button>
+              <button type="button" onClick={() => setInstallVLFOpen(false)}>{t("Close")}</button>
             </div>
           </div>
         </div>

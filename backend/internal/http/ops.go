@@ -89,6 +89,30 @@ func (h *Handler) CreateDeployAgent(c *gin.Context) {
 	respondStatus(c, http.StatusCreated, job)
 }
 
+func (h *Handler) CreateInstallVLFProto(c *gin.Context) {
+	if h.Ops == nil {
+		respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
+		return
+	}
+	var req createDeployAgentRequest
+	if !parseJSONBody(c, &req) {
+		return
+	}
+	job, err := h.Ops.CreateJob(c.Request.Context(), ops.CreateJobRequest{
+		Type:        ops.JobTypeInstallVLF,
+		NodeIDs:     req.NodeIDs,
+		AllNodes:    req.All,
+		Parallelism: req.Parallelism,
+		Params:      req.Params,
+		Actor:       getActor(c),
+	})
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "JOB_CREATE", err.Error())
+		return
+	}
+	respondStatus(c, http.StatusCreated, job)
+}
+
 func (h *Handler) GetOpsJob(c *gin.Context) {
 	if h.Ops == nil {
 		respondError(c, http.StatusServiceUnavailable, "OPS_DISABLED", "ops service not configured")
