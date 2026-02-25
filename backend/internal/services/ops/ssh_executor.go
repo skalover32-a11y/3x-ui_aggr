@@ -208,7 +208,9 @@ func (e *SSHExecutor) InstallVLFProto(ctx context.Context, node *db.Node, params
 	}
 
 	installCmd := buildVLFProtoInstallCommand(params)
-	out, code, err := runRemote(ctx, client, sudoCmd(installCmd, sudoPass, usePass))
+	// Run the whole pipeline under sudo; otherwise only `curl` runs as root.
+	sudoInstallCmd := "bash -lc " + strconv.Quote(installCmd)
+	out, code, err := runRemote(ctx, client, sudoCmd(sudoInstallCmd, sudoPass, usePass))
 	if strings.TrimSpace(out) != "" {
 		writeLog(logs, strings.TrimSpace(out))
 	}
