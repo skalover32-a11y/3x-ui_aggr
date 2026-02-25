@@ -169,6 +169,11 @@ func (e *SSHExecutor) DeployAgent(ctx context.Context, node *db.Node, params Dep
 		writeLog(logs, "enable service failed")
 		return logs.String(), 12, err
 	}
+	// Always restart after config replacement so token/config changes are applied.
+	if _, _, err := runRemote(ctx, client, sudoCmd("systemctl restart vlf-agent", sudoPass, usePass)); err != nil {
+		writeLog(logs, "restart service failed")
+		return logs.String(), 13, err
+	}
 	writeLog(logs, "service started")
 
 	if params.EnableUFW && params.AllowCIDR != "" && params.AgentPort > 0 {
