@@ -1636,6 +1636,7 @@ function NodesPage() {
     rate_limit_rps: 5,
     enable_ufw: true,
     health_check: true,
+    metrics_require_auth: false,
     install_docker: false,
     force_redeploy: true,
     parallelism: 3,
@@ -2426,6 +2427,7 @@ function NodesPage() {
       rate_limit_rps: Number(deployForm.rate_limit_rps) || 5,
       enable_ufw: !!deployForm.enable_ufw,
       health_check: !!deployForm.health_check,
+      metrics_require_auth: !!deployForm.metrics_require_auth,
       install_docker: !!deployForm.install_docker,
       force_redeploy: !!deployForm.force_redeploy,
       confirm: deployForm.confirm.trim(),
@@ -2578,7 +2580,7 @@ function NodesPage() {
         }
       }
     };
-    const interval = setInterval(poll, 5000);
+    const interval = setInterval(poll, 2000);
     poll();
     return () => {
       stopped = true;
@@ -3238,6 +3240,9 @@ function NodesPage() {
         activity_log_path: prev.activity_log_path || data.default_activity_log_path || "/var/log/vlf-agent/activity.log",
         rate_limit_rps: prev.rate_limit_rps || data.default_rate_limit_rps || 5,
         health_check: typeof data.default_health_check === "boolean" ? data.default_health_check : prev.health_check,
+        metrics_require_auth: typeof data.default_metrics_require_auth === "boolean"
+          ? data.default_metrics_require_auth
+          : prev.metrics_require_auth,
         enable_ufw: typeof data.default_enable_ufw === "boolean" ? data.default_enable_ufw : prev.enable_ufw,
         parallelism: prev.parallelism || data.default_parallelism || 3,
       }));
@@ -4870,6 +4875,14 @@ function NodesPage() {
               <label className="checkbox">
                 <input
                   type="checkbox"
+                  checked={deployForm.metrics_require_auth}
+                  onChange={(e) => setDeployForm({ ...deployForm, metrics_require_auth: e.target.checked })}
+                />
+                {t("Require auth for /metrics")}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
                   checked={deployForm.install_docker}
                   onChange={(e) => setDeployForm({ ...deployForm, install_docker: e.target.checked })}
                 />
@@ -4881,7 +4894,7 @@ function NodesPage() {
                   checked={deployForm.force_redeploy}
                   onChange={(e) => setDeployForm({ ...deployForm, force_redeploy: e.target.checked })}
                 />
-                {t("Redeploy if version differs")}
+                {t("Force reinstall")}
               </label>
               {deployForm.all && (
                 <input

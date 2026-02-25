@@ -10,6 +10,7 @@ STATS_MODE="log"
 ACTIVITY_LOG_PATH="/var/log/vlf-agent/activity.log"
 RATE_LIMIT_RPS=5
 ENABLE_UFW=true
+METRICS_REQUIRE_AUTH=false
 TOKEN_MODE="per-node"
 SHARED_TOKEN=""
 ALLOW_CIDR=""
@@ -32,6 +33,7 @@ Options:
   --activity-log <path>
   --rate-limit <rps>
   --enable-ufw | --no-ufw
+  --metrics-require-auth | --metrics-open
   --env-file <path>          Path to aggregator .env (default /opt/vlf_aggregator/.env)
 USAGE
 }
@@ -51,6 +53,8 @@ while [[ $# -gt 0 ]]; do
     --rate-limit) RATE_LIMIT_RPS="$2"; shift 2 ;;
     --enable-ufw) ENABLE_UFW=true; shift ;;
     --no-ufw) ENABLE_UFW=false; shift ;;
+    --metrics-require-auth) METRICS_REQUIRE_AUTH=true; shift ;;
+    --metrics-open) METRICS_REQUIRE_AUTH=false; shift ;;
     --env-file) ENV_FILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1"; usage; exit 1 ;;
@@ -116,6 +120,7 @@ trap 'rm -f "$tmp_config" "$tmp_service"' EXIT
 cat > "$tmp_config" <<EOF
 listen: "0.0.0.0:${AGENT_PORT}"
 token: "${TOKEN}"
+metrics_require_auth: ${METRICS_REQUIRE_AUTH}
 allow_cidrs:
   - "${ALLOW_CIDR}"
 activity_log_path: "${ACTIVITY_LOG_PATH}"

@@ -155,16 +155,58 @@ type agentUsersResponse struct {
 }
 
 type CompositeMetricsProvider struct {
-	Agent       NodeMetricsProvider
-	SSH         NodeMetricsProvider
-	PreferAgent bool
+	Prometheus       NodeMetricsProvider
+	Agent            NodeMetricsProvider
+	SSH              NodeMetricsProvider
+	PreferPrometheus bool
+	PreferAgent      bool
 }
 
 func (p *CompositeMetricsProvider) CollectNodeMetrics(ctx context.Context, node *db.Node) (NodeMetrics, error) {
-	if p.Agent == nil || node == nil || !node.AgentEnabled {
-		return NodeMetrics{}, errors.New("agent not configured")
+	if node == nil {
+		return NodeMetrics{}, errors.New("node missing")
 	}
-	return p.Agent.CollectNodeMetrics(ctx, node)
+	var promErr error
+	if p.Prometheus != nil && node.AgentEnabled {
+		metrics, err := p.Prometheus.CollectNodeMetrics(ctx, node)
+		if err == nil {
+			return metrics, nil
+		}
+		promErr = err
+		if p.PreferPrometheus {
+			return NodeMetrics{}, err
+		}
+	}
+
+	var agentErr error
+	if p.Agent != nil && node.AgentEnabled {
+		metrics, err := p.Agent.CollectNodeMetrics(ctx, node)
+		if err == nil {
+			return metrics, nil
+		}
+		agentErr = err
+		if p.PreferAgent {
+			return NodeMetrics{}, err
+		}
+	}
+
+	if p.SSH != nil {
+		metrics, err := p.SSH.CollectNodeMetrics(ctx, node)
+		if err == nil {
+			return metrics, nil
+		}
+		if agentErr == nil {
+			agentErr = err
+		}
+	}
+
+	if promErr != nil {
+		return NodeMetrics{}, promErr
+	}
+	if agentErr != nil {
+		return NodeMetrics{}, agentErr
+	}
+	return NodeMetrics{}, errors.New("metrics provider not configured")
 }
 
 type CompositeActiveUsersProvider struct {

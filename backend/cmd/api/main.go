@@ -126,8 +126,12 @@ func main() {
 	handler.Ops = opsSvc
 	opsSvc.Start(context.Background())
 	agentProvider := dashboard.NewAgentProvider(enc, cfg.DashboardAgentTimeout)
+	promProvider := dashboard.NewPrometheusMetricsProvider(dbConn, cfg.DashboardAgentTimeout)
+	sshMetricsProvider := dashboard.NewSSHMetricsProvider(handler.SSHClient, enc, cfg.DashboardAgentTimeout)
 	metricsProvider := &dashboard.CompositeMetricsProvider{
+		Prometheus:  promProvider,
 		Agent:       agentProvider,
+		SSH:         sshMetricsProvider,
 		PreferAgent: cfg.DashboardAgentPrefer,
 	}
 	usersProvider := &dashboard.CompositeActiveUsersProvider{

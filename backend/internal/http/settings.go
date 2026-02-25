@@ -13,9 +13,10 @@ func (h *Handler) GetAgentDeployDefaults(c *gin.Context) {
 		"default_allow_cidr":           allow,
 		"default_agent_port":           9191,
 		"default_stats_mode":           "log",
-		"default_activity_log_path": "/var/log/vlf-agent/activity.log",
+		"default_activity_log_path":    "/var/log/vlf-agent/activity.log",
 		"default_rate_limit_rps":       5,
 		"default_health_check":         true,
+		"default_metrics_require_auth": false,
 		"default_enable_ufw":           false,
 		"default_parallelism":          3,
 	})
@@ -27,11 +28,11 @@ func (h *Handler) GetPublicSettings(c *gin.Context) {
 		"default_allow_cidr":           allow,
 		"default_agent_port":           9191,
 		"default_stats_mode":           "log",
-		"default_activity_log_path": "/var/log/vlf-agent/activity.log",
+		"default_activity_log_path":    "/var/log/vlf-agent/activity.log",
 		"default_rate_limit_rps":       5,
 		"default_health_check":         true,
+		"default_metrics_require_auth": false,
 		"default_enable_ufw":           false,
 		"default_parallelism":          3,
 	})
 }
-

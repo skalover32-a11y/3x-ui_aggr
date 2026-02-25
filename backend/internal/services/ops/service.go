@@ -25,6 +25,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"agr_3x_ui/internal/agent"
+	"agr_3x_ui/internal/agentmeta"
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
 )
@@ -46,7 +47,9 @@ const (
 )
 
 const maxParallelism = 10
-const agentDesiredVersion = "v1.15"
+const maxConcurrentJobs = 3
+const agentFirstContactTimeout = 30 * time.Second
+const agentFirstContactPollInterval = time.Second
 
 type Service struct {
 	DB            *gorm.DB
@@ -72,24 +75,25 @@ type CreateJobRequest struct {
 }
 
 type JobParams struct {
-	DryRun           bool   `json:"dry_run"`
-	SimulateDelayMs  int    `json:"simulate_delay_ms"`
-	Confirm          string `json:"confirm"`
-	Sandbox          bool   `json:"sandbox"`
-	ForceRedeploy    bool   `json:"force_redeploy"`
-	PrecheckOnly     bool   `json:"precheck_only"`
-	InstallExpect    bool   `json:"install_expect"`
-	AgentPort        int    `json:"agent_port"`
-	AgentTokenMode   string `json:"agent_token_mode"`
-	SharedAgentToken string `json:"shared_agent_token"`
-	AllowCIDR        string `json:"allow_cidr"`
-	StatsMode        string `json:"stats_mode"`
-	ActivityLogPath  string `json:"activity_log_path"`
-	RateLimitRPS     int    `json:"rate_limit_rps"`
-	EnableUFW        bool   `json:"enable_ufw"`
-	HealthCheck      bool   `json:"health_check"`
-	InstallDocker    bool   `json:"install_docker"`
-	RestartService   string `json:"restart_service"`
+	DryRun             bool   `json:"dry_run"`
+	SimulateDelayMs    int    `json:"simulate_delay_ms"`
+	Confirm            string `json:"confirm"`
+	Sandbox            bool   `json:"sandbox"`
+	ForceRedeploy      bool   `json:"force_redeploy"`
+	PrecheckOnly       bool   `json:"precheck_only"`
+	InstallExpect      bool   `json:"install_expect"`
+	AgentPort          int    `json:"agent_port"`
+	AgentTokenMode     string `json:"agent_token_mode"`
+	SharedAgentToken   string `json:"shared_agent_token"`
+	AllowCIDR          string `json:"allow_cidr"`
+	StatsMode          string `json:"stats_mode"`
+	ActivityLogPath    string `json:"activity_log_path"`
+	RateLimitRPS       int    `json:"rate_limit_rps"`
+	EnableUFW          bool   `json:"enable_ufw"`
+	HealthCheck        bool   `json:"health_check"`
+	MetricsRequireAuth bool   `json:"metrics_require_auth"`
+	InstallDocker      bool   `json:"install_docker"`
+	RestartService     string `json:"restart_service"`
 }
 
 func New(dbConn *gorm.DB, exec NodeExecutor, agentExec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
@@ -287,7 +291,7 @@ func (s *Service) ListJobItems(ctx context.Context, id string) ([]db.OpsJobItem,
 }
 
 func (s *Service) loop(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -302,7 +306,40 @@ func (s *Service) loop(ctx context.Context) {
 }
 
 func (s *Service) pickAndRun(ctx context.Context) {
+	slots := s.availableJobSlots(ctx)
+	if slots <= 0 {
+		return
+	}
+	for i := 0; i < slots; i++ {
+		job, ok := s.pickQueuedJob(ctx)
+		if !ok || job == nil {
+			return
+		}
+		s.publishJobStatus(job)
+		go s.runJob(ctx, job)
+	}
+}
+
+func (s *Service) availableJobSlots(ctx context.Context) int {
+	if s == nil || s.DB == nil {
+		return 0
+	}
+	var running int64
+	if err := s.DB.WithContext(ctx).Model(&db.OpsJob{}).Where("status = ?", JobRunning).Count(&running).Error; err != nil {
+		return 0
+	}
+	slots := maxConcurrentJobs - int(running)
+	if slots < 0 {
+		return 0
+	}
+	return slots
+}
+
+func (s *Service) pickQueuedJob(ctx context.Context) (*db.OpsJob, bool) {
 	tx := s.DB.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return nil, false
+	}
 	var job db.OpsJob
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 		Where("status = ?", JobQueued).
@@ -310,20 +347,19 @@ func (s *Service) pickAndRun(ctx context.Context) {
 		First(&job).Error
 	if err != nil {
 		_ = tx.Rollback()
-		return
+		return nil, false
 	}
 	now := time.Now()
 	job.Status = JobRunning
 	job.StartedAt = &now
 	if err := tx.Save(&job).Error; err != nil {
 		_ = tx.Rollback()
-		return
+		return nil, false
 	}
 	if err := tx.Commit().Error; err != nil {
-		return
+		return nil, false
 	}
-	s.publishJobStatus(&job)
-	s.runJob(ctx, &job)
+	return &job, true
 }
 
 func (s *Service) runJob(ctx context.Context, job *db.OpsJob) {
@@ -430,20 +466,6 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 			}
 			s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
 			return nil
-		}
-		if installed && params.ForceRedeploy {
-			current := ""
-			if node.AgentVersion != nil {
-				current = strings.TrimSpace(*node.AgentVersion)
-			}
-			if current != "" && sameAgentVersion(current, agentDesiredVersion) && !params.InstallDocker {
-				logText := fmt.Sprintf("ALREADY_INSTALLED: agent version matches (%s)", current)
-				if strings.TrimSpace(probeDetails) != "" {
-					logText = logText + " (" + strings.TrimSpace(probeDetails) + ")"
-				}
-				s.finishItem(ctx, job.ID, item.ID, item.NodeID, JobSuccess, logText, 0, &started, nil)
-				return nil
-			}
 		}
 	}
 	timeout := 2 * time.Minute
@@ -667,20 +689,6 @@ func parseJobParamsFromMap(raw map[string]any) JobParams {
 	return parseJobParams(payload)
 }
 
-func sameAgentVersion(a, b string) bool {
-	normalize := func(v string) string {
-		v = strings.TrimSpace(strings.ToLower(v))
-		v = strings.TrimPrefix(v, "v")
-		if idx := strings.IndexAny(v, " \t\r\n"); idx >= 0 {
-			v = v[:idx]
-		}
-		return strings.TrimSpace(v)
-	}
-	na := normalize(a)
-	nb := normalize(b)
-	return na != "" && nb != "" && na == nb
-}
-
 func describeJobAction(jobType string, params JobParams) string {
 	switch jobType {
 	case JobTypeReboot:
@@ -746,6 +754,10 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 	if rateLimit <= 0 {
 		rateLimit = 5
 	}
+	metricsRequireAuth := false
+	if _, ok := rawMap["metrics_require_auth"]; ok {
+		metricsRequireAuth = params.MetricsRequireAuth
+	}
 	healthCheck := true
 	if _, ok := rawMap["health_check"]; ok {
 		healthCheck = params.HealthCheck
@@ -795,23 +807,25 @@ func (s *Service) buildDeployParams(ctx context.Context, node *db.Node, raw data
 		}
 	}
 
-	configContent := buildAgentConfig(agentPort, token, allowCIDRs, statsMode, activityLogPath, rateLimit)
+	configContent := buildAgentConfig(agentPort, token, allowCIDRs, statsMode, activityLogPath, rateLimit, metricsRequireAuth)
 	preLog = appendPreLog(preLog, fmt.Sprintf("service template: %s", servicePath))
 	preLog = appendPreLog(preLog, fmt.Sprintf("allow_cidrs: %s", strings.Join(allowCIDRs, ", ")))
+	preLog = appendPreLog(preLog, fmt.Sprintf("agent desired version: %s", agentmeta.Version))
 
 	return DeployAgentParams{
-		BinaryPath:     binaryPath,
-		ServiceContent: serviceContent,
-		ConfigContent:  configContent,
-		AgentPort:      agentPort,
-		AllowCIDR:      allowCIDR,
-		Token:          token,
-		EnableUFW:      enableUFW,
-		HealthCheck:    healthCheck,
-		InstallDocker:  params.InstallDocker,
-		SudoPasswords:  s.SudoPasswords,
-		NodeHost:       nodeHost,
-		PreLog:         preLog,
+		BinaryPath:         binaryPath,
+		ServiceContent:     serviceContent,
+		ConfigContent:      configContent,
+		AgentPort:          agentPort,
+		AllowCIDR:          allowCIDR,
+		Token:              token,
+		MetricsRequireAuth: metricsRequireAuth,
+		EnableUFW:          enableUFW,
+		HealthCheck:        healthCheck,
+		InstallDocker:      params.InstallDocker,
+		SudoPasswords:      s.SudoPasswords,
+		NodeHost:           nodeHost,
+		PreLog:             preLog,
 	}, nil
 }
 
@@ -848,6 +862,7 @@ func (s *Service) persistAgentSettings(ctx context.Context, node *db.Node, param
 		"agent_url":          url,
 		"agent_token_enc":    encToken,
 		"agent_insecure_tls": false,
+		"agent_version":      agentmeta.Version,
 	}
 	return s.DB.WithContext(ctx).Model(&db.Node{}).Where("id = ?", node.ID).Updates(updates).Error
 }
@@ -944,10 +959,11 @@ func (s *Service) loadAgentServiceTemplate() ([]byte, string, error) {
 	return data, usedPath, nil
 }
 
-func buildAgentConfig(port int, token string, allowCIDRs []string, statsMode string, accessLog string, rateLimit int) []byte {
+func buildAgentConfig(port int, token string, allowCIDRs []string, statsMode string, accessLog string, rateLimit int, metricsRequireAuth bool) []byte {
 	lines := []string{
 		fmt.Sprintf("listen: \"0.0.0.0:%d\"", port),
 		fmt.Sprintf("token: %q", escapeYAMLString(token)),
+		fmt.Sprintf("metrics_require_auth: %t", metricsRequireAuth),
 		"allow_cidrs:",
 	}
 	for _, cidr := range allowCIDRs {
@@ -1070,8 +1086,8 @@ func (s *Service) waitForAgentFirstContact(ctx context.Context, jobID uuid.UUID,
 	s.publishItemStage(jobID, itemID, nodeID, "waiting_first_contact")
 	info := fmt.Sprintf("waiting_first_contact url=%s auth=%t", url, strings.TrimSpace(params.Token) != "")
 
-	deadline := time.Now().Add(60 * time.Second)
-	ticker := time.NewTicker(5 * time.Second)
+	deadline := time.Now().Add(agentFirstContactTimeout)
+	ticker := time.NewTicker(agentFirstContactPollInterval)
 	defer ticker.Stop()
 
 	for {

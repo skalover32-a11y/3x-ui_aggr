@@ -13,7 +13,7 @@ func TestListSQLiteFilesFiltersRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	db1 := filepath.Join(root, "main.db")
-	db2 := filepath.Join(sub, "aux.db")
+	db2 := filepath.Join(sub, "secondary.db")
 	txt := filepath.Join(root, "note.txt")
 	if err := os.WriteFile(db1, []byte("db"), 0o644); err != nil {
 		t.Fatal(err)

@@ -26,24 +26,27 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"agr_3x_ui/internal/agentmeta"
 )
 
-const agentVersion = "v1.15"
+const agentVersion = agentmeta.Version
 
 type Config struct {
-	Listen            string   `yaml:"listen"`
-	Token             string   `yaml:"token"`
-	AllowCIDRs        []string `yaml:"allow_cidrs"`
-	AccessLogPath     string   `yaml:"activity_log_path"`
-	ErrorLogPath      string   `yaml:"error_log_path"`
-	PollWindowSeconds int      `yaml:"poll_window_seconds"`
-	StatsMode         string   `yaml:"stats_mode"`
-	RateLimitRPS      int      `yaml:"rate_limit_rps"`
-	AdminerPort       int      `yaml:"adminer_port"`
-	SqlitePort        int      `yaml:"sqlite_port"`
-	SqliteRoots       []string `yaml:"sqlite_roots"`
-	FSMaxTextBytes    int64    `yaml:"fs_max_text_bytes"`
-	FSMaxUploadBytes  int64    `yaml:"fs_max_upload_bytes"`
+	Listen             string   `yaml:"listen"`
+	Token              string   `yaml:"token"`
+	AllowCIDRs         []string `yaml:"allow_cidrs"`
+	MetricsRequireAuth bool     `yaml:"metrics_require_auth"`
+	AccessLogPath      string   `yaml:"activity_log_path"`
+	ErrorLogPath       string   `yaml:"error_log_path"`
+	PollWindowSeconds  int      `yaml:"poll_window_seconds"`
+	StatsMode          string   `yaml:"stats_mode"`
+	RateLimitRPS       int      `yaml:"rate_limit_rps"`
+	AdminerPort        int      `yaml:"adminer_port"`
+	SqlitePort         int      `yaml:"sqlite_port"`
+	SqliteRoots        []string `yaml:"sqlite_roots"`
+	FSMaxTextBytes     int64    `yaml:"fs_max_text_bytes"`
+	FSMaxUploadBytes   int64    `yaml:"fs_max_upload_bytes"`
 }
 
 type state struct {
@@ -88,6 +91,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", st.withMiddleware(healthHandler))
 	mux.HandleFunc("/version", st.withMiddleware(versionHandler))
+	mux.HandleFunc("/metrics", st.withMetricsMiddleware(st.metricsHandler))
 	mux.HandleFunc("/stats", st.withMiddleware(st.statsHandler))
 	mux.HandleFunc("/active-users", st.withMiddleware(st.activeUsersHandler))
 	mux.HandleFunc("/ops/reboot", st.withMiddleware(rebootHandler))
@@ -133,17 +137,18 @@ func loadConfig(override string) (Config, error) {
 		path = "/etc/vlf-agent/config.yaml"
 	}
 	cfg := Config{
-		Listen:            strings.TrimSpace(os.Getenv("NODE_AGENT_ADDR")),
-		Token:             strings.TrimSpace(os.Getenv("NODE_AGENT_TOKEN")),
-		AllowCIDRs:        splitCSV(os.Getenv("NODE_AGENT_ALLOWLIST")),
-		PollWindowSeconds: 60,
-		StatsMode:         "log",
-		RateLimitRPS:      5,
-		AdminerPort:       18081,
-		SqlitePort:        18082,
-		SqliteRoots:       []string{"/opt", "/var/lib"},
-		FSMaxTextBytes:    parseInt64Env("NODE_AGENT_FS_MAX_TEXT_BYTES", 2*1024*1024),
-		FSMaxUploadBytes:  parseInt64Env("NODE_AGENT_FS_MAX_UPLOAD_BYTES", 50*1024*1024),
+		Listen:             strings.TrimSpace(os.Getenv("NODE_AGENT_ADDR")),
+		Token:              strings.TrimSpace(os.Getenv("NODE_AGENT_TOKEN")),
+		AllowCIDRs:         splitCSV(os.Getenv("NODE_AGENT_ALLOWLIST")),
+		MetricsRequireAuth: parseBoolEnv("NODE_AGENT_METRICS_REQUIRE_AUTH", false),
+		PollWindowSeconds:  60,
+		StatsMode:          "log",
+		RateLimitRPS:       5,
+		AdminerPort:        18081,
+		SqlitePort:         18082,
+		SqliteRoots:        []string{"/opt", "/var/lib"},
+		FSMaxTextBytes:     parseInt64Env("NODE_AGENT_FS_MAX_TEXT_BYTES", 2*1024*1024),
+		FSMaxUploadBytes:   parseInt64Env("NODE_AGENT_FS_MAX_UPLOAD_BYTES", 50*1024*1024),
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -208,6 +213,14 @@ func parseAllowlist(cidrs []string) ([]*net.IPNet, error) {
 }
 
 func (s *state) withMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.wrapWithPolicy(next, true)
+}
+
+func (s *state) withMetricsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return s.wrapWithPolicy(next, s.cfg.MetricsRequireAuth)
+}
+
+func (s *state) wrapWithPolicy(next http.HandlerFunc, requireAuth bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := newRequestID()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
@@ -217,7 +230,7 @@ func (s *state) withMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			writeJSON(sw, http.StatusForbidden, map[string]any{"ok": false, "message": "forbidden"})
 			return
 		}
-		if !s.authOK(r) {
+		if requireAuth && !s.authOK(r) {
 			log.Printf("req=%s path=%s ip=%s unauthorized", reqID, r.URL.Path, r.RemoteAddr)
 			writeJSON(sw, http.StatusUnauthorized, map[string]any{"ok": false, "message": "unauthorized"})
 			return
@@ -281,6 +294,18 @@ func parseInt64Env(key string, fallback int64) int64 {
 		return fallback
 	}
 	val, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return val
+}
+
+func parseBoolEnv(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.ParseBool(raw)
 	if err != nil {
 		return fallback
 	}
@@ -352,17 +377,257 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	panelVersion := readPanelVersion()
 	RuntimeVersion := readRuntimeVersion()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"agent_version": agentVersion,
-		"os":            osName,
-		"uptime_sec":    uptimeSec,
+		"agent_version":   agentVersion,
+		"os":              osName,
+		"uptime_sec":      uptimeSec,
 		"service_version": panelVersion,
-		"runtime_version":  RuntimeVersion,
+		"runtime_version": RuntimeVersion,
 	})
 }
 
 func (s *state) statsHandler(w http.ResponseWriter, r *http.Request) {
 	metrics := s.collectStats(r.Context())
 	writeJSON(w, http.StatusOK, metrics)
+}
+
+func (s *state) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	body := renderPrometheusMetrics(s.collectStats(r.Context()))
+	_, _ = io.WriteString(w, body)
+}
+
+func renderPrometheusMetrics(stats map[string]any) string {
+	var b strings.Builder
+	writeMetricHeader(&b, "vlf_agent_up", "Node agent process health status (1 = up).", "gauge")
+	writeMetricValue(&b, "vlf_agent_up", 1)
+
+	if version := anyToString(stats["agent_version"]); version != "" {
+		writeMetricHeader(&b, "vlf_agent_build_info", "Node agent build metadata.", "gauge")
+		writeMetricValueWithLabel(&b, "vlf_agent_build_info", "version", version, 1)
+	}
+
+	if version := anyToString(stats["service_version"]); version != "" {
+		writeMetricHeader(&b, "vlf_agent_service_version_info", "Panel/service version metadata.", "gauge")
+		writeMetricValueWithLabel(&b, "vlf_agent_service_version_info", "version", version, 1)
+	}
+
+	if version := anyToString(stats["runtime_version"]); version != "" {
+		writeMetricHeader(&b, "vlf_agent_runtime_version_info", "Runtime version metadata.", "gauge")
+		writeMetricValueWithLabel(&b, "vlf_agent_runtime_version_info", "version", version, 1)
+	}
+
+	if collectedAt := anyToString(stats["collected_at"]); collectedAt != "" {
+		if ts, err := time.Parse(time.RFC3339, collectedAt); err == nil {
+			writeMetricHeader(&b, "vlf_agent_collected_at_seconds", "Unix timestamp of metric collection.", "gauge")
+			writeMetricValue(&b, "vlf_agent_collected_at_seconds", float64(ts.Unix()))
+		}
+	}
+
+	writeGaugeIfPresent(&b, "vlf_agent_cpu_percent", "CPU usage in percent.", stats["cpu_pct"])
+	writeGaugeIfPresent(&b, "vlf_agent_memory_used_bytes", "Used memory in bytes.", stats["ram_used_bytes"])
+	writeGaugeIfPresent(&b, "vlf_agent_memory_total_bytes", "Total memory in bytes.", stats["ram_total_bytes"])
+	writeGaugeIfPresent(&b, "vlf_agent_disk_used_bytes", "Used disk bytes on root filesystem.", stats["disk_used_bytes"])
+	writeGaugeIfPresent(&b, "vlf_agent_disk_total_bytes", "Total disk bytes on root filesystem.", stats["disk_total_bytes"])
+	writeGaugeIfPresent(&b, "vlf_agent_tcp_connections", "Current TCP connections.", stats["tcp_connections"])
+	writeGaugeIfPresent(&b, "vlf_agent_udp_connections", "Current UDP connections.", stats["udp_connections"])
+	writeGaugeIfPresent(&b, "vlf_agent_uptime_seconds", "Node uptime in seconds.", stats["uptime_sec"])
+	writeGaugeIfPresent(&b, "vlf_agent_ping_milliseconds", "Average TCP connect latency in milliseconds.", stats["ping_ms"])
+
+	if running, ok := anyToBool(stats["service_running"]); ok {
+		writeMetricHeader(&b, "vlf_agent_service_running", "Panel/service process running state (1 = active).", "gauge")
+		if running {
+			writeMetricValue(&b, "vlf_agent_service_running", 1)
+		} else {
+			writeMetricValue(&b, "vlf_agent_service_running", 0)
+		}
+	}
+	if running, ok := anyToBool(stats["runtime_running"]); ok {
+		writeMetricHeader(&b, "vlf_agent_runtime_running", "Runtime process running state (1 = active).", "gauge")
+		if running {
+			writeMetricValue(&b, "vlf_agent_runtime_running", 1)
+		} else {
+			writeMetricValue(&b, "vlf_agent_runtime_running", 0)
+		}
+	}
+
+	iface := anyToString(stats["net_iface"])
+	if rxBytes, ok := anyToFloat64(stats["net_rx_bytes"]); ok {
+		writeMetricHeader(&b, "vlf_agent_network_receive_bytes_total", "Total received network bytes.", "counter")
+		writeMetricMaybeLabeled(&b, "vlf_agent_network_receive_bytes_total", "iface", iface, rxBytes)
+	}
+	if txBytes, ok := anyToFloat64(stats["net_tx_bytes"]); ok {
+		writeMetricHeader(&b, "vlf_agent_network_transmit_bytes_total", "Total transmitted network bytes.", "counter")
+		writeMetricMaybeLabeled(&b, "vlf_agent_network_transmit_bytes_total", "iface", iface, txBytes)
+	}
+	if rxBps, ok := anyToFloat64(stats["net_rx_bps"]); ok {
+		writeMetricHeader(&b, "vlf_agent_network_receive_bytes_per_second", "Receive throughput in bytes/sec.", "gauge")
+		writeMetricMaybeLabeled(&b, "vlf_agent_network_receive_bytes_per_second", "iface", iface, rxBps)
+	}
+	if txBps, ok := anyToFloat64(stats["net_tx_bps"]); ok {
+		writeMetricHeader(&b, "vlf_agent_network_transmit_bytes_per_second", "Transmit throughput in bytes/sec.", "gauge")
+		writeMetricMaybeLabeled(&b, "vlf_agent_network_transmit_bytes_per_second", "iface", iface, txBps)
+	}
+
+	return b.String()
+}
+
+func writeGaugeIfPresent(b *strings.Builder, name, help string, raw any) {
+	value, ok := anyToFloat64(raw)
+	if !ok {
+		return
+	}
+	writeMetricHeader(b, name, help, "gauge")
+	writeMetricValue(b, name, value)
+}
+
+func writeMetricHeader(b *strings.Builder, name, help, metricType string) {
+	if b == nil {
+		return
+	}
+	b.WriteString("# HELP ")
+	b.WriteString(name)
+	b.WriteByte(' ')
+	b.WriteString(help)
+	b.WriteByte('\n')
+	b.WriteString("# TYPE ")
+	b.WriteString(name)
+	b.WriteByte(' ')
+	b.WriteString(metricType)
+	b.WriteByte('\n')
+}
+
+func writeMetricValue(b *strings.Builder, name string, value float64) {
+	if b == nil {
+		return
+	}
+	b.WriteString(name)
+	b.WriteByte(' ')
+	b.WriteString(strconv.FormatFloat(value, 'f', -1, 64))
+	b.WriteByte('\n')
+}
+
+func writeMetricValueWithLabel(b *strings.Builder, name, labelKey, labelValue string, value float64) {
+	if b == nil {
+		return
+	}
+	b.WriteString(name)
+	b.WriteByte('{')
+	b.WriteString(labelKey)
+	b.WriteString("=\"")
+	b.WriteString(escapePromLabelValue(labelValue))
+	b.WriteString("\"} ")
+	b.WriteString(strconv.FormatFloat(value, 'f', -1, 64))
+	b.WriteByte('\n')
+}
+
+func writeMetricMaybeLabeled(b *strings.Builder, name, labelKey, labelValue string, value float64) {
+	if strings.TrimSpace(labelValue) == "" {
+		writeMetricValue(b, name, value)
+		return
+	}
+	writeMetricValueWithLabel(b, name, labelKey, labelValue, value)
+}
+
+func escapePromLabelValue(value string) string {
+	replacer := strings.NewReplacer(
+		`\\`, `\\\\`,
+		"\n", `\n`,
+		`"`, `\"`,
+	)
+	return replacer.Replace(value)
+}
+
+func anyToFloat64(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case *float64:
+		if v == nil {
+			return 0, false
+		}
+		return *v, true
+	case int:
+		return float64(v), true
+	case *int:
+		if v == nil {
+			return 0, false
+		}
+		return float64(*v), true
+	case int64:
+		return float64(v), true
+	case *int64:
+		if v == nil {
+			return 0, false
+		}
+		return float64(*v), true
+	case int32:
+		return float64(v), true
+	case *int32:
+		if v == nil {
+			return 0, false
+		}
+		return float64(*v), true
+	case uint64:
+		return float64(v), true
+	case *uint64:
+		if v == nil {
+			return 0, false
+		}
+		return float64(*v), true
+	case uint32:
+		return float64(v), true
+	case *uint32:
+		if v == nil {
+			return 0, false
+		}
+		return float64(*v), true
+	case json.Number:
+		out, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return out, true
+	default:
+		return 0, false
+	}
+}
+
+func anyToBool(value any) (bool, bool) {
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case *bool:
+		if v == nil {
+			return false, false
+		}
+		return *v, true
+	default:
+		return false, false
+	}
+}
+
+func anyToString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case *string:
+		if v == nil {
+			return ""
+		}
+		return strings.TrimSpace(*v)
+	default:
+		return ""
+	}
 }
 
 func (s *state) activeUsersHandler(w http.ResponseWriter, r *http.Request) {
@@ -607,10 +872,10 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			panelVersion = beforeVersion
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":            true,
-			"status":        "success",
-			"log":           logs.String(),
-			"exit_code":     0,
+			"ok":              true,
+			"status":          "success",
+			"log":             logs.String(),
+			"exit_code":       0,
 			"service_version": panelVersion,
 		})
 		return
@@ -672,10 +937,10 @@ func (s *state) updatePanelHandler(w http.ResponseWriter, r *http.Request) {
 			panelVersion = beforeVersion
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":            true,
-			"status":        "success",
-			"log":           logs.String(),
-			"exit_code":     0,
+			"ok":              true,
+			"status":          "success",
+			"log":             logs.String(),
+			"exit_code":       0,
 			"service_version": panelVersion,
 		})
 		return
@@ -1111,9 +1376,9 @@ func (s *state) collectStats(ctx context.Context) map[string]any {
 		"tcp_connections":  tcpConn,
 		"udp_connections":  udpConn,
 		"uptime_sec":       uptime,
-		"service_version":    panelVersion,
-		"service_running":    panelRunning,
-		"runtime_running":     RuntimeRunning,
+		"service_version":  panelVersion,
+		"service_running":  panelRunning,
+		"runtime_running":  RuntimeRunning,
 		"ping_ms":          pingMs,
 	}
 }
@@ -1498,12 +1763,12 @@ func listSystemdUnits() map[string]struct{} {
 
 func resolveServiceUnit(service string) string {
 	candidates := map[string][]string{
-		"server monitoring":    {"service-manager", "server monitoring"},
-		"service-manager":     {"service-manager", "server monitoring"},
-		"Runtime":     {"Runtime"},
-		"sing-box": {"sing-box"},
-		"docker":   {"docker"},
-		"adguard":  {"adguardhome", "adguard"},
+		"server monitoring": {"service-manager", "server monitoring"},
+		"service-manager":   {"service-manager", "server monitoring"},
+		"Runtime":           {"Runtime"},
+		"sing-box":          {"sing-box"},
+		"docker":            {"docker"},
+		"adguard":           {"adguardhome", "adguard"},
 	}
 	units := listSystemdUnits()
 	key := strings.ToLower(strings.TrimSpace(service))
@@ -1586,7 +1851,7 @@ func (s *state) collectUsersFromLog() ([]map[string]any, string, bool) {
 		if _, ok := users[email]; !ok {
 			users[email] = map[string]any{
 				"client_email": email,
-				"source_tag":  nil,
+				"source_tag":   nil,
 				"ip":           ip,
 				"last_seen":    now.UTC().Format(time.RFC3339),
 			}
@@ -1799,9 +2064,12 @@ func listSQLiteFiles(roots []string, limit int) ([]sqliteFile, error) {
 			if err != nil || !info.Mode().IsRegular() {
 				return nil
 			}
-			realPath, err := filepath.EvalSymlinks(path)
-			if err != nil || !pathWithin(realPath, rootReal) {
+			if !pathWithin(path, rootReal) {
 				return nil
+			}
+			realPath, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				realPath = filepath.Clean(path)
 			}
 			if _, ok := seen[realPath]; ok {
 				return nil
@@ -1878,10 +2146,15 @@ func pathWithin(pathValue, root string) bool {
 	if pathValue == root {
 		return true
 	}
-	if !strings.HasSuffix(root, string(os.PathSeparator)) {
-		root += string(os.PathSeparator)
+	rel, err := filepath.Rel(root, pathValue)
+	if err != nil {
+		return false
 	}
-	return strings.HasPrefix(pathValue, root)
+	rel = strings.TrimSpace(rel)
+	if rel == "" || rel == "." {
+		return true
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 func ensureDockerAvailable(ctx context.Context) error {
@@ -1999,4 +2272,3 @@ func writeJSON(w http.ResponseWriter, status int, payload map[string]any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
-

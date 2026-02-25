@@ -25,16 +25,17 @@ type UpdateParams struct {
 }
 
 type DeployAgentParams struct {
-	BinaryPath     string
-	ServiceContent []byte
-	ConfigContent  []byte
-	AgentPort      int
-	AllowCIDR      string
-	Token          string
-	EnableUFW      bool
-	HealthCheck    bool
-	InstallDocker  bool
-	SudoPasswords  []string
-	NodeHost       string
-	PreLog         string
+	BinaryPath         string
+	ServiceContent     []byte
+	ConfigContent      []byte
+	AgentPort          int
+	AllowCIDR          string
+	Token              string
+	MetricsRequireAuth bool
+	EnableUFW          bool
+	HealthCheck        bool
+	InstallDocker      bool
+	SudoPasswords      []string
+	NodeHost           string
+	PreLog             string
 }

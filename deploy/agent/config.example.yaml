@@ -2,6 +2,7 @@ listen: "0.0.0.0:9191"
 token: "CHANGE_ME"
 # You can provide multiple tokens separated by commas.
 # token: "tokenA,tokenB"
+metrics_require_auth: false
 allow_cidrs:
   - "1.2.3.4/32"
 activity_log_path: "/var/log/vlf-agent/activity.log"
