@@ -273,11 +273,18 @@ func (e *SSHExecutor) CheckAgentInstalled(ctx context.Context, node *db.Node, ag
 	if port <= 0 {
 		port = 9191
 	}
+	healthCurl := fmt.Sprintf("curl -fsS --max-time 2 http://127.0.0.1:%d/health >/dev/null 2>&1", port)
+	if e != nil && e.Encryptor != nil && node != nil && node.AgentTokenEnc != nil && strings.TrimSpace(*node.AgentTokenEnc) != "" {
+		if token, decErr := e.Encryptor.DecryptString(*node.AgentTokenEnc); decErr == nil && strings.TrimSpace(token) != "" {
+			header := "Authorization: Bearer " + strings.TrimSpace(token)
+			healthCurl = fmt.Sprintf("curl -fsS --max-time 2 -H %s http://127.0.0.1:%d/health >/dev/null 2>&1", shellEscape(header), port)
+		}
+	}
 	cmd := fmt.Sprintf(
 		"if [ -x /usr/local/bin/vlf-agent ]; then echo binary=1; else echo binary=0; fi; "+
 			"if systemctl is-active --quiet vlf-agent; then echo active=1; else echo active=0; fi; "+
-			"if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 http://127.0.0.1:%d/health >/dev/null 2>&1; then echo health=1; else echo health=0; fi",
-		port,
+			"if command -v curl >/dev/null 2>&1 && %s; then echo health=1; else echo health=0; fi",
+		healthCurl,
 	)
 	out, _, runErr := runRemote(ctx, client, cmd)
 	if runErr != nil {
