@@ -49,7 +49,7 @@ const (
 
 const maxParallelism = 10
 const maxConcurrentJobs = 3
-const agentFirstContactTimeout = 30 * time.Second
+const agentFirstContactTimeout = 45 * time.Second
 const agentFirstContactPollInterval = time.Second
 
 const (
@@ -553,12 +553,6 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				output = params.PreLog
 			}
 		}
-		if runErr == nil {
-			if err := s.persistAgentSettings(ctx, node, params); err != nil {
-				runErr = err
-				exitCode = 1
-			}
-		}
 		if runErr == nil && params.HealthCheck {
 			info, err := s.waitForAgentFirstContact(cctx, job.ID, item.ID, item.NodeID, params)
 			if info != "" {
@@ -569,6 +563,12 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 				}
 			}
 			if err != nil {
+				runErr = err
+				exitCode = 1
+			}
+		}
+		if runErr == nil {
+			if err := s.persistAgentSettings(ctx, node, params); err != nil {
 				runErr = err
 				exitCode = 1
 			}
@@ -1219,9 +1219,13 @@ func (s *Service) waitForAgentFirstContact(ctx context.Context, jobID uuid.UUID,
 	deadline := time.Now().Add(agentFirstContactTimeout)
 	ticker := time.NewTicker(agentFirstContactPollInterval)
 	defer ticker.Stop()
+	lastStatus := 0
 
 	for {
 		if time.Now().After(deadline) {
+			if lastStatus != 0 {
+				return info + fmt.Sprintf(" status=timeout last_status=%d", lastStatus), fmt.Errorf("agent first contact timeout (last status %d)", lastStatus)
+			}
 			return info + " status=timeout", fmt.Errorf("agent first contact timeout")
 		}
 		status, resp, err := s.checkAgentHealth(ctx, url, params.Token)
@@ -1229,8 +1233,8 @@ func (s *Service) waitForAgentFirstContact(ctx context.Context, jobID uuid.UUID,
 			_ = s.persistAgentContact(ctx, nodeID, time.Now().UTC(), resp.AgentVersion)
 			return info + " status=ok", nil
 		}
-		if status == http.StatusUnauthorized || status == http.StatusForbidden {
-			return info + fmt.Sprintf(" status=%d", status), fmt.Errorf("agent health unauthorized: status %d", status)
+		if status != 0 {
+			lastStatus = status
 		}
 		select {
 		case <-ctx.Done():
