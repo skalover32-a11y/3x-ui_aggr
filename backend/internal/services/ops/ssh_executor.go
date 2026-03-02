@@ -8,12 +8,14 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"agr_3x_ui/internal/db"
 	"agr_3x_ui/internal/security"
@@ -23,6 +25,11 @@ type SSHExecutor struct {
 	Encryptor *security.Encryptor
 	Timeout   time.Duration
 }
+
+const (
+	remnaCronFilePath      = "/etc/cron.d/remnanode-geodata"
+	remnaLogrotateFilePath = "/etc/logrotate.d/remnanode-geodata"
+)
 
 func NewSSHExecutor(enc *security.Encryptor, timeout time.Duration) *SSHExecutor {
 	return &SSHExecutor{Encryptor: enc, Timeout: timeout}
@@ -223,6 +230,605 @@ func (e *SSHExecutor) InstallVLFProto(ctx context.Context, node *db.Node, params
 	}
 	writeLog(logs, "vlf-proto install finished")
 	return logs.String(), 0, nil
+}
+
+func (e *SSHExecutor) InstallRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	if node == nil {
+		return "", 1, errors.New("node missing")
+	}
+	params = normalizeRemnaParams(params)
+
+	client, err := e.openClient(node)
+	if err != nil {
+		return "", 1, err
+	}
+	defer client.Close()
+
+	logs := &strings.Builder{}
+	writeLog(logs, "preflight ok")
+
+	sudoPass, usePass, err := detectSudo(ctx, client, params.SudoPasswords)
+	if err != nil {
+		writeLog(logs, "sudo check failed")
+		return logs.String(), 2, err
+	}
+
+	writeLog(logs, fmt.Sprintf("release=%s repo=%s", params.ReleaseTag, params.RulesRepo))
+
+	scriptDir := path.Dir(params.ScriptPath)
+	if scriptDir == "." || strings.TrimSpace(scriptDir) == "" {
+		return logs.String(), 3, errors.New("invalid script path")
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("mkdir -p %s %s", shellEscape(params.GeodataDir), shellEscape(scriptDir)),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		writeLog(logs, "failed to create remnanode directories")
+		return logs.String(), 4, err
+	}
+
+	composeChanged, err := e.ensureRemnaComposeMounts(ctx, client, sudoPass, usePass, params)
+	if err != nil {
+		writeLog(logs, "compose patch failed")
+		return logs.String(), 5, err
+	}
+	if composeChanged {
+		writeLog(logs, "compose patched: remnanode geodata mounts configured")
+	} else {
+		writeLog(logs, "compose already contains required geodata mounts")
+	}
+
+	scriptContent := buildRemnaGeodataScript(params)
+	tmpScriptPath := "/tmp/remnanode-geodata-update.sh"
+	if err := uploadBytes(ctx, client, scriptContent, tmpScriptPath); err != nil {
+		writeLog(logs, "failed to upload update script")
+		return logs.String(), 6, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("install -m 0755 %s %s", shellEscape(tmpScriptPath), shellEscape(params.ScriptPath)),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		writeLog(logs, "failed to install update script")
+		return logs.String(), 7, err
+	}
+	writeLog(logs, "update script installed")
+
+	cronSpec, err := normalizeCronSpec(params.CronSchedule)
+	if err != nil {
+		return logs.String(), 8, err
+	}
+	cronContent := renderRemnaCronFile(cronSpec, params.ScriptPath, params.LogPath)
+	tmpCronPath := "/tmp/remnanode-geodata.cron"
+	if err := uploadBytes(ctx, client, []byte(cronContent), tmpCronPath); err != nil {
+		writeLog(logs, "failed to upload cron file")
+		return logs.String(), 9, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("install -m 0644 %s %s", shellEscape(tmpCronPath), shellEscape(remnaCronFilePath)),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		writeLog(logs, "failed to install cron file")
+		return logs.String(), 10, err
+	}
+	writeLog(logs, fmt.Sprintf("cron configured: %s", cronSpec))
+
+	logrotateContent := renderRemnaLogrotate(params.LogPath)
+	tmpLogrotatePath := "/tmp/remnanode-geodata.logrotate"
+	if err := uploadBytes(ctx, client, []byte(logrotateContent), tmpLogrotatePath); err != nil {
+		writeLog(logs, "failed to upload logrotate config")
+		return logs.String(), 11, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("install -m 0644 %s %s", shellEscape(tmpLogrotatePath), shellEscape(remnaLogrotateFilePath)),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		writeLog(logs, "failed to install logrotate config")
+		return logs.String(), 12, err
+	}
+	writeLog(logs, "logrotate configured")
+
+	logDir := path.Dir(params.LogPath)
+	if logDir == "." || strings.TrimSpace(logDir) == "" {
+		logDir = "/var/log"
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("mkdir -p %s && touch %s && chmod 0644 %s",
+			shellEscape(logDir),
+			shellEscape(params.LogPath),
+			shellEscape(params.LogPath),
+		),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		writeLog(logs, "failed to prepare log file")
+		return logs.String(), 13, err
+	}
+
+	runOut, code, runErr := e.runRemnaScript(ctx, client, sudoPass, usePass, params, params.ForceReload || composeChanged)
+	if strings.TrimSpace(runOut) != "" {
+		writeLog(logs, strings.TrimSpace(runOut))
+	}
+	if runErr != nil {
+		writeLog(logs, "initial geodata update failed")
+		if code == 0 {
+			code = 14
+		}
+		return logs.String(), code, runErr
+	}
+
+	writeLog(logs, "remna geodata install finished")
+	return logs.String(), 0, nil
+}
+
+func (e *SSHExecutor) RunRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	if node == nil {
+		return "", 1, errors.New("node missing")
+	}
+	params = normalizeRemnaParams(params)
+
+	client, err := e.openClient(node)
+	if err != nil {
+		return "", 1, err
+	}
+	defer client.Close()
+
+	logs := &strings.Builder{}
+	writeLog(logs, "preflight ok")
+
+	sudoPass, usePass, err := detectSudo(ctx, client, params.SudoPasswords)
+	if err != nil {
+		writeLog(logs, "sudo check failed")
+		return logs.String(), 2, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd("test -x "+shellEscape(params.ScriptPath), sudoPass, usePass)); err != nil {
+		return logs.String(), 3, fmt.Errorf("update script not found at %s (run install first)", params.ScriptPath)
+	}
+
+	out, code, runErr := e.runRemnaScript(ctx, client, sudoPass, usePass, params, params.ForceReload)
+	if strings.TrimSpace(out) != "" {
+		writeLog(logs, strings.TrimSpace(out))
+	}
+	if runErr != nil {
+		if code == 0 {
+			code = 4
+		}
+		return logs.String(), code, runErr
+	}
+	writeLog(logs, "remna geodata run finished")
+	return logs.String(), 0, nil
+}
+
+func (e *SSHExecutor) runRemnaScript(ctx context.Context, client *ssh.Client, sudoPass string, usePass bool, params RemnaGeodataParams, forceReload bool) (string, int, error) {
+	env := remnaEnvAssignments(params, forceReload)
+	cmd := "env " + strings.Join(env, " ") + " " + shellEscape(params.ScriptPath)
+	return runRemote(ctx, client, sudoCmd(cmd, sudoPass, usePass))
+}
+
+func (e *SSHExecutor) ensureRemnaComposeMounts(ctx context.Context, client *ssh.Client, sudoPass string, usePass bool, params RemnaGeodataParams) (bool, error) {
+	composeBytes, err := downloadBytes(client, params.ComposePath)
+	if err != nil {
+		return false, fmt.Errorf("read compose %s: %w", params.ComposePath, err)
+	}
+	patched, changed, err := patchRemnaComposeVolumes(composeBytes, params)
+	if err != nil {
+		return false, err
+	}
+	if !changed {
+		return false, nil
+	}
+	tmpComposePath := "/tmp/remnanode-compose.yml"
+	if err := uploadBytes(ctx, client, patched, tmpComposePath); err != nil {
+		return false, err
+	}
+	if _, _, err := runRemote(ctx, client, sudoCmd(
+		fmt.Sprintf("install -m 0644 %s %s", shellEscape(tmpComposePath), shellEscape(params.ComposePath)),
+		sudoPass,
+		usePass,
+	)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func normalizeRemnaParams(params RemnaGeodataParams) RemnaGeodataParams {
+	if strings.TrimSpace(params.RulesRepo) == "" {
+		params.RulesRepo = defaultRemnaRulesRepo
+	}
+	if strings.TrimSpace(params.ReleaseTag) == "" {
+		params.ReleaseTag = defaultRemnaReleaseTag
+	}
+	if strings.TrimSpace(params.GeodataDir) == "" {
+		params.GeodataDir = defaultRemnaGeodataDir
+	}
+	if strings.TrimSpace(params.ComposePath) == "" {
+		params.ComposePath = defaultRemnaComposePath
+	}
+	if strings.TrimSpace(params.ComposeService) == "" {
+		params.ComposeService = defaultRemnaComposeService
+	}
+	if strings.TrimSpace(params.ScriptPath) == "" {
+		params.ScriptPath = defaultRemnaScriptPath
+	}
+	if strings.TrimSpace(params.CronSchedule) == "" {
+		params.CronSchedule = defaultRemnaCronSchedule
+	}
+	if strings.TrimSpace(params.LogPath) == "" {
+		params.LogPath = defaultRemnaLogPath
+	}
+	if strings.TrimSpace(params.LockPath) == "" {
+		params.LockPath = defaultRemnaLockPath
+	}
+	if params.MinSizeBytes <= 0 {
+		params.MinSizeBytes = defaultRemnaMinSizeBytes
+	}
+	return params
+}
+
+func normalizeCronSpec(raw string) (string, error) {
+	spec := strings.TrimSpace(raw)
+	if spec == "" {
+		spec = defaultRemnaCronSchedule
+	}
+	parts := strings.Fields(spec)
+	if len(parts) != 5 {
+		return "", fmt.Errorf("invalid cron schedule: %s", spec)
+	}
+	return strings.Join(parts, " "), nil
+}
+
+func renderRemnaCronFile(spec string, scriptPath string, logPath string) string {
+	return fmt.Sprintf("# remnanode geodata updater\n%s root %s >> %s 2>&1\n",
+		spec,
+		scriptPath,
+		logPath,
+	)
+}
+
+func renderRemnaLogrotate(logPath string) string {
+	return fmt.Sprintf(`%s {
+  daily
+  rotate 14
+  missingok
+  notifempty
+  compress
+  delaycompress
+  copytruncate
+}
+`, logPath)
+}
+
+func remnaEnvAssignments(params RemnaGeodataParams, forceReload bool) []string {
+	verifySHA := "1"
+	if params.SkipSHA256 {
+		verifySHA = "0"
+	}
+	force := "0"
+	if forceReload {
+		force = "1"
+	}
+	return []string{
+		"RULES_REPO=" + shellEscape(params.RulesRepo),
+		"RELEASE_TAG=" + shellEscape(params.ReleaseTag),
+		"GEODATA_DIR=" + shellEscape(params.GeodataDir),
+		"COMPOSE_PATH=" + shellEscape(params.ComposePath),
+		"COMPOSE_SERVICE=" + shellEscape(params.ComposeService),
+		"LOG_PATH=" + shellEscape(params.LogPath),
+		"LOCK_FILE=" + shellEscape(params.LockPath),
+		"MIN_BYTES=" + shellEscape(strconv.FormatInt(params.MinSizeBytes, 10)),
+		"VERIFY_SHA256=" + shellEscape(verifySHA),
+		"FORCE_RELOAD=" + shellEscape(force),
+	}
+}
+
+func buildRemnaGeodataScript(params RemnaGeodataParams) []byte {
+	verifyDefault := 1
+	if params.SkipSHA256 {
+		verifyDefault = 0
+	}
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 022
+
+RULES_REPO_DEFAULT=%q
+RELEASE_TAG_DEFAULT=%q
+GEODATA_DIR_DEFAULT=%q
+COMPOSE_PATH_DEFAULT=%q
+COMPOSE_SERVICE_DEFAULT=%q
+LOG_PATH_DEFAULT=%q
+LOCK_FILE_DEFAULT=%q
+MIN_BYTES_DEFAULT=%d
+VERIFY_SHA256_DEFAULT=%d
+
+RULES_REPO="${RULES_REPO:-$RULES_REPO_DEFAULT}"
+RELEASE_TAG="${RELEASE_TAG:-$RELEASE_TAG_DEFAULT}"
+GEODATA_DIR="${GEODATA_DIR:-$GEODATA_DIR_DEFAULT}"
+COMPOSE_PATH="${COMPOSE_PATH:-$COMPOSE_PATH_DEFAULT}"
+COMPOSE_SERVICE="${COMPOSE_SERVICE:-$COMPOSE_SERVICE_DEFAULT}"
+LOG_PATH="${LOG_PATH:-$LOG_PATH_DEFAULT}"
+LOCK_FILE="${LOCK_FILE:-$LOCK_FILE_DEFAULT}"
+MIN_BYTES="${MIN_BYTES:-$MIN_BYTES_DEFAULT}"
+VERIFY_SHA256="${VERIFY_SHA256:-$VERIFY_SHA256_DEFAULT}"
+FORCE_RELOAD="${FORCE_RELOAD:-0}"
+
+log() {
+  printf "%%s %%s\n" "$(date "+%%Y-%%m-%%d %%H:%%M:%%S")" "$*"
+}
+
+fail() {
+  log "ERROR: $*"
+  exit 1
+}
+
+need_bin() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+download_required() {
+  local url="$1"
+  local out="$2"
+  curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 "$url" -o "$out" || fail "download failed: $url"
+}
+
+download_optional() {
+  local url="$1"
+  local out="$2"
+  curl -fsSL --retry 2 --retry-delay 2 --connect-timeout 10 "$url" -o "$out"
+}
+
+verify_size() {
+  local file="$1"
+  local size
+  size=$(stat -c%%s "$file" 2>/dev/null || wc -c <"$file")
+  [[ "$size" =~ ^[0-9]+$ ]] || fail "failed to read file size for $file"
+  if [ "$size" -lt "$MIN_BYTES" ]; then
+    fail "file too small ($size bytes): $file"
+  fi
+}
+
+verify_sha256_if_available() {
+  local data_file="$1"
+  local sum_url="$2"
+  local sum_file="$3"
+  if [ "$VERIFY_SHA256" != "1" ]; then
+    return 0
+  fi
+  if ! download_optional "$sum_url" "$sum_file"; then
+    log "WARN: checksum file unavailable: $sum_url"
+    return 0
+  fi
+  local expected actual
+  expected=$(awk "{print \\$1}" "$sum_file" | tr -d "\r\n")
+  actual=$(sha256sum "$data_file" | awk "{print \\$1}")
+  [ -n "$expected" ] || fail "empty checksum in $sum_url"
+  [ "$expected" = "$actual" ] || fail "sha256 mismatch for $data_file"
+}
+
+install_if_changed() {
+  local src="$1"
+  local dst="$2"
+  local name="$3"
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    log "$name unchanged"
+    return 1
+  fi
+  install -o root -g root -m 0644 "$src" "${dst}.new"
+  mv -f "${dst}.new" "$dst"
+  log "$name updated"
+  return 0
+}
+
+need_bin curl
+need_bin sha256sum
+need_bin flock
+need_bin docker
+need_bin install
+need_bin cmp
+
+mkdir -p "$GEODATA_DIR" "$(dirname "$LOCK_FILE")" "$(dirname "$LOG_PATH")"
+touch "$LOG_PATH"
+chmod 0644 "$LOG_PATH"
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  fail "another update process is already running"
+fi
+
+tmp_dir=$(mktemp -d /tmp/remnanode-geodata.XXXXXX)
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+if [ "$RELEASE_TAG" = "latest" ]; then
+  base_url="https://github.com/${RULES_REPO}/releases/latest/download"
+else
+  base_url="https://github.com/${RULES_REPO}/releases/download/${RELEASE_TAG}"
+fi
+
+log "download source: $base_url"
+download_required "$base_url/geosite.dat" "$tmp_dir/geosite.dat"
+download_required "$base_url/geoip.dat" "$tmp_dir/geoip.dat"
+
+verify_size "$tmp_dir/geosite.dat"
+verify_size "$tmp_dir/geoip.dat"
+verify_sha256_if_available "$tmp_dir/geosite.dat" "$base_url/geosite.dat.sha256sum" "$tmp_dir/geosite.dat.sha256sum"
+verify_sha256_if_available "$tmp_dir/geoip.dat" "$base_url/geoip.dat.sha256sum" "$tmp_dir/geoip.dat.sha256sum"
+
+changed=0
+if install_if_changed "$tmp_dir/geosite.dat" "$GEODATA_DIR/geosite.dat" "geosite.dat"; then
+  changed=1
+fi
+if install_if_changed "$tmp_dir/geoip.dat" "$GEODATA_DIR/geoip.dat" "geoip.dat"; then
+  changed=1
+fi
+
+if [ "$changed" -eq 1 ] || [ "$FORCE_RELOAD" = "1" ]; then
+  log "applying docker compose"
+  if [ -n "$COMPOSE_SERVICE" ]; then
+    docker compose -f "$COMPOSE_PATH" up -d "$COMPOSE_SERVICE" || fail "docker compose up failed"
+  else
+    docker compose -f "$COMPOSE_PATH" up -d || fail "docker compose up failed"
+  fi
+  log "docker compose applied"
+else
+  log "no changes detected, restart skipped"
+fi
+
+log "remnanode geodata update done"
+`, params.RulesRepo, params.ReleaseTag, params.GeodataDir, params.ComposePath, params.ComposeService, params.LogPath, params.LockPath, params.MinSizeBytes, verifyDefault)
+	return []byte(script)
+}
+
+func patchRemnaComposeVolumes(input []byte, params RemnaGeodataParams) ([]byte, bool, error) {
+	if len(bytes.TrimSpace(input)) == 0 {
+		return nil, false, errors.New("compose file is empty")
+	}
+
+	var root map[string]any
+	if err := yaml.Unmarshal(input, &root); err != nil {
+		return nil, false, fmt.Errorf("parse compose yaml: %w", err)
+	}
+	servicesRaw, ok := root["services"]
+	if !ok {
+		return nil, false, errors.New("compose services section not found")
+	}
+	services, ok := toStringAnyMap(servicesRaw)
+	if !ok {
+		return nil, false, errors.New("compose services is not an object")
+	}
+
+	serviceName := strings.TrimSpace(params.ComposeService)
+	if serviceName == "" {
+		serviceName = defaultRemnaComposeService
+	}
+	serviceKey, serviceMap, err := findComposeService(services, serviceName)
+	if err != nil {
+		return nil, false, err
+	}
+
+	desiredMounts := []string{
+		fmt.Sprintf("%s/geosite.dat:/usr/local/share/xray/geosite.dat:ro", strings.TrimRight(params.GeodataDir, "/")),
+		fmt.Sprintf("%s/geoip.dat:/usr/local/share/xray/geoip.dat:ro", strings.TrimRight(params.GeodataDir, "/")),
+	}
+
+	updatedVolumes, changed, err := ensureComposeVolumeEntries(serviceMap["volumes"], desiredMounts)
+	if err != nil {
+		return nil, false, err
+	}
+	if !changed {
+		return input, false, nil
+	}
+
+	serviceMap["volumes"] = updatedVolumes
+	services[serviceKey] = serviceMap
+	root["services"] = services
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, true, nil
+}
+
+func findComposeService(services map[string]any, serviceName string) (string, map[string]any, error) {
+	if raw, ok := services[serviceName]; ok {
+		if serviceMap, ok := toStringAnyMap(raw); ok {
+			return serviceName, serviceMap, nil
+		}
+	}
+	for key, raw := range services {
+		serviceMap, ok := toStringAnyMap(raw)
+		if !ok {
+			continue
+		}
+		containerName, _ := serviceMap["container_name"].(string)
+		if strings.TrimSpace(containerName) == serviceName {
+			return key, serviceMap, nil
+		}
+	}
+	return "", nil, fmt.Errorf("remnanode service not found in compose (expected service or container_name=%s)", serviceName)
+}
+
+func ensureComposeVolumeEntries(raw any, desiredMounts []string) ([]any, bool, error) {
+	entries := make([]any, 0)
+	switch typed := raw.(type) {
+	case nil:
+		entries = []any{}
+	case []any:
+		entries = append(entries, typed...)
+	case []string:
+		for _, item := range typed {
+			entries = append(entries, item)
+		}
+	default:
+		return nil, false, errors.New("compose volumes is not a list")
+	}
+
+	changed := false
+	for _, mount := range desiredMounts {
+		target := composeVolumeTarget(mount)
+		foundIndex := -1
+		for idx, entry := range entries {
+			if composeVolumeTargetFromEntry(entry) == target {
+				foundIndex = idx
+				break
+			}
+		}
+		if foundIndex == -1 {
+			entries = append(entries, mount)
+			changed = true
+			continue
+		}
+		existing, ok := entries[foundIndex].(string)
+		if ok && strings.TrimSpace(existing) == strings.TrimSpace(mount) {
+			continue
+		}
+		entries[foundIndex] = mount
+		changed = true
+	}
+	return entries, changed, nil
+}
+
+func composeVolumeTargetFromEntry(entry any) string {
+	if raw, ok := entry.(string); ok {
+		return composeVolumeTarget(raw)
+	}
+	if obj, ok := toStringAnyMap(entry); ok {
+		if val, ok := obj["target"].(string); ok {
+			return strings.TrimSpace(val)
+		}
+	}
+	return ""
+}
+
+func composeVolumeTarget(mount string) string {
+	parts := strings.Split(strings.TrimSpace(mount), ":")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
+
+func toStringAnyMap(raw any) (map[string]any, bool) {
+	switch typed := raw.(type) {
+	case map[string]any:
+		return typed, true
+	case map[any]any:
+		conv := make(map[string]any, len(typed))
+		for key, val := range typed {
+			strKey, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			conv[strKey] = val
+		}
+		return conv, true
+	default:
+		return nil, false
+	}
 }
 
 func buildVLFProtoInstallCommand(params InstallVLFProtoParams) string {
@@ -461,6 +1067,23 @@ func uploadReader(ctx context.Context, client *ssh.Client, reader io.Reader, rem
 	case err := <-done:
 		return err
 	}
+}
+
+func downloadBytes(client *ssh.Client, remotePath string) ([]byte, error) {
+	if client == nil {
+		return nil, errors.New("ssh client missing")
+	}
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return nil, err
+	}
+	defer sftpClient.Close()
+	remote, err := sftpClient.Open(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	defer remote.Close()
+	return io.ReadAll(remote)
 }
 
 func writeLog(buf *strings.Builder, line string) {

@@ -63,8 +63,11 @@ func mapTaskType(raw string) (string, error) {
 		return ops.JobTypeRebootAgent, nil
 	case "restart_service":
 		return ops.JobTypeRestartSvc, nil
+	case "remna_geodata_install":
+		return ops.JobTypeRemnaInstall, nil
+	case "remna_geodata_run":
+		return ops.JobTypeRemnaRun, nil
 	default:
 		return "", errors.New("unsupported task type")
 	}
 }
-

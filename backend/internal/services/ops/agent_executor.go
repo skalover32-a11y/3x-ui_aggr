@@ -108,6 +108,14 @@ func (e *AgentExecutor) DeployAgent(ctx context.Context, node *db.Node, params D
 	return "", 1, errors.New("deploy_agent not supported via agent")
 }
 
+func (e *AgentExecutor) InstallRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	return "", 1, errors.New("remna geodata install is not supported via agent")
+}
+
+func (e *AgentExecutor) RunRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	return "", 1, errors.New("remna geodata run is not supported via agent")
+}
+
 func (e *AgentExecutor) doRequest(ctx context.Context, node *db.Node, method, path string, body any, dest any, timeout time.Duration) error {
 	if node == nil || !node.AgentEnabled || node.AgentURL == nil || strings.TrimSpace(*node.AgentURL) == "" {
 		return errors.New("agent not configured")
@@ -292,4 +300,3 @@ func extractAgentMessage(payload map[string]any) (string, bool) {
 	}
 	return "", false
 }
-

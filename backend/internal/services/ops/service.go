@@ -38,13 +38,15 @@ const (
 )
 
 const (
-	JobTypeReboot      = "reboot_nodes"
-	JobTypeUpdate      = "update_nodes"
-	JobTypeDeploy      = "deploy_agent"
-	JobTypeInstallVLF  = "install_vlf_proto"
-	JobTypeUpdateSvc   = "update_services"
-	JobTypeRebootAgent = "reboot_node"
-	JobTypeRestartSvc  = "restart_service"
+	JobTypeReboot       = "reboot_nodes"
+	JobTypeUpdate       = "update_nodes"
+	JobTypeDeploy       = "deploy_agent"
+	JobTypeInstallVLF   = "install_vlf_proto"
+	JobTypeRemnaInstall = "remna_geodata_install"
+	JobTypeRemnaRun     = "remna_geodata_run"
+	JobTypeUpdateSvc    = "update_services"
+	JobTypeRebootAgent  = "reboot_node"
+	JobTypeRestartSvc   = "restart_service"
 )
 
 const maxParallelism = 10
@@ -64,6 +66,17 @@ const (
 	defaultInstallerMetricsPort = 8080
 	defaultInstallerClientID    = "gateway-client"
 	defaultInstallerLogLevel    = "info"
+
+	defaultRemnaRulesRepo      = "Loyalsoldier/v2ray-rules-dat"
+	defaultRemnaReleaseTag     = "latest"
+	defaultRemnaGeodataDir     = "/opt/remnanode/geodata"
+	defaultRemnaComposePath    = "/opt/remnanode/docker-compose.yml"
+	defaultRemnaComposeService = "remnanode"
+	defaultRemnaScriptPath     = "/opt/remnanode/bin/update-geodata.sh"
+	defaultRemnaCronSchedule   = "20 4 * * *"
+	defaultRemnaLogPath        = "/var/log/remnanode-geodata.log"
+	defaultRemnaLockPath       = "/var/lock/remnanode-geodata.lock"
+	defaultRemnaMinSizeBytes   = 1024 * 1024
 )
 
 type Service struct {
@@ -128,6 +141,19 @@ type JobParams struct {
 	InstallerLogLevel      string `json:"installer_log_level"`
 	InstallerShowSecrets   bool   `json:"installer_show_secrets"`
 	InstallerForce         bool   `json:"installer_force"`
+
+	RemnaRulesRepo      string `json:"remna_rules_repo"`
+	RemnaReleaseTag     string `json:"remna_release_tag"`
+	RemnaGeodataDir     string `json:"remna_geodata_dir"`
+	RemnaComposePath    string `json:"remna_compose_path"`
+	RemnaComposeService string `json:"remna_compose_service"`
+	RemnaScriptPath     string `json:"remna_script_path"`
+	RemnaCronSchedule   string `json:"remna_cron_schedule"`
+	RemnaLogPath        string `json:"remna_log_path"`
+	RemnaLockPath       string `json:"remna_lock_path"`
+	RemnaMinSizeBytes   int64  `json:"remna_min_size_bytes"`
+	RemnaSkipSHA256     bool   `json:"remna_skip_sha256"`
+	RemnaForce          bool   `json:"remna_force"`
 }
 
 func New(dbConn *gorm.DB, exec NodeExecutor, agentExec NodeExecutor, enc *security.Encryptor, sudoPasswords []string, allowCIDR string, repoPath string) *Service {
@@ -203,6 +229,16 @@ func (s *Service) CreateJob(ctx context.Context, req CreateJobRequest) (*db.OpsJ
 		}
 		if typ == JobTypeInstallVLF {
 			if strings.TrimSpace(jobParams.Confirm) != "INSTALL_VLF_PROTO" {
+				return nil, errors.New("confirmation required")
+			}
+		}
+		if typ == JobTypeRemnaInstall {
+			if strings.TrimSpace(jobParams.Confirm) != "REMNA_GEODATA_INSTALL" {
+				return nil, errors.New("confirmation required")
+			}
+		}
+		if typ == JobTypeRemnaRun {
+			if strings.TrimSpace(jobParams.Confirm) != "REMNA_GEODATA_RUN" {
 				return nil, errors.New("confirmation required")
 			}
 		}
@@ -517,6 +553,12 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 	if job.Type == JobTypeInstallVLF {
 		timeout = 20 * time.Minute
 	}
+	if job.Type == JobTypeRemnaInstall {
+		timeout = 25 * time.Minute
+	}
+	if job.Type == JobTypeRemnaRun {
+		timeout = 15 * time.Minute
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -583,6 +625,14 @@ func (s *Service) executeItem(ctx context.Context, job *db.OpsJob, item *db.OpsJ
 		params := buildInstallVLFProtoParams(job.Params)
 		params.SudoPasswords = s.SudoPasswords
 		output, exitCode, runErr = installer.InstallVLFProto(cctx, node, params)
+	case JobTypeRemnaInstall:
+		params := buildRemnaGeodataParams(job.Params)
+		params.SudoPasswords = s.SudoPasswords
+		output, exitCode, runErr = s.Executor.InstallRemnaGeodata(cctx, node, params)
+	case JobTypeRemnaRun:
+		params := buildRemnaGeodataParams(job.Params)
+		params.SudoPasswords = s.SudoPasswords
+		output, exitCode, runErr = s.Executor.RunRemnaGeodata(cctx, node, params)
 	default:
 		runErr = errors.New("unsupported job type")
 		exitCode = 1
@@ -768,6 +818,65 @@ func buildInstallVLFProtoParams(raw datatypes.JSON) InstallVLFProtoParams {
 	return out
 }
 
+func buildRemnaGeodataParams(raw datatypes.JSON) RemnaGeodataParams {
+	params := parseJobParams(raw)
+	rawMap := map[string]any{}
+	_ = json.Unmarshal(raw, &rawMap)
+
+	out := RemnaGeodataParams{
+		RulesRepo:      strings.TrimSpace(params.RemnaRulesRepo),
+		ReleaseTag:     strings.TrimSpace(params.RemnaReleaseTag),
+		GeodataDir:     strings.TrimSpace(params.RemnaGeodataDir),
+		ComposePath:    strings.TrimSpace(params.RemnaComposePath),
+		ComposeService: strings.TrimSpace(params.RemnaComposeService),
+		ScriptPath:     strings.TrimSpace(params.RemnaScriptPath),
+		CronSchedule:   strings.TrimSpace(params.RemnaCronSchedule),
+		LogPath:        strings.TrimSpace(params.RemnaLogPath),
+		LockPath:       strings.TrimSpace(params.RemnaLockPath),
+		MinSizeBytes:   params.RemnaMinSizeBytes,
+	}
+
+	if out.RulesRepo == "" {
+		out.RulesRepo = defaultRemnaRulesRepo
+	}
+	if out.ReleaseTag == "" {
+		out.ReleaseTag = defaultRemnaReleaseTag
+	}
+	if out.GeodataDir == "" {
+		out.GeodataDir = defaultRemnaGeodataDir
+	}
+	if out.ComposePath == "" {
+		out.ComposePath = defaultRemnaComposePath
+	}
+	if out.ComposeService == "" {
+		out.ComposeService = defaultRemnaComposeService
+	}
+	if out.ScriptPath == "" {
+		out.ScriptPath = defaultRemnaScriptPath
+	}
+	if out.CronSchedule == "" {
+		out.CronSchedule = defaultRemnaCronSchedule
+	}
+	if out.LogPath == "" {
+		out.LogPath = defaultRemnaLogPath
+	}
+	if out.LockPath == "" {
+		out.LockPath = defaultRemnaLockPath
+	}
+	if out.MinSizeBytes <= 0 {
+		out.MinSizeBytes = defaultRemnaMinSizeBytes
+	}
+
+	if _, ok := rawMap["remna_skip_sha256"]; ok {
+		out.SkipSHA256 = params.RemnaSkipSHA256
+	}
+	if _, ok := rawMap["remna_force"]; ok {
+		out.ForceReload = params.RemnaForce
+	}
+
+	return out
+}
+
 func trimLog(input string, headSize int, tailSize int) string {
 	if headSize <= 0 && tailSize <= 0 {
 		return ""
@@ -834,6 +943,10 @@ func describeJobAction(jobType string, params JobParams) string {
 		return fmt.Sprintf("restart service %s (agent)", strings.TrimSpace(params.RestartService))
 	case JobTypeInstallVLF:
 		return "install VLF-Proto (one-click installer)"
+	case JobTypeRemnaInstall:
+		return "install Remnawave geodata updater"
+	case JobTypeRemnaRun:
+		return "run Remnawave geodata update"
 	default:
 		return jobType
 	}
@@ -1310,7 +1423,7 @@ func (s *Service) ensureAgentTargets(ctx context.Context, ids []uuid.UUID) error
 
 func isSupportedJobType(typ string) bool {
 	switch typ {
-	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeInstallVLF, JobTypeUpdateSvc, JobTypeRebootAgent, JobTypeRestartSvc:
+	case JobTypeReboot, JobTypeUpdate, JobTypeDeploy, JobTypeInstallVLF, JobTypeRemnaInstall, JobTypeRemnaRun, JobTypeUpdateSvc, JobTypeRebootAgent, JobTypeRestartSvc:
 		return true
 	default:
 		return false

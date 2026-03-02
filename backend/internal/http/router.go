@@ -169,6 +169,8 @@ func NewRouter(h *Handler) *gin.Engine {
 	auth.POST("/ops/jobs", middleware.RequireRoles(writeRoles...), h.CreateOpsJob)
 	auth.POST("/ops/deploy-agent", middleware.RequireRoles(writeRoles...), h.CreateDeployAgent)
 	auth.POST("/ops/install-vlf-proto", middleware.RequireRoles(writeRoles...), h.CreateInstallVLFProto)
+	auth.POST("/ops/remna-geodata/install", middleware.RequireRoles(writeRoles...), h.CreateRemnaGeodataInstall)
+	auth.POST("/ops/remna-geodata/run", middleware.RequireRoles(writeRoles...), h.CreateRemnaGeodataRun)
 	auth.POST("/tasks/bulk", middleware.RequireRoles(writeRoles...), h.CreateTaskBulk)
 	auth.GET("/ops/jobs/:id/stream", middleware.RequireRoles(readRoles...), h.OpsJobStream)
 	auth.GET("/tasks/:id", middleware.RequireRoles(readRoles...), h.GetTask)

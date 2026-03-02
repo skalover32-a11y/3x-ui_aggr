@@ -1627,6 +1627,10 @@ function NodesPage() {
     parallelism: 3,
     all: false,
     confirm: "",
+    remna_release_tag: "latest",
+    remna_force: false,
+    remna_verify_sha256: true,
+    remna_cron_schedule: "20 4 * * *",
   });
   const [deployForm, setDeployForm] = useState({
     agent_port: 9191,
@@ -2311,6 +2315,12 @@ function NodesPage() {
     setInstallVLFOpen(true);
   }
 
+  function taskConfirmToken(type) {
+    if (type === "remna_geodata_install") return "REMNA_GEODATA_INSTALL";
+    if (type === "remna_geodata_run") return "REMNA_GEODATA_RUN";
+    return "REALLY_DO_IT";
+  }
+
   function openTaskModal(type) {
     setTaskError("");
     setTaskForm((prev) => ({
@@ -2555,14 +2565,23 @@ function NodesPage() {
       setTaskError(t("Select at least one node"));
       return;
     }
+    const requiredConfirm = taskConfirmToken(taskForm.type);
     const params = {
       confirm: taskForm.confirm.trim(),
     };
     if (taskForm.type === "restart_service") {
       params.restart_service = taskForm.service;
     }
-    if (taskForm.all && params.confirm !== "REALLY_DO_IT") {
-      setTaskError(t("Type {token} to confirm", { token: "REALLY_DO_IT" }));
+    if (taskForm.type === "remna_geodata_install" || taskForm.type === "remna_geodata_run") {
+      params.remna_release_tag = (taskForm.remna_release_tag || "").trim() || "latest";
+      params.remna_force = !!taskForm.remna_force;
+      params.remna_skip_sha256 = !taskForm.remna_verify_sha256;
+      if (taskForm.type === "remna_geodata_install") {
+        params.remna_cron_schedule = (taskForm.remna_cron_schedule || "").trim() || "20 4 * * *";
+      }
+    }
+    if (taskForm.all && params.confirm !== requiredConfirm) {
+      setTaskError(t("Type {token} to confirm", { token: requiredConfirm }));
       return;
     }
     const payload = {
@@ -3857,6 +3876,12 @@ function NodesPage() {
               </button>
               <button type="button" className="secondary" onClick={openInstallVLFProto} disabled={filteredNodes.length === 0}>
                 {t("Install VLF-Proto")}
+              </button>
+              <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_install")} disabled={filteredNodes.length === 0}>
+                {t("Install Remna geodata")}
+              </button>
+              <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_run")} disabled={filteredNodes.length === 0}>
+                {t("Run Remna geodata update")}
               </button>
               <button type="button" className="secondary" onClick={() => openTaskModal("update_services")} disabled={filteredNodes.length === 0}>
                 {t("Update services")}
@@ -5167,6 +5192,8 @@ function NodesPage() {
                 <option value="update_services">{t("Update services")}</option>
                 <option value="reboot_node">{t("Reboot nodes")}</option>
                 <option value="restart_service">{t("Restart service")}</option>
+                <option value="remna_geodata_install">{t("Install Remna geodata")}</option>
+                <option value="remna_geodata_run">{t("Run Remna geodata update")}</option>
               </select>
               {taskForm.type === "restart_service" && (
                 <select
@@ -5180,6 +5207,40 @@ function NodesPage() {
                   <option value="adguard">adguard</option>
                   <option value="agent">agent</option>
                 </select>
+              )}
+              {(taskForm.type === "remna_geodata_install" || taskForm.type === "remna_geodata_run") && (
+                <input
+                  placeholder={t("Release tag (latest by default)")}
+                  value={taskForm.remna_release_tag}
+                  onChange={(e) => setTaskForm({ ...taskForm, remna_release_tag: e.target.value })}
+                />
+              )}
+              {taskForm.type === "remna_geodata_install" && (
+                <input
+                  placeholder={t("Cron schedule")}
+                  value={taskForm.remna_cron_schedule}
+                  onChange={(e) => setTaskForm({ ...taskForm, remna_cron_schedule: e.target.value })}
+                />
+              )}
+              {(taskForm.type === "remna_geodata_install" || taskForm.type === "remna_geodata_run") && (
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={taskForm.remna_verify_sha256}
+                    onChange={(e) => setTaskForm({ ...taskForm, remna_verify_sha256: e.target.checked })}
+                  />
+                  {t("Verify SHA256 when available")}
+                </label>
+              )}
+              {(taskForm.type === "remna_geodata_install" || taskForm.type === "remna_geodata_run") && (
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={taskForm.remna_force}
+                    onChange={(e) => setTaskForm({ ...taskForm, remna_force: e.target.checked })}
+                  />
+                  {t("Force docker compose reload")}
+                </label>
               )}
               <label className="checkbox">
                 <input
@@ -5197,7 +5258,7 @@ function NodesPage() {
               />
               {taskForm.all && (
                 <input
-                  placeholder={t("Type {token} to confirm", { token: "REALLY_DO_IT" })}
+                  placeholder={t("Type {token} to confirm", { token: taskConfirmToken(taskForm.type) })}
                   value={taskForm.confirm}
                   onChange={(e) => setTaskForm({ ...taskForm, confirm: e.target.value })}
                 />

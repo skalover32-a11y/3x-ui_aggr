@@ -11,6 +11,8 @@ type NodeExecutor interface {
 	Update(ctx context.Context, node *db.Node, params UpdateParams) (string, int, error)
 	DeployAgent(ctx context.Context, node *db.Node, params DeployAgentParams) (string, int, error)
 	RestartService(ctx context.Context, node *db.Node, service string) (string, int, error)
+	InstallRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error)
+	RunRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error)
 }
 
 // AgentInstallProbe is an optional capability for executors that can verify
@@ -66,4 +68,20 @@ type InstallVLFProtoParams struct {
 	ShowSecrets   bool
 	Force         bool
 	SudoPasswords []string
+}
+
+type RemnaGeodataParams struct {
+	RulesRepo      string
+	ReleaseTag     string
+	GeodataDir     string
+	ComposePath    string
+	ComposeService string
+	ScriptPath     string
+	CronSchedule   string
+	LogPath        string
+	LockPath       string
+	MinSizeBytes   int64
+	SkipSHA256     bool
+	ForceReload    bool
+	SudoPasswords  []string
 }
