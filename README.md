@@ -210,6 +210,75 @@ Notes:
 - Verify inside container:
   `docker compose exec backend sh -lc "ls -la /app/bin/vlf-agent"`
 
+### Remnawave geodata updater (Loyalsoldier)
+Production updater for `geosite.dat` + `geoip.dat` on remnanode hosts.
+
+What `install` does on each selected node:
+- creates `/opt/remnanode/geodata`
+- patches `/opt/remnanode/docker-compose.yml` (idempotent) to mount:
+  - `/opt/remnanode/geodata/geosite.dat:/usr/local/share/xray/geosite.dat:ro`
+  - `/opt/remnanode/geodata/geoip.dat:/usr/local/share/xray/geoip.dat:ro`
+- installs updater script at `/opt/remnanode/bin/update-geodata.sh`
+- installs root cron in `/etc/cron.d/remnanode-geodata` (`20 4 * * *`)
+- installs logrotate config `/etc/logrotate.d/remnanode-geodata`
+- runs initial geodata update immediately
+
+Install on selected nodes:
+```bash
+curl -s http://localhost:8080/api/ops/remna-geodata/install \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_ids":["<node_id_1>","<node_id_2>"],
+    "parallelism":2,
+    "params":{
+      "remna_release_tag":"latest",
+      "remna_force":false,
+      "remna_skip_sha256":false,
+      "remna_cron_schedule":"20 4 * * *"
+    }
+  }'
+```
+
+Run updater once (without changing cron):
+```bash
+curl -s http://localhost:8080/api/ops/remna-geodata/run \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_ids":["<node_id_1>"],
+    "parallelism":2,
+    "params":{
+      "remna_release_tag":"latest",
+      "remna_force":false,
+      "remna_skip_sha256":false
+    }
+  }'
+```
+
+You can also trigger via bulk tasks:
+- `type=remna_geodata_install`
+- `type=remna_geodata_run`
+
+Disable cron on node:
+```bash
+sudo rm -f /etc/cron.d/remnanode-geodata
+```
+
+Logs:
+- runtime log: `/var/log/remnanode-geodata.log`
+- rotation policy: `/etc/logrotate.d/remnanode-geodata`
+
+Verify mounts inside container:
+```bash
+docker exec remnanode ls -lah /usr/local/share/xray
+```
+
+Notes:
+- data source: GitHub Releases `Loyalsoldier/v2ray-rules-dat`
+- updater verifies file size (`>1MB`) and sha256 (when `.sha256sum` is available)
+- files are replaced atomically via temp file + `mv`
+
 ## Agent tasks (control plane, no SSH)
 Agent is the single control plane for bulk actions (update/reboot/restart). Backend never SSH-es for these tasks.
 Nodes must have `agent_enabled=true` + `agent_url` + `agent_token`.
