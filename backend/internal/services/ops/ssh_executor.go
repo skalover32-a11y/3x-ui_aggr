@@ -344,8 +344,8 @@ func (e *SSHExecutor) InstallRemnaGeodata(ctx context.Context, node *db.Node, pa
 		sudoPass,
 		usePass,
 	)); err != nil {
-		writeLog(logs, "failed to prepare log file")
-		return logs.String(), 13, err
+		// Non-fatal: update script also prepares log path at runtime.
+		writeLog(logs, "warn: failed to prepare log file, will continue: "+strings.TrimSpace(err.Error()))
 	}
 
 	runOut, code, runErr := e.runRemnaScript(ctx, client, sudoPass, usePass, params, params.ForceReload || composeChanged)
