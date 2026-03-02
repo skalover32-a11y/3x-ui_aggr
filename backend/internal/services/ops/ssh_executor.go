@@ -601,8 +601,8 @@ verify_sha256_if_available() {
     return 0
   fi
   local expected actual
-  expected=$(awk "{print \\$1}" "$sum_file" | tr -d "\r\n")
-  actual=$(sha256sum "$data_file" | awk "{print \\$1}")
+  expected=$(awk '{print $1}' "$sum_file" | tr -d "\r\n")
+  actual=$(sha256sum "$data_file" | awk '{print $1}')
   [ -n "$expected" ] || fail "empty checksum in $sum_url"
   [ "$expected" = "$actual" ] || fail "sha256 mismatch for $data_file"
 }
