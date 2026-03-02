@@ -34,6 +34,14 @@ func (f *fakeAgentExecutor) RestartService(ctx context.Context, node *db.Node, s
 	return "", 0, nil
 }
 
+func (f *fakeAgentExecutor) InstallRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	return "", 1, nil
+}
+
+func (f *fakeAgentExecutor) RunRemnaGeodata(ctx context.Context, node *db.Node, params RemnaGeodataParams) (string, int, error) {
+	return "", 1, nil
+}
+
 func TestParsePanelVersionFromLog(t *testing.T) {
 	version := parsePanelVersionFromLog("foo\nservice_version: 2.8.7\nbar")
 	if version != "2.8.7" {
@@ -122,4 +130,3 @@ func TestUpdatePanelStoresVersion(t *testing.T) {
 		t.Fatalf("expected job item success, got %s", item.Status)
 	}
 }
-
