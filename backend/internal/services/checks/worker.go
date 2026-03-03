@@ -34,6 +34,11 @@ type Worker struct {
 	loggedStart bool
 }
 
+const (
+	minAgentOnlineTTLForGenericSuppress = 90 * time.Second
+	maxAgentOnlineTTLForGenericSuppress = 10 * time.Minute
+)
+
 func New(dbConn *gorm.DB, alertsSvc *alerts.Service, ssh *sshclient.Client, enc *security.Encryptor, interval time.Duration) *Worker {
 	return &Worker{DB: dbConn, Alerts: alertsSvc, SSH: ssh, Encryptor: enc, Interval: interval}
 }
@@ -348,7 +353,7 @@ func (w *Worker) runBotCheck(ctx context.Context, settings *alerts.Settings, nod
 		metrics["bytes"] = bytes
 	}
 	_ = w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
-	if w.Alerts != nil {
+	if w.Alerts != nil && !w.shouldSuppressGenericAlert(node, check, errMsg) {
 		w.Alerts.NotifyGenericBot(ctx, settings, node, bot, check, ok, latency, statusCode, errMsg)
 	}
 }
@@ -416,7 +421,7 @@ func (w *Worker) notifyGeneric(ctx context.Context, settings *alerts.Settings, n
 	if w == nil || w.Alerts == nil {
 		return
 	}
-	if shouldSuppressGenericAlert(check, errMsg) {
+	if w.shouldSuppressGenericAlert(node, check, errMsg) {
 		return
 	}
 	status := "ok"
@@ -426,7 +431,25 @@ func (w *Worker) notifyGeneric(ctx context.Context, settings *alerts.Settings, n
 	w.Alerts.NotifyGeneric(ctx, settings, node, service, check, status, latency, statusCode, errMsg)
 }
 
-func shouldSuppressGenericAlert(check *db.Check, errMsg *string) bool {
+func (w *Worker) shouldSuppressGenericAlert(node *db.Node, check *db.Check, errMsg *string) bool {
+	return shouldSuppressGenericAlert(node, check, errMsg, time.Now(), w.agentOnlineTTLForGenericSuppress())
+}
+
+func (w *Worker) agentOnlineTTLForGenericSuppress() time.Duration {
+	ttl := 3 * time.Minute
+	if w != nil && w.Interval > 0 {
+		ttl = 3 * w.Interval
+	}
+	if ttl < minAgentOnlineTTLForGenericSuppress {
+		return minAgentOnlineTTLForGenericSuppress
+	}
+	if ttl > maxAgentOnlineTTLForGenericSuppress {
+		return maxAgentOnlineTTLForGenericSuppress
+	}
+	return ttl
+}
+
+func shouldSuppressGenericAlert(node *db.Node, check *db.Check, errMsg *string, now time.Time, agentOnlineTTL time.Duration) bool {
 	if check == nil {
 		return false
 	}
@@ -443,7 +466,26 @@ func shouldSuppressGenericAlert(check *db.Check, errMsg *string) bool {
 	if errMsg == nil {
 		return false
 	}
-	return isSSHTransportFailure(*errMsg)
+	if !isSSHTransportFailure(*errMsg) {
+		return false
+	}
+	return isAgentOnlineForGenericSuppress(node, now, agentOnlineTTL)
+}
+
+func isAgentOnlineForGenericSuppress(node *db.Node, now time.Time, ttl time.Duration) bool {
+	if node == nil {
+		return false
+	}
+	if !node.AgentEnabled && !node.AgentInstalled {
+		return false
+	}
+	if node.AgentLastSeenAt == nil {
+		return false
+	}
+	if ttl <= 0 {
+		ttl = minAgentOnlineTTLForGenericSuppress
+	}
+	return now.Sub(*node.AgentLastSeenAt) <= ttl
 }
 
 func isSSHTransportFailure(raw string) bool {
@@ -464,6 +506,9 @@ func isSSHTransportFailure(raw string) bool {
 		return true
 	}
 	if strings.Contains(msg, "network is unreachable") {
+		return true
+	}
+	if strings.Contains(msg, "host is unreachable") {
 		return true
 	}
 	return false
@@ -944,7 +989,7 @@ func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResul
 		metrics["bytes"] = bytes
 	}
 	result := w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
-	if w.Alerts != nil {
+	if w.Alerts != nil && !w.shouldSuppressGenericAlert(&node, &check, errMsg) {
 		w.Alerts.NotifyGenericBot(ctx, settings, &node, &bot, &check, ok, latency, statusCode, errMsg)
 	}
 	return result, nil
