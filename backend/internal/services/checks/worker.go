@@ -416,11 +416,57 @@ func (w *Worker) notifyGeneric(ctx context.Context, settings *alerts.Settings, n
 	if w == nil || w.Alerts == nil {
 		return
 	}
+	if shouldSuppressGenericAlert(check, errMsg) {
+		return
+	}
 	status := "ok"
 	if !ok {
 		status = "fail"
 	}
 	w.Alerts.NotifyGeneric(ctx, settings, node, service, check, status, latency, statusCode, errMsg)
+}
+
+func shouldSuppressGenericAlert(check *db.Check, errMsg *string) bool {
+	if check == nil {
+		return false
+	}
+	checkType := strings.ToLower(strings.TrimSpace(check.Type))
+	// Node SSH checks are already surfaced by connection alerts from nodecheck worker.
+	if checkType == "ssh" {
+		return true
+	}
+	// Systemd/docker checks rely on SSH transport. If SSH is unreachable, connection alert
+	// carries the root cause and generic alerts only add noise.
+	if checkType != "systemd" && checkType != "docker" {
+		return false
+	}
+	if errMsg == nil {
+		return false
+	}
+	return isSSHTransportFailure(*errMsg)
+}
+
+func isSSHTransportFailure(raw string) bool {
+	msg := strings.ToLower(strings.TrimSpace(raw))
+	if msg == "" {
+		return false
+	}
+	if strings.Contains(msg, "dial tcp") {
+		return true
+	}
+	if strings.Contains(msg, "i/o timeout") {
+		return true
+	}
+	if strings.Contains(msg, "connection refused") {
+		return true
+	}
+	if strings.Contains(msg, "no route to host") {
+		return true
+	}
+	if strings.Contains(msg, "network is unreachable") {
+		return true
+	}
+	return false
 }
 
 func (w *Worker) executeBotCheck(ctx context.Context, node *db.Node, bot *db.Bot, check *db.Check) (bool, int, int, int64, *string) {
@@ -815,18 +861,18 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 		First(&check).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			backfill := db.Check{
-				TargetType:    "service",
-				TargetID:      service.ID,
-				Type:          "HTTP",
-				IntervalSec:   60,
-				TimeoutMS:     3000,
-				Retries:       1,
-				FailAfterSec:  300,
+				TargetType:     "service",
+				TargetID:       service.ID,
+				Type:           "HTTP",
+				IntervalSec:    60,
+				TimeoutMS:      3000,
+				Retries:        1,
+				FailAfterSec:   300,
 				RecoverAfterOK: 2,
-				Enabled:       true,
-				SeverityRules: datatypes.JSON([]byte("{}")),
-				CreatedAt:     time.Now(),
-				UpdatedAt:     time.Now(),
+				Enabled:        true,
+				SeverityRules:  datatypes.JSON([]byte("{}")),
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
 			}
 			if err := w.DB.WithContext(ctx).Create(&backfill).Error; err != nil {
 				return nil, err
@@ -866,18 +912,18 @@ func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResul
 		First(&check).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			backfill := db.Check{
-				TargetType:    "bot",
-				TargetID:      bot.ID,
-				Type:          strings.ToUpper(strings.TrimSpace(bot.Kind)),
-				IntervalSec:   30,
-				TimeoutMS:     3000,
-				Retries:       1,
-				FailAfterSec:  300,
+				TargetType:     "bot",
+				TargetID:       bot.ID,
+				Type:           strings.ToUpper(strings.TrimSpace(bot.Kind)),
+				IntervalSec:    30,
+				TimeoutMS:      3000,
+				Retries:        1,
+				FailAfterSec:   300,
 				RecoverAfterOK: 2,
-				Enabled:       true,
-				SeverityRules: datatypes.JSON([]byte("{}")),
-				CreatedAt:     time.Now(),
-				UpdatedAt:     time.Now(),
+				Enabled:        true,
+				SeverityRules:  datatypes.JSON([]byte("{}")),
+				CreatedAt:      time.Now(),
+				UpdatedAt:      time.Now(),
 			}
 			if err := w.DB.WithContext(ctx).Create(&backfill).Error; err != nil {
 				return nil, err

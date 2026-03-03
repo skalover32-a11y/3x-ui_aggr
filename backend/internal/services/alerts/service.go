@@ -454,6 +454,9 @@ func (s *Service) maybeSendAlert(ctx context.Context, settings *Settings, active
 	}
 	recoverAfterOK := alert.RecoverAfterOK
 	if recoverAfterOK < 1 {
+		recoverAfterOK = s.defaultRecoverAfterOK(alert.Type)
+	}
+	if recoverAfterOK < 1 {
 		recoverAfterOK = 1
 	}
 	if alert.MuteUntil != nil && now.Before(*alert.MuteUntil) {
@@ -1212,6 +1215,17 @@ func (s *Service) minConsecutiveFails(alertType AlertType) int {
 		return 1
 	}
 	return minFails
+}
+
+func (s *Service) defaultRecoverAfterOK(alertType AlertType) int {
+	switch alertType {
+	case AlertConnection:
+		return 3
+	case AlertGeneric, AlertTLS:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func hasMessageThreadForAllChats(chatIDs []string, messageIDs map[string]int) bool {

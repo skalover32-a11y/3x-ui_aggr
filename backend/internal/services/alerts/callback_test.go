@@ -493,6 +493,69 @@ func TestGenericAlertRequiresMinConsecutiveFails(t *testing.T) {
 	}
 }
 
+func TestConnectionRecoveryRequiresConsecutiveOK(t *testing.T) {
+	dsn := os.Getenv("TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("TEST_DB_DSN not set")
+	}
+	dbConn, err := db.Open(dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := dbConn.AutoMigrate(&db.AlertState{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_ = dbConn.Exec("TRUNCATE alert_states RESTART IDENTITY").Error
+
+	rt := &countingRT{}
+	svc := New(dbConn, nil, "https://example.com")
+	svc.client = &telegramClient{http: &http.Client{Transport: rt}}
+	settings := &Settings{
+		BotToken:     "token",
+		AdminChatIDs: []string{"1"},
+	}
+	nodeID := uuid.New()
+	alert := Alert{
+		Type:       AlertConnection,
+		NodeID:     nodeID,
+		NodeName:   "node",
+		TargetType: "ssh",
+		Severity:   SeverityCritical,
+		TS:         time.Now(),
+		SSHOK:      true,
+		PanelOK:    true,
+		Status:     "ok",
+	}
+	alert.Fingerprint = fingerprintFor(alert)
+	fail := "fail"
+	state := db.AlertState{
+		Fingerprint:    alert.Fingerprint,
+		AlertType:      string(alert.Type),
+		NodeID:         &nodeID,
+		LastStatus:     &fail,
+		FirstSeen:      time.Now().Add(-10 * time.Minute),
+		LastSeen:       time.Now().Add(-time.Minute),
+		Occurrences:    5,
+		OKStreak:       0,
+		LastMessageIDs: messageIDsToJSON(map[string]int{"1": 99}),
+		UpdatedAt:      time.Now().Add(-time.Minute),
+	}
+	if err := dbConn.Create(&state).Error; err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	if rt.sendCount != 0 {
+		t.Fatalf("expected no recovery before 3 consecutive ok, got sends=%d", rt.sendCount)
+	}
+
+	svc.maybeSendAlert(context.Background(), settings, false, alert)
+	if rt.sendCount != 1 {
+		t.Fatalf("expected recovery on third consecutive ok, got sends=%d", rt.sendCount)
+	}
+}
+
 func TestAlertResendsWhenChatListChanged(t *testing.T) {
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
