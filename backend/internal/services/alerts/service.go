@@ -1204,7 +1204,12 @@ func requiresOfflineDelay(alertType AlertType) bool {
 }
 
 func (s *Service) minConsecutiveFails(alertType AlertType) int {
-	if alertType != AlertGeneric && alertType != AlertConnection && alertType != AlertTLS {
+	if alertType != AlertGeneric &&
+		alertType != AlertConnection &&
+		alertType != AlertTLS &&
+		alertType != AlertCPU &&
+		alertType != AlertMemory &&
+		alertType != AlertDisk {
 		return 1
 	}
 	minFails := defaultPolicy().MinConsecutiveFails
@@ -1223,6 +1228,10 @@ func (s *Service) defaultRecoverAfterOK(alertType AlertType) int {
 		return 3
 	case AlertGeneric, AlertTLS:
 		return 2
+	case AlertCPU, AlertMemory, AlertDisk:
+		// Resource metrics are sampled periodically (typically every few minutes).
+		// Keep a wider recovery window to avoid threshold flapping noise.
+		return 6
 	default:
 		return 1
 	}
