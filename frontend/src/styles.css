@@ -2298,7 +2298,11 @@ body {
 }
 
 .data-table.dashboard-nodes-table .data-row {
-  grid-template-columns: 40px minmax(180px, 1.2fr) minmax(160px, 0.95fr) minmax(150px, 0.9fr) minmax(160px, 1fr) minmax(220px, 1.05fr) minmax(170px, 0.95fr) minmax(220px, 1fr);
+  grid-template-columns: 36px minmax(170px, 1.2fr) minmax(140px, 0.9fr) minmax(140px, 0.85fr) minmax(210px, 1.15fr) minmax(180px, 0.95fr) minmax(160px, 0.85fr) minmax(190px, 0.95fr);
+}
+
+.data-table.dashboard-nodes-table .data-row > div {
+  min-width: 0;
 }
 
 .data-table.nodes-table.selectable .data-row {
@@ -2611,6 +2615,15 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+.traffic-cell > span {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-dot {
@@ -2649,13 +2662,15 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .node-metric-line {
   display: grid;
-  grid-template-columns: 52px minmax(90px, 1fr) 56px;
+  grid-template-columns: 48px minmax(0, 1fr) 52px;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .node-metric-label {
@@ -2668,6 +2683,8 @@ body {
   color: #cbd5e1;
   text-align: right;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .node-metric-bar {
@@ -2676,6 +2693,7 @@ body {
   border-radius: 999px;
   background: #1f2937;
   overflow: hidden;
+  min-width: 0;
 }
 
 .node-metric-bar-fill {
