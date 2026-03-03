@@ -24,6 +24,11 @@ type Worker struct {
 	Interval time.Duration
 }
 
+const (
+	minAgentOnlineTTLForSSHAlert = 90 * time.Second
+	maxAgentOnlineTTLForSSHAlert = 10 * time.Minute
+)
+
 func New(dbConn *gorm.DB, alertsSvc *alerts.Service, interval time.Duration) *Worker {
 	return &Worker{DB: dbConn, Alerts: alertsSvc, Interval: interval}
 }
@@ -53,6 +58,7 @@ func (w *Worker) runOnce(ctx context.Context) {
 		return
 	}
 	for _, node := range nodes {
+		checkTS := time.Now()
 		settings, _ := w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
 		panelOK, latency, panelErr := true, 0, (*string)(nil)
 		var panelErrCode *string
@@ -65,10 +71,15 @@ func (w *Worker) runOnce(ctx context.Context) {
 			panelErr = nil
 		}
 		sshOK, sshErr := checkSSH(ctx, node.SSHHost, node.SSHPort, node.SSHEnabled)
+		sshAlertOK, sshAlertErr := sshOK, sshErr
+		if shouldSuppressSSHTransportAlert(&node, sshErr, checkTS, w.agentOnlineTTLForSSHAlert()) {
+			sshAlertOK = true
+			sshAlertErr = nil
+		}
 		errMsg := joinErrors(panelErr, sshErr)
 		entry := db.NodeCheck{
 			NodeID:           node.ID,
-			TS:               time.Now(),
+			TS:               checkTS,
 			PanelOK:          panelOK,
 			SSHOK:            sshOK,
 			LatencyMS:        latency,
@@ -78,7 +89,7 @@ func (w *Worker) runOnce(ctx context.Context) {
 		}
 		_ = w.DB.WithContext(ctx).Create(&entry).Error
 		if w.Alerts != nil {
-			w.Alerts.NotifyConnection(ctx, settings, &node, panelOK, panelErr, panelErrCode, sshOK, sshErr)
+			w.Alerts.NotifyConnection(ctx, settings, &node, panelOK, panelErr, panelErrCode, sshAlertOK, sshAlertErr)
 		}
 	}
 }
@@ -146,6 +157,63 @@ func checkSSH(ctx context.Context, host string, port int, enabled bool) (bool, *
 	}
 	_ = conn.Close()
 	return true, nil
+}
+
+func (w *Worker) agentOnlineTTLForSSHAlert() time.Duration {
+	ttl := 3 * time.Minute
+	if w != nil && w.Interval > 0 {
+		ttl = 3 * w.Interval
+	}
+	if ttl < minAgentOnlineTTLForSSHAlert {
+		return minAgentOnlineTTLForSSHAlert
+	}
+	if ttl > maxAgentOnlineTTLForSSHAlert {
+		return maxAgentOnlineTTLForSSHAlert
+	}
+	return ttl
+}
+
+func shouldSuppressSSHTransportAlert(node *db.Node, sshErr *string, now time.Time, ttl time.Duration) bool {
+	if node == nil || sshErr == nil {
+		return false
+	}
+	if !isAgentOnline(node.AgentLastSeenAt, node.AgentEnabled || node.AgentInstalled, ttl, now) {
+		return false
+	}
+	return isSSHTransportFailure(*sshErr)
+}
+
+func isAgentOnline(lastSeen *time.Time, installed bool, ttl time.Duration, now time.Time) bool {
+	if !installed || lastSeen == nil {
+		return false
+	}
+	if ttl <= 0 {
+		ttl = minAgentOnlineTTLForSSHAlert
+	}
+	return now.Sub(*lastSeen) <= ttl
+}
+
+func isSSHTransportFailure(raw string) bool {
+	msg := strings.ToLower(strings.TrimSpace(raw))
+	if msg == "" {
+		return false
+	}
+	switch {
+	case strings.Contains(msg, "dial tcp"):
+		return true
+	case strings.Contains(msg, "i/o timeout"):
+		return true
+	case strings.Contains(msg, "connection refused"):
+		return true
+	case strings.Contains(msg, "no route to host"):
+		return true
+	case strings.Contains(msg, "network is unreachable"):
+		return true
+	case strings.Contains(msg, "host is unreachable"):
+		return true
+	default:
+		return false
+	}
 }
 
 func joinErrors(panelErr *string, sshErr *string) *string {
