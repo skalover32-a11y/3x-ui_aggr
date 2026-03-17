@@ -1668,7 +1668,7 @@ function NodesPage() {
     secret: "",
     log_level: "info",
     show_secrets: false,
-    force: true,
+    force: false,
     parallelism: 2,
     all: false,
     sandbox_only: false,
@@ -3875,7 +3875,7 @@ function NodesPage() {
                 {t("Deploy agent")}
               </button>
               <button type="button" className="secondary" onClick={openInstallVLFProto} disabled={filteredNodes.length === 0}>
-                {t("Install VLF-Proto")}
+                {t("Install / update VLF-Proto")}
               </button>
               <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_install")} disabled={filteredNodes.length === 0}>
                 {t("Install Remna geodata")}
@@ -5030,7 +5030,7 @@ function NodesPage() {
       {installVLFOpen && (
         <div className="modal overlay-modal">
           <div className="modal-content wide">
-            <h3>{t("Install VLF-Proto")}</h3>
+            <h3>{t("Install / update VLF-Proto")}</h3>
             <div className="form-grid" autoComplete="off">
               <label className="checkbox">
                 <input
@@ -5152,7 +5152,7 @@ function NodesPage() {
                   checked={installVLFForm.force}
                   onChange={(e) => setInstallVLFForm({ ...installVLFForm, force: e.target.checked })}
                 />
-                {t("Force reinstall")}
+                {t("Force reinstall (reapply config)")}
               </label>
               <input
                 type="number"
@@ -5171,9 +5171,12 @@ function NodesPage() {
                 {t("Selected: {count}", { count: selectedNodeIDs.length })}
               </div>
             </div>
+            <div className="muted small">
+              {t("Existing installs use upstream update.sh by default. Enable force reinstall to reapply ports, secrets, or runtime config.")}
+            </div>
             {installVLFError && <div className="error">{installVLFError}</div>}
             <div className="actions">
-              <button type="button" onClick={startInstallVLFProto}>{t("Start install")}</button>
+              <button type="button" onClick={startInstallVLFProto}>{t("Start install / update")}</button>
               <button type="button" onClick={() => setInstallVLFOpen(false)}>{t("Close")}</button>
             </div>
           </div>

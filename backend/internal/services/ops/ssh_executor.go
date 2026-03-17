@@ -29,6 +29,10 @@ type SSHExecutor struct {
 const (
 	remnaCronFilePath      = "/etc/cron.d/remnanode-geodata"
 	remnaLogrotateFilePath = "/etc/logrotate.d/remnanode-geodata"
+	vlfProtoInstallScript  = "https://raw.githubusercontent.com/skalover32-a11y/VLF-Proto/main/scripts/install.sh"
+	vlfProtoEnvFilePath    = "/etc/vlf-proto/.env"
+	vlfProtoBinaryPath     = "/usr/local/bin/vlf-gateway"
+	vlfProtoServicePath    = "/etc/systemd/system/vlf-gateway.service"
 )
 
 func NewSSHExecutor(enc *security.Encryptor, timeout time.Duration) *SSHExecutor {
@@ -214,21 +218,31 @@ func (e *SSHExecutor) InstallVLFProto(ctx context.Context, node *db.Node, params
 		return logs.String(), 2, err
 	}
 
-	installCmd := buildVLFProtoInstallCommand(params)
-	// Run the whole pipeline under sudo; otherwise only `curl` runs as root.
-	sudoInstallCmd := "bash -lc " + strconv.Quote(installCmd)
-	out, code, err := runRemote(ctx, client, sudoCmd(sudoInstallCmd, sudoPass, usePass))
+	state, details, err := detectVLFProtoInstallState(ctx, client, params, sudoPass, usePass)
+	if err != nil {
+		writeLog(logs, "state detection failed")
+		return logs.String(), 3, err
+	}
+	if strings.TrimSpace(details) != "" {
+		writeLog(logs, "state: "+details)
+	}
+
+	plan := chooseVLFProtoCommandPlan(params, state)
+	writeLog(logs, plan.LogLine)
+
+	sudoExecCmd := "bash -lc " + strconv.Quote(plan.Command)
+	out, code, err := runRemote(ctx, client, sudoCmd(sudoExecCmd, sudoPass, usePass))
 	if strings.TrimSpace(out) != "" {
 		writeLog(logs, strings.TrimSpace(out))
 	}
 	if err != nil {
-		writeLog(logs, "vlf-proto install failed")
+		writeLog(logs, "vlf-proto "+plan.Mode+" failed")
 		if code == 0 {
-			code = 3
+			code = 4
 		}
 		return logs.String(), code, err
 	}
-	writeLog(logs, "vlf-proto install finished")
+	writeLog(logs, "vlf-proto "+plan.Mode+" finished")
 	return logs.String(), 0, nil
 }
 
@@ -866,7 +880,94 @@ func buildVLFProtoInstallCommand(params InstallVLFProtoParams) string {
 	if params.Force {
 		args = append(args, "--force")
 	}
-	return "curl -fsSL https://raw.githubusercontent.com/skalover32-a11y/VLF-Proto/main/scripts/install.sh | bash -s -- " + strings.Join(args, " ")
+	return "curl -fsSL " + shellEscape(vlfProtoInstallScript) + " | bash -s -- " + strings.Join(args, " ")
+}
+
+type vlfProtoInstallState struct {
+	HasUpdateScript    bool
+	HasExistingInstall bool
+}
+
+type vlfProtoCommandPlan struct {
+	Mode    string
+	LogLine string
+	Command string
+}
+
+func detectVLFProtoInstallState(ctx context.Context, client *ssh.Client, params InstallVLFProtoParams, sudoPass string, usePass bool) (vlfProtoInstallState, string, error) {
+	installDir := strings.TrimSpace(params.InstallDir)
+	if installDir == "" {
+		installDir = defaultInstallerInstallDir
+	}
+	updateScript := path.Join(installDir, "scripts", "update.sh")
+	repoGitDir := path.Join(installDir, ".git")
+	cmd := fmt.Sprintf(
+		"if [ -x %s ]; then echo update_script=1; else echo update_script=0; fi; "+
+			"if [ -d %s ] || [ -x %s ] || [ -f %s ] || [ -f %s ]; then echo install=1; else echo install=0; fi",
+		shellEscape(updateScript),
+		shellEscape(repoGitDir),
+		shellEscape(vlfProtoBinaryPath),
+		shellEscape(vlfProtoEnvFilePath),
+		shellEscape(vlfProtoServicePath),
+	)
+	out, _, err := runRemote(ctx, client, sudoCmd("bash -lc "+strconv.Quote(cmd), sudoPass, usePass))
+	if err != nil {
+		return vlfProtoInstallState{}, strings.TrimSpace(out), err
+	}
+	details := strings.TrimSpace(strings.ReplaceAll(out, "\n", " "))
+	state := vlfProtoInstallState{
+		HasUpdateScript:    strings.Contains(out, "update_script=1"),
+		HasExistingInstall: strings.Contains(out, "install=1"),
+	}
+	return state, details, nil
+}
+
+func chooseVLFProtoCommandPlan(params InstallVLFProtoParams, state vlfProtoInstallState) vlfProtoCommandPlan {
+	if params.Force {
+		forced := params
+		forced.Force = true
+		return vlfProtoCommandPlan{
+			Mode:    "reinstall",
+			LogLine: "mode: reinstall (--force enabled)",
+			Command: buildVLFProtoInstallCommand(forced),
+		}
+	}
+	if state.HasUpdateScript {
+		return vlfProtoCommandPlan{
+			Mode:    "update",
+			LogLine: "mode: update (existing install with update.sh detected)",
+			Command: buildVLFProtoUpdateCommand(params),
+		}
+	}
+	if state.HasExistingInstall {
+		fallback := params
+		fallback.Force = true
+		return vlfProtoCommandPlan{
+			Mode:    "reinstall",
+			LogLine: "mode: reinstall (legacy install detected, update.sh missing)",
+			Command: buildVLFProtoInstallCommand(fallback),
+		}
+	}
+	return vlfProtoCommandPlan{
+		Mode:    "install",
+		LogLine: "mode: install (fresh node)",
+		Command: buildVLFProtoInstallCommand(params),
+	}
+}
+
+func buildVLFProtoUpdateCommand(params InstallVLFProtoParams) string {
+	installDir := strings.TrimSpace(params.InstallDir)
+	if installDir == "" {
+		installDir = defaultInstallerInstallDir
+	}
+	args := []string{
+		shellEscape(path.Join(installDir, "scripts", "update.sh")),
+		"--repo", shellEscape(strings.TrimSpace(params.RepoURL)),
+		"--ref", shellEscape(strings.TrimSpace(params.Ref)),
+		"--go-version", shellEscape(strings.TrimSpace(params.GoVersion)),
+		"--install-dir", shellEscape(installDir),
+	}
+	return "bash " + strings.Join(args, " ")
 }
 
 func (e *SSHExecutor) CheckAgentInstalled(ctx context.Context, node *db.Node, agentPort int) (bool, string, error) {

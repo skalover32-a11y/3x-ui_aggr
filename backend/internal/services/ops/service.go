@@ -942,7 +942,7 @@ func describeJobAction(jobType string, params JobParams) string {
 	case JobTypeRestartSvc:
 		return fmt.Sprintf("restart service %s (agent)", strings.TrimSpace(params.RestartService))
 	case JobTypeInstallVLF:
-		return "install VLF-Proto (one-click installer)"
+		return "install/update VLF-Proto (smart installer)"
 	case JobTypeRemnaInstall:
 		return "install Remnawave geodata updater"
 	case JobTypeRemnaRun:
