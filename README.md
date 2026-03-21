@@ -73,7 +73,32 @@ make run
 - `SUDO_PASSWORDS` (optional, comma-separated sudo passwords for ops jobs like deploy agent)
 - `AGG_ALLOW_CIDR` (optional, default allow CIDR for agent deploy)
 - `AGG_REPO_PATH` (optional, default `/opt/vlf_aggregator`, used to build vlf-agent)
-- `AGG_DATA_DIR` (optional, default `./data`, stores generated Prometheus file_sd files in `prom_sd/`)
+- `AGG_DATA_DIR` (optional, default `./data`, stores generated Prometheus file_sd files in `prom_sd/` and Backup Center run workdirs in `backup/runs/`)
+
+## Backup Center
+
+The aggregator now includes an org-scoped `Backup Center` module with:
+
+- storage targets: FTP / FTPS / SFTP / WebDAV / S3 / Local path
+- backup jobs with cron, timezone and retention
+- source builder for files, docker volumes, postgres dumps and infra snapshots
+- run history with per-item status and logs
+- built-in templates for common server layouts
+
+Secrets are encrypted at rest using the same backend encryptor configured by `AGG_MASTER_KEY_BASE64`.
+
+Quick path:
+
+1. open `Backup Center`
+2. create and test a storage target
+3. create a job or use a template
+4. add sources
+5. save and run manually
+6. inspect `Runs`
+
+Detailed documentation:
+
+- `docs/backup-center.md`
 
 ## Invite-only signup
 Registration is invite-only. Admin creates invites, users sign up with invite code.

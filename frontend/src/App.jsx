@@ -3,6 +3,7 @@ import { Routes, Route, useNavigate, useLocation, useParams, Link } from "react-
 import { request, getToken, refreshAuth, convertSSHKey, getTelegramSettings, saveTelegramSettings, sendTelegramTest, getPrometheusSettings, savePrometheusSettings, testPrometheusConnection, queryPrometheus, getPromObservabilitySettings, savePromObservabilitySettings, listPromObservabilityTargets, createPromObservabilityTarget, updatePromObservabilityTarget, deletePromObservabilityTarget, testPromObservabilityTarget, reloadPromObservability, getPromObservabilitySD, setAuth, clearAuth, getRole, getIsGlobalAdmin, getUser, getOrgId, setOrgId, getOrgRole, setOrgRole, API_BASE } from "./api.js";
 import { useI18n } from "./i18n.js";
 import NodeSSHModal from "./components/NodeSSHModal.jsx";
+import BackupCenterView from "./components/backup/BackupCenterView.jsx";
 
 function formatTS(ts) {
   if (!ts) return "";
@@ -504,7 +505,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   }
   const toolsItems = (isOrgAdmin || isGlobalAdmin)
     ? [
-        { key: "backupServices", label: t("Backup FTP"), path: "/nodes?view=backup-services" },
+        { key: "backupCenter", label: t("Backup Center"), path: "/backup" },
         { key: "files", label: t("File Manager"), path: "/files" },
         { key: "keystore", label: t("Key storage"), path: "/keys" },
         { key: "dbwork", label: t("DB work"), path: "/db" },
@@ -1897,6 +1898,10 @@ function NodesPage() {
     const params = new URLSearchParams(location.search);
     const view = params.get("view");
     const add = params.get("add");
+    if (view === "backup-services") {
+      navigate("/backup?tab=targets", { replace: true });
+      return;
+    }
     if (view === "panel") {
       setNodeTypeFilter("PANEL");
       setSidebarActive("panels");
@@ -1906,8 +1911,6 @@ function NodesPage() {
     } else if (view === "bots") {
       setNodeTypeFilter("BOT");
       setSidebarActive("bots");
-    } else if (view === "backup-services") {
-      setSidebarActive("backupServices");
     } else if (view === "alerts") {
       setSidebarActive("alerts");
     } else if (view === "prometheus") {
@@ -7546,6 +7549,67 @@ function KeyStoragePage() {
   );
 }
 
+function BackupCenterPage() {
+  const { t, lang, setLang } = useI18n();
+  const navigate = useNavigate();
+  const orgRole = getOrgRole();
+  const user = getUser();
+  const isGlobalAdmin = getIsGlobalAdmin();
+  const isOrgAdmin = orgRole === "owner" || orgRole === "admin";
+  const canManage = isGlobalAdmin || isOrgAdmin;
+
+  if (!canManage) {
+    return (
+      <div className="app-shell">
+        <SidebarNav active="backupCenter" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+        <div className="app-main">
+          <div className="page center">
+            <div className="error">{t("Access denied")}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <SidebarNav active="backupCenter" isGlobalAdmin={isGlobalAdmin} isOrgAdmin={isOrgAdmin} />
+      <div className="app-main">
+        <header className="header">
+          <div className="header-left" />
+          <div className="header-right">
+            <OrgSwitcher />
+            <div className="language-card">
+              <div className="muted small">{t("Language")}</div>
+              <select value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">{t("English")}</option>
+                <option value="ru">{t("Russian")}</option>
+                <option value="fa">{t("Persian")}</option>
+              </select>
+            </div>
+            <div className="header-user">
+              {user && <span className="muted small">{t("Signed in: {user}", { user })}</span>}
+              <button
+                onClick={async () => {
+                  try {
+                    await request("POST", "/auth/logout", {});
+                  } catch {
+                  }
+                  clearAuth();
+                  navigate("/login", { replace: true });
+                }}
+              >
+                {t("Logout")}
+              </button>
+            </div>
+          </div>
+        </header>
+        <BackupCenterView />
+      </div>
+    </div>
+  );
+}
+
 function ObservabilityPage() {
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
@@ -8363,6 +8427,14 @@ export default function App() {
           element={
             <RequireAuth>
               <DbWorkPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/backup"
+          element={
+            <RequireAuth>
+              <BackupCenterPage />
             </RequireAuth>
           }
         />

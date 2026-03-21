@@ -19,6 +19,7 @@ import (
 	httpapi "agr_3x_ui/internal/http"
 	"agr_3x_ui/internal/security"
 	"agr_3x_ui/internal/services/alerts"
+	"agr_3x_ui/internal/services/backup"
 	"agr_3x_ui/internal/services/checks"
 	"agr_3x_ui/internal/services/dashboard"
 	"agr_3x_ui/internal/services/metrics"
@@ -106,6 +107,8 @@ func main() {
 		TelegramWebhookSecret: cfg.TelegramWebhookSecret,
 		DataDir:               cfg.DataDir,
 	}
+	backupSvc := backup.New(dbConn, enc, cfg.DataDir, cfg.SudoPasswords)
+	handler.Backup = backupSvc
 	if _, err := handler.EnsureRootOrg(context.Background()); err != nil {
 		log.Printf("ensure root org failed: %v", err)
 	}
@@ -140,6 +143,7 @@ func main() {
 	dashboardSvc := dashboard.New(dbConn, metricsProvider, usersProvider, cfg.DashboardCollectInterval, cfg.DashboardCollectParallelism)
 	handler.Dashboard = dashboardSvc
 	dashboardSvc.Start(context.Background())
+	backupSvc.Start(context.Background())
 	router := httpapi.NewRouter(handler)
 
 	port := os.Getenv("PORT")

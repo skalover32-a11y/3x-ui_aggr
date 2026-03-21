@@ -330,3 +330,145 @@ export async function reloadPromObservability() {
 export async function getPromObservabilitySD() {
   return request("GET", orgScopedPath("/observability/prom/sd"));
 }
+
+export async function listOrgScopedNodes() {
+  return request("GET", orgScopedPath("/nodes"));
+}
+
+export async function listBackupStorageTargets() {
+  return request("GET", orgScopedPath("/backup/storage-targets"));
+}
+
+export async function getBackupStorageTarget(targetId) {
+  return request("GET", orgScopedPath(`/backup/storage-targets/${targetId}`));
+}
+
+export async function createBackupStorageTarget(payload) {
+  return request("POST", orgScopedPath("/backup/storage-targets"), payload || {});
+}
+
+export async function updateBackupStorageTarget(targetId, payload) {
+  return request("PATCH", orgScopedPath(`/backup/storage-targets/${targetId}`), payload || {});
+}
+
+export async function deleteBackupStorageTarget(targetId) {
+  return request("DELETE", orgScopedPath(`/backup/storage-targets/${targetId}`), {});
+}
+
+export async function testBackupStorageTarget(targetId) {
+  return request("POST", orgScopedPath(`/backup/storage-targets/${targetId}/test`), {});
+}
+
+export async function listBackupJobs() {
+  return request("GET", orgScopedPath("/backup/jobs"));
+}
+
+export async function getBackupJob(jobId) {
+  return request("GET", orgScopedPath(`/backup/jobs/${jobId}`));
+}
+
+export async function createBackupJob(payload) {
+  return request("POST", orgScopedPath("/backup/jobs"), payload || {});
+}
+
+export async function updateBackupJob(jobId, payload) {
+  return request("PATCH", orgScopedPath(`/backup/jobs/${jobId}`), payload || {});
+}
+
+export async function deleteBackupJob(jobId) {
+  return request("DELETE", orgScopedPath(`/backup/jobs/${jobId}`), {});
+}
+
+export async function runBackupJob(jobId) {
+  return request("POST", orgScopedPath(`/backup/jobs/${jobId}/run`), {});
+}
+
+export async function enableBackupJob(jobId) {
+  return request("POST", orgScopedPath(`/backup/jobs/${jobId}/enable`), {});
+}
+
+export async function disableBackupJob(jobId) {
+  return request("POST", orgScopedPath(`/backup/jobs/${jobId}/disable`), {});
+}
+
+export async function createBackupSource(jobId, payload) {
+  return request("POST", orgScopedPath(`/backup/jobs/${jobId}/sources`), payload || {});
+}
+
+export async function updateBackupSource(sourceId, payload) {
+  return request("PATCH", orgScopedPath(`/backup/sources/${sourceId}`), payload || {});
+}
+
+export async function deleteBackupSource(sourceId) {
+  return request("DELETE", orgScopedPath(`/backup/sources/${sourceId}`), {});
+}
+
+export async function reorderBackupSources(jobId, sourceIds) {
+  return request("POST", orgScopedPath(`/backup/jobs/${jobId}/sources/reorder`), {
+    source_ids: Array.isArray(sourceIds) ? sourceIds : [],
+  });
+}
+
+export async function listBackupRuns(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value == null || value === "") return;
+    query.set(key, String(value));
+  });
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request("GET", orgScopedPath(`/backup/runs${suffix}`));
+}
+
+export async function getBackupRun(runId) {
+  return request("GET", orgScopedPath(`/backup/runs/${runId}`));
+}
+
+export async function getBackupRunLog(runId) {
+  return request("GET", orgScopedPath(`/backup/runs/${runId}/log`));
+}
+
+export async function listBackupJobRuns(jobId, params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value == null || value === "") return;
+    query.set(key, String(value));
+  });
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request("GET", orgScopedPath(`/backup/jobs/${jobId}/runs${suffix}`));
+}
+
+export async function retryBackupRun(runId) {
+  return request("POST", orgScopedPath(`/backup/runs/${runId}/retry`), {});
+}
+
+export async function cancelBackupRun(runId) {
+  return request("POST", orgScopedPath(`/backup/runs/${runId}/cancel`), {});
+}
+
+export async function listBackupTemplates() {
+  return request("GET", orgScopedPath("/backup/templates"));
+}
+
+export async function createBackupJobFromTemplate(payload) {
+  return request("POST", orgScopedPath("/backup/jobs/from-template"), payload || {});
+}
+
+export async function listBackupCatalogDockerContainers(nodeId) {
+  return request("GET", orgScopedPath(`/backup/catalog/docker/containers?node_id=${encodeURIComponent(nodeId || "")}`));
+}
+
+export async function listBackupCatalogDockerVolumes(nodeId) {
+  return request("GET", orgScopedPath(`/backup/catalog/docker/volumes?node_id=${encodeURIComponent(nodeId || "")}`));
+}
+
+export async function listBackupCatalogCommonPaths() {
+  return request("GET", orgScopedPath("/backup/catalog/common-paths"));
+}
+
+export async function listBackupCatalogSystemDetected(nodeId) {
+  return request("GET", orgScopedPath(`/backup/catalog/system-detected?node_id=${encodeURIComponent(nodeId || "")}`));
+}
+
+export async function listBackupCatalogPostgresContainers(nodeId) {
+  return request("GET", orgScopedPath(`/backup/catalog/postgres-containers?node_id=${encodeURIComponent(nodeId || "")}`));
+}

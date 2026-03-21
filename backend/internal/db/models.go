@@ -489,3 +489,129 @@ type OpsJobItem struct {
 	StartedAt  *time.Time `gorm:"type:timestamptz" json:"started_at"`
 	FinishedAt *time.Time `gorm:"type:timestamptz" json:"finished_at"`
 }
+
+type BackupStorageTarget struct {
+	ID             uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID          uuid.UUID  `gorm:"type:uuid;not null;index" json:"org_id"`
+	Name           string     `gorm:"type:text;not null" json:"name"`
+	Type           string     `gorm:"type:text;not null" json:"type"`
+	ConfigEnc      string     `gorm:"column:config_encrypted;type:text;not null;default:''" json:"-"`
+	Enabled        bool       `gorm:"not null;default:true" json:"enabled"`
+	LastTestedAt   *time.Time `gorm:"type:timestamptz" json:"last_tested_at"`
+	LastTestStatus *string    `gorm:"type:text" json:"last_test_status"`
+	LastTestError  *string    `gorm:"type:text" json:"last_test_error"`
+	CreatedAt      time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+	UpdatedAt      time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
+}
+
+func (BackupStorageTarget) TableName() string {
+	return "backup_storage_targets"
+}
+
+type BackupJob struct {
+	ID                 uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID              uuid.UUID  `gorm:"type:uuid;not null;index" json:"org_id"`
+	NodeID             *uuid.UUID `gorm:"type:uuid;index" json:"node_id,omitempty"`
+	Name               string     `gorm:"type:text;not null" json:"name"`
+	Description        string     `gorm:"type:text;not null;default:''" json:"description"`
+	Enabled            bool       `gorm:"not null;default:true" json:"enabled"`
+	Timezone           string     `gorm:"type:text;not null;default:'UTC'" json:"timezone"`
+	CronExpression     string     `gorm:"type:text;not null" json:"cron_expression"`
+	RetentionDays      int        `gorm:"not null;default:14" json:"retention_days"`
+	StorageTargetID    uuid.UUID  `gorm:"type:uuid;not null;index" json:"storage_target_id"`
+	CompressionEnabled bool       `gorm:"not null;default:true" json:"compression_enabled"`
+	CompressionLevel   *int       `gorm:"type:int" json:"compression_level,omitempty"`
+	UploadConcurrency  int        `gorm:"not null;default:2" json:"upload_concurrency"`
+	LastRunAt          *time.Time `gorm:"type:timestamptz" json:"last_run_at,omitempty"`
+	LastSuccessAt      *time.Time `gorm:"type:timestamptz" json:"last_success_at,omitempty"`
+	LastStatus         string     `gorm:"type:text;not null;default:'idle'" json:"last_status"`
+	LastError          *string    `gorm:"type:text" json:"last_error,omitempty"`
+	LastSizeBytes      int64      `gorm:"not null;default:0" json:"last_size_bytes"`
+	CreatedAt          time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+	UpdatedAt          time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
+}
+
+func (BackupJob) TableName() string {
+	return "backup_jobs"
+}
+
+type BackupSource struct {
+	ID         uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	JobID       uuid.UUID      `gorm:"type:uuid;not null;index" json:"job_id"`
+	Type       string         `gorm:"type:text;not null" json:"type"`
+	Name       string         `gorm:"type:text;not null" json:"name"`
+	Enabled    bool           `gorm:"not null;default:true" json:"enabled"`
+	OrderIndex int            `gorm:"not null;default:0" json:"order_index"`
+	ConfigJSON datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"config_json"`
+	CreatedAt  time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+	UpdatedAt  time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
+}
+
+func (BackupSource) TableName() string {
+	return "backup_sources"
+}
+
+type BackupRun struct {
+	ID                uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID             uuid.UUID  `gorm:"type:uuid;not null;index" json:"org_id"`
+	JobID             uuid.UUID  `gorm:"type:uuid;not null;index" json:"job_id"`
+	Status            string     `gorm:"type:text;not null;default:'queued'" json:"status"`
+	TriggerType       string     `gorm:"type:text;not null" json:"trigger_type"`
+	InitiatedByUserID *uuid.UUID `gorm:"type:uuid" json:"initiated_by_user_id,omitempty"`
+	LocalWorkdir      *string    `gorm:"type:text" json:"local_workdir,omitempty"`
+	RemoteWorkdir     *string    `gorm:"type:text" json:"remote_workdir,omitempty"`
+	RemotePath        *string    `gorm:"type:text" json:"remote_path,omitempty"`
+	TotalSizeBytes    int64      `gorm:"not null;default:0" json:"total_size_bytes"`
+	UploadedSizeBytes int64      `gorm:"not null;default:0" json:"uploaded_size_bytes"`
+	FileCount         int        `gorm:"not null;default:0" json:"file_count"`
+	ChecksumStatus    string     `gorm:"type:text;not null;default:'pending'" json:"checksum_status"`
+	CleanupStatus     string     `gorm:"type:text;not null;default:'pending'" json:"cleanup_status"`
+	ErrorSummary      *string    `gorm:"type:text" json:"error_summary,omitempty"`
+	ExitCode          *int       `gorm:"type:int" json:"exit_code,omitempty"`
+	LogExcerpt        *string    `gorm:"type:text" json:"log_excerpt,omitempty"`
+	LogPath           *string    `gorm:"type:text" json:"log_path,omitempty"`
+	StartedAt         time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"started_at"`
+	FinishedAt        *time.Time `gorm:"type:timestamptz" json:"finished_at,omitempty"`
+	DurationMS        int64      `gorm:"not null;default:0" json:"duration_ms"`
+	CancelRequestedAt *time.Time `gorm:"type:timestamptz" json:"cancel_requested_at,omitempty"`
+	CreatedAt         time.Time  `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+}
+
+func (BackupRun) TableName() string {
+	return "backup_runs"
+}
+
+type BackupRunItem struct {
+	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	RunID           uuid.UUID      `gorm:"type:uuid;not null;index" json:"run_id"`
+	SourceID        *uuid.UUID     `gorm:"type:uuid;index" json:"source_id,omitempty"`
+	ItemType        string         `gorm:"type:text;not null" json:"item_type"`
+	LogicalName     string         `gorm:"type:text;not null" json:"logical_name"`
+	OutputFileName  string         `gorm:"type:text;not null" json:"output_file_name"`
+	RemoteSourcePath *string       `gorm:"type:text" json:"remote_source_path,omitempty"`
+	SizeBytes       int64          `gorm:"not null;default:0" json:"size_bytes"`
+	Checksum        *string        `gorm:"type:text" json:"checksum,omitempty"`
+	Status          string         `gorm:"type:text;not null;default:'queued'" json:"status"`
+	StartedAt       *time.Time     `gorm:"type:timestamptz" json:"started_at,omitempty"`
+	FinishedAt      *time.Time     `gorm:"type:timestamptz" json:"finished_at,omitempty"`
+	ErrorText       *string        `gorm:"type:text" json:"error_text,omitempty"`
+	ExtraJSON       datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"extra_json"`
+}
+
+func (BackupRunItem) TableName() string {
+	return "backup_run_items"
+}
+
+type BackupTemplate struct {
+	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Slug           string         `gorm:"type:text;not null;uniqueIndex" json:"slug"`
+	Name           string         `gorm:"type:text;not null" json:"name"`
+	Description    string         `gorm:"type:text;not null;default:''" json:"description"`
+	DefinitionJSON datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"definition_json"`
+	CreatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"created_at"`
+	UpdatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now()" json:"updated_at"`
+}
+
+func (BackupTemplate) TableName() string {
+	return "backup_templates"
+}
