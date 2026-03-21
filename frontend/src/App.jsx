@@ -3312,69 +3312,98 @@ function NodesPage() {
     try {
       return (
         <div className="nodes-layout">
-          <div className="services-header">
-            <div>
+          <div className="nodes-toolbar">
+            <div className="nodes-toolbar-info">
               <div className="section-title">{t("Backup FTP services")}</div>
               <div className="muted small">
                 {servicesBusy ? t("Loading...") : t("{count} services", { count: externalServices.length })}
               </div>
             </div>
-            <div className="actions">
+            <div className="node-actions">
               {!isViewer && <button type="button" onClick={openExternalServiceAdd}>{t("Add")}</button>}
               <button type="button" className="secondary" onClick={() => loadExternalServices()}>{t("Refresh")}</button>
             </div>
           </div>
           {servicesError && <div className="error">{servicesError}</div>}
-          <div className="table services">
-            <div className="table-row head">
-              <div>{t("Name")}</div>
-              <div>{t("Target")}</div>
-              <div>{t("Login")}</div>
-              <div>{t("Expected")}</div>
-              <div>{t("Enabled")}</div>
-              <div>{t("Last status")}</div>
-              <div>{t("Last seen")}</div>
-              <div>{t("Latency")}</div>
-              <div>{t("Actions")}</div>
-            </div>
-            {externalServices.map((service) => {
-              const last = serviceResults[service.id];
-              const expected = Array.isArray(service.expected_status) ? service.expected_status.join(", ") : "-";
-              const statusText = last?.status ? String(last.status).toUpperCase() : "-";
-              return (
-                <div className="table-row" key={service.id}>
-                  <div>{service.name || t("Unnamed service")}</div>
-                  <div>{serviceTargetLabel(service)}</div>
-                  <div>{service.auth_username || "-"}</div>
-                  <div>{expected || "-"}</div>
-                  <div>{service.is_enabled ? t("On") : t("Off")}</div>
-                  <div>{statusText}</div>
-                  <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
-                  <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
-                  <div className="actions">
-                    {!isViewer && (
-                      <>
-                        <button type="button" onClick={() => runService(service)}>{t("Run now")}</button>
-                        <button type="button" className="secondary" onClick={() => openExternalServiceEdit(service)}>{t("Edit")}</button>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => toggleService(service, !service.is_enabled)}
-                        >
-                          {service.is_enabled ? t("Disable") : t("Enable")}
-                        </button>
-                        <button type="button" className="danger" onClick={() => deleteService(service)}>{t("Delete")}</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {externalServices.length === 0 && !servicesBusy && (
-              <div className="table-row">
-                <div>{t("No backup FTP services yet")}</div>
+          <div className="table-card">
+            <div className="data-table backup-services-table">
+              <div className="data-row head">
+                <div>{t("Status")}</div>
+                <div>{t("Name")}</div>
+                <div>{t("Target")}</div>
+                <div>{t("Last status")}</div>
+                <div>{t("Last seen")}</div>
+                <div>{t("Actions")}</div>
               </div>
-            )}
+              {externalServices.map((service) => {
+                const last = serviceResults[service.id];
+                const expected = Array.isArray(service.expected_status) && service.expected_status.length > 0
+                  ? service.expected_status.join(", ")
+                  : "-";
+                const statusKind = normalizeCheckStatus(last?.status);
+                const statusText = checkStatusLabel(last?.status, t);
+                const statusReason = summarizeStatusError(last?.error);
+                const targetLabel = serviceTargetLabel(service);
+                const healthy = service.is_enabled && statusKind === "online";
+                return (
+                  <div className="data-row" key={service.id}>
+                    <div><StatusDot ok={healthy} /></div>
+                    <div>
+                      <div className="node-title" title={service.name || ""}>{service.name || t("Unnamed service")}</div>
+                      <div className="muted small">{t("Backup FTP")}</div>
+                      <div className="node-checks-summary">
+                        <span className={`node-check-chip ${expected !== "-" ? "has-items" : ""}`}>
+                          <span>{t("Expected")}</span>
+                          <strong>{expected}</strong>
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="node-title backup-target" title={targetLabel}>{targetLabel}</div>
+                      <div className="muted small backup-target" title={service.auth_username || "-"}>
+                        {t("Login")}: {service.auth_username || "-"}
+                      </div>
+                    </div>
+                    <div className="status-cell">
+                      <div className="status-main">
+                        <span className={`badge ${service.is_enabled ? "online" : "offline"}`}>
+                          {service.is_enabled ? t("On") : t("Off")}
+                        </span>
+                        <StatusBadge status={statusKind} />
+                        <span className="status-text">{statusText}</span>
+                      </div>
+                      <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
+                      {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
+                    </div>
+                    <div>
+                      <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+                      <div className="muted small">{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+                    </div>
+                    <div className="row-actions">
+                      {!isViewer && (
+                        <>
+                          <button type="button" className="ghost" onClick={() => runService(service)}>{t("Run now")}</button>
+                          <button type="button" className="ghost" onClick={() => openExternalServiceEdit(service)}>{t("Edit")}</button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => toggleService(service, !service.is_enabled)}
+                          >
+                            {service.is_enabled ? t("Disable") : t("Enable")}
+                          </button>
+                          <button type="button" className="danger" onClick={() => deleteService(service)}>{t("Delete")}</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {externalServices.length === 0 && !servicesBusy && (
+                <div className="data-row backup-services-empty-row">
+                  <div className="muted small">{t("No backup FTP services yet")}</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
