@@ -3308,26 +3308,24 @@ function NodesPage() {
   }
 
   function renderExternalServicesView() {
-    return (
-      <div className="nodes-layout">
-        <div className="nodes-toolbar">
-          <div className="nodes-toolbar-info">
-            <div className="section-title">{t("Backup FTP services")}</div>
-            <div className="muted">
-              {servicesBusy ? t("Loading...") : t("{count} services", { count: externalServices.length })}
+    try {
+      return (
+        <div className="nodes-layout">
+          <div className="services-header">
+            <div>
+              <div className="section-title">{t("Backup FTP services")}</div>
+              <div className="muted small">
+                {servicesBusy ? t("Loading...") : t("{count} services", { count: externalServices.length })}
+              </div>
             </div>
-          </div>
-          {!isViewer && (
-            <div className="node-actions">
-              <button type="button" onClick={openExternalServiceAdd}>{t("Add")}</button>
+            <div className="actions">
+              {!isViewer && <button type="button" onClick={openExternalServiceAdd}>{t("Add")}</button>}
               <button type="button" className="secondary" onClick={() => loadExternalServices()}>{t("Refresh")}</button>
             </div>
-          )}
-        </div>
-        {servicesError && <div className="error">{servicesError}</div>}
-        <div className="table-card">
-          <div className="data-table nodes-table">
-            <div className="data-row head">
+          </div>
+          {servicesError && <div className="error">{servicesError}</div>}
+          <div className="table services">
+            <div className="table-row head">
               <div>{t("Name")}</div>
               <div>{t("Target")}</div>
               <div>{t("Login")}</div>
@@ -3340,28 +3338,16 @@ function NodesPage() {
             </div>
             {externalServices.map((service) => {
               const last = serviceResults[service.id];
-              const expected = (service.expected_status || []).join(", ") || "-";
-              const statusKind = normalizeCheckStatus(last?.status);
-              const statusText = checkStatusLabel(last?.status, t);
-              const statusReason = summarizeStatusError(last?.error);
+              const expected = Array.isArray(service.expected_status) ? service.expected_status.join(", ") : "-";
+              const statusText = last?.status ? String(last.status).toUpperCase() : "-";
               return (
-                <div className="data-row" key={service.id}>
-                  <div>
-                    <div className="node-title">{service.name || t("Unnamed service")}</div>
-                    <div className="muted small">{service.kind || "CUSTOM_FTP"}</div>
-                  </div>
+                <div className="table-row" key={service.id}>
+                  <div>{service.name || t("Unnamed service")}</div>
                   <div>{serviceTargetLabel(service)}</div>
                   <div>{service.auth_username || "-"}</div>
-                  <div>{expected}</div>
+                  <div>{expected || "-"}</div>
                   <div>{service.is_enabled ? t("On") : t("Off")}</div>
-                  <div className="status-cell">
-                    <div className="status-main">
-                      <StatusBadge status={statusKind} />
-                      <span className="status-text">{statusText}</span>
-                    </div>
-                    <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
-                    {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
-                  </div>
+                  <div>{statusText}</div>
                   <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
                   <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
                   <div className="actions">
@@ -3384,14 +3370,21 @@ function NodesPage() {
               );
             })}
             {externalServices.length === 0 && !servicesBusy && (
-              <div className="data-row">
+              <div className="table-row">
                 <div>{t("No backup FTP services yet")}</div>
               </div>
             )}
           </div>
         </div>
-      </div>
-    );
+      );
+    } catch (err) {
+      console.error("backup ftp render failed", err);
+      return (
+        <div className="nodes-layout">
+          <div className="error">{err?.message || String(err)}</div>
+        </div>
+      );
+    }
   }
 
     function renderBotsTable(bots, options = {}) {
