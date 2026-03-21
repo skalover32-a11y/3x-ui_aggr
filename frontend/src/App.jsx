@@ -3328,7 +3328,7 @@ function NodesPage() {
           <div className="table-card">
             <div className="data-table backup-services-table">
               <div className="data-row head">
-                <div>{t("Status")}</div>
+                <div />
                 <div>{t("Name")}</div>
                 <div>{t("Target")}</div>
                 <div>{t("Last status")}</div>
@@ -3341,10 +3341,23 @@ function NodesPage() {
                   ? service.expected_status.join(", ")
                   : "-";
                 const statusKind = normalizeCheckStatus(last?.status);
-                const statusText = checkStatusLabel(last?.status, t);
                 const statusReason = summarizeStatusError(last?.error);
                 const targetLabel = serviceTargetLabel(service);
                 const healthy = service.is_enabled && statusKind === "online";
+                const actualCodeRaw = last?.metrics && typeof last.metrics === "object" ? last.metrics.status_code : null;
+                const actualCode = actualCodeRaw != null && Number.isFinite(Number(actualCodeRaw))
+                  ? Number(actualCodeRaw)
+                  : null;
+                let statusDetail = "";
+                if (!service.is_enabled) {
+                  statusDetail = t("Check disabled");
+                } else if (actualCode != null && service.auth_username) {
+                  statusDetail = t("FTP login OK, reply {code}", { code: actualCode });
+                } else if (actualCode != null) {
+                  statusDetail = t("Reply code {code}", { code: actualCode });
+                } else if (!last?.ts) {
+                  statusDetail = t("No checks yet");
+                }
                 return (
                   <div className="data-row" key={service.id}>
                     <div><StatusDot ok={healthy} /></div>
@@ -3366,13 +3379,13 @@ function NodesPage() {
                     </div>
                     <div className="status-cell">
                       <div className="status-main">
-                        <span className={`badge ${service.is_enabled ? "online" : "offline"}`}>
-                          {service.is_enabled ? t("On") : t("Off")}
-                        </span>
-                        <StatusBadge status={statusKind} />
-                        <span className="status-text">{statusText}</span>
+                        {service.is_enabled ? (
+                          <StatusBadge status={statusKind} />
+                        ) : (
+                          <span className="badge offline">{t("Off")}</span>
+                        )}
                       </div>
-                      <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
+                      {statusDetail && <div className="muted small">{statusDetail}</div>}
                       {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
                     </div>
                     <div>
