@@ -1488,6 +1488,7 @@ function NodesPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t, lang, setLang } = useI18n();
+  const orgId = getOrgId();
   const role = getRole();
   const orgRole = getOrgRole();
   const user = getUser();
