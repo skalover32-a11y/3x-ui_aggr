@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, SummaryCard, StatusPill, formatBytes, formatDuration, formatTS } from "./shared.jsx";
+import { Modal, SummaryCard, StatusPill, formatBytes, formatDuration, formatTS, sourceTypeLabel } from "./shared.jsx";
 
 export function emptyRunViewerState() {
   return { open: false, busy: false, error: "", run: null, items: [], log: "" };
@@ -76,7 +76,7 @@ export default function BackupRunModal({ t, state, onClose, onRetry, onCancel })
                     <div className="node-title">{item.logical_name || "-"}</div>
                     <div className="muted small mono">{item.output_file_name || "-"}</div>
                   </div>
-                  <div>{item.item_type || "-"}</div>
+                  <div>{item.item_type ? sourceTypeLabel(item.item_type, t) : "-"}</div>
                   <div><StatusPill value={item.status} /></div>
                   <div>{formatBytes(item.size_bytes || 0)}</div>
                   <div>{formatTS(item.finished_at)}</div>

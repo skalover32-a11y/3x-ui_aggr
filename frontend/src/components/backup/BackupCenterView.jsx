@@ -769,7 +769,7 @@ export default function BackupCenterView() {
                     <div className="muted small">{node?.ssh_host || node?.base_url || "-"}</div>
                   </div>
                   <div>
-                    <div>{formatCronPreview(job.cron_expression, job.timezone)}</div>
+                    <div>{formatCronPreview(job.cron_expression, job.timezone, t)}</div>
                     <div className="muted small">{job.enabled ? t("Enabled") : t("Disabled")}</div>
                   </div>
                   <div>
@@ -819,7 +819,7 @@ export default function BackupCenterView() {
                   <div className="node-title">{target.name}</div>
                   <div className="muted small">{target.enabled ? t("Enabled") : t("Disabled")}</div>
                 </div>
-                <div>{storageTypeLabel(target.type)}</div>
+                <div>{storageTypeLabel(target.type, t)}</div>
                 <div>
                   <div>{summarizeTarget(target)}</div>
                   <div className="muted small">{target.config?.username || target.config?.access_key || "-"}</div>
@@ -865,7 +865,7 @@ export default function BackupCenterView() {
                 <select value={runFilters.status} onChange={(event) => setTab("runs", { jobId: runFilters.jobId, status: event.target.value })}>
                   <option value="">{t("All statuses")}</option>
                   {["queued", "running", "success", "failed", "partial_success", "cancelled"].map((status) => (
-                    <option key={status} value={status}>{status}</option>
+                    <option key={status} value={status}>{t(status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()))}</option>
                   ))}
                 </select>
               </div>
@@ -950,7 +950,7 @@ export default function BackupCenterView() {
                   {sources.slice(0, 6).map((source, index) => (
                     <div className="backup-template-source" key={`${source.name || source.type}-${index}`}>
                       <span>{source.name || source.type}</span>
-                      <span className="muted small">{sourceTypeLabel(source.type)}</span>
+                      <span className="muted small">{sourceTypeLabel(source.type, t)}</span>
                     </div>
                   ))}
                 </div>

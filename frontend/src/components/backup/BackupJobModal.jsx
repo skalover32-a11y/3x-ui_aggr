@@ -10,6 +10,7 @@ import {
   summarizeSource,
   summarizeTarget,
   sourceTypeLabel,
+  storageTypeLabel,
 } from "./shared.jsx";
 
 export function openJobEditorState(defaults = {}) {
@@ -68,7 +69,7 @@ export default function BackupJobModal({
       {state.loading ? <div className="hint">{t("Loading...")}</div> : null}
 
       <div className="backup-summary-grid">
-        <SummaryCard title={t("Schedule")} value={formatCronPreview(form.cron_expression, form.timezone)} note={t("Timezone-aware cron")} />
+        <SummaryCard title={t("Schedule")} value={formatCronPreview(form.cron_expression, form.timezone, t)} note={t("Timezone-aware cron")} />
         <SummaryCard title={t("Storage")} value={selectedTarget?.name || "-"} note={selectedTarget ? summarizeTarget(selectedTarget) : t("Select a storage target")} />
         <SummaryCard title={t("Sources")} value={String(sourceRows.length)} note={t("Ordered execution list")} />
         <SummaryCard title={t("Retention")} value={`${Number(form.retention_days || 0)}d`} note={t("Remote cleanup horizon")} />
@@ -122,7 +123,7 @@ export default function BackupJobModal({
             <option value="">{t("Select storage target")}</option>
             {targets.map((target) => (
               <option key={target.id} value={target.id}>
-                {target.name} · {target.type}
+                {target.name} · {storageTypeLabel(target.type, t)}
               </option>
             ))}
           </select>
@@ -184,10 +185,10 @@ export default function BackupJobModal({
             <div className="backup-source-row" key={sourceKey(source, index)}>
               <div className="backup-source-main">
                 <div className="backup-source-title-row">
-                  <div className="node-title">{source.name || source.logical_name || sourceTypeLabel(source.type)}</div>
+                  <div className="node-title">{source.name || source.logical_name || sourceTypeLabel(source.type, t)}</div>
                   <StatusPill value={source.enabled === false ? "disabled" : "enabled"} />
                 </div>
-                <div className="muted small">{sourceTypeLabel(source.type)} · {summarizeSource(source)}</div>
+                <div className="muted small">{sourceTypeLabel(source.type, t)} · {summarizeSource(source, t)}</div>
               </div>
               <div className="actions compact">
                 <button type="button" className="secondary" onClick={() => onMoveSource(source.id || source._tmpId, -1)} disabled={index === 0}>{t("Up")}</button>
@@ -226,7 +227,7 @@ export default function BackupJobModal({
                 <div className="backup-plan-row" key={item.source_id || `${item.name}-${item.type}`}>
                   <div>
                     <div className="node-title">{item.logical_name || item.name}</div>
-                    <div className="muted small">{sourceTypeLabel(item.type)}</div>
+                    <div className="muted small">{sourceTypeLabel(item.type, t)}</div>
                   </div>
                 </div>
               ))}

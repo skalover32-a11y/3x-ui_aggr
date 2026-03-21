@@ -68,7 +68,7 @@ export default function BackupTargetModal({ t, state, onClose, onChange, onSave,
       {state.error ? <div className="error">{state.error}</div> : null}
       {state.result ? (
         <div className="hint">
-          {t("Test result: {status}", { status: humanStatus(state.result.last_test_status) })}
+          {t("Test result: {status}", { status: humanStatus(state.result.last_test_status, t) })}
           {state.result.last_test_error ? ` — ${state.result.last_test_error}` : ""}
         </div>
       ) : null}
@@ -81,7 +81,7 @@ export default function BackupTargetModal({ t, state, onClose, onChange, onSave,
           <span>{t("Type")}</span>
           <select value={form.type} onChange={(event) => changeType(event.target.value)}>
             {STORAGE_TYPE_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
+              <option key={item.value} value={item.value}>{t(item.label)}</option>
             ))}
           </select>
         </label>

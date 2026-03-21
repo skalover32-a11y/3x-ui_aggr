@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, SummaryCard, createJobForm, formatCronPreview, parseTemplateDefinition, sourceTypeLabel, summarizeTarget } from "./shared.jsx";
+import { Modal, SummaryCard, createJobForm, formatCronPreview, parseTemplateDefinition, sourceTypeLabel, summarizeTarget, storageTypeLabel } from "./shared.jsx";
 
 export function openTemplateApplyState(template, defaults = {}) {
   return {
@@ -41,7 +41,7 @@ export default function BackupTemplateModal({ t, state, nodes, targets, onClose,
       <div className="backup-summary-grid">
         <SummaryCard title={t("Template")} value={state.template.name || "-"} note={state.template.slug || ""} />
         <SummaryCard title={t("Sources")} value={String(sources.length)} note={t("Editable after creation")} />
-        <SummaryCard title={t("Schedule")} value={formatCronPreview(form.cron_expression, form.timezone)} />
+        <SummaryCard title={t("Schedule")} value={formatCronPreview(form.cron_expression, form.timezone, t)} />
         <SummaryCard title={t("Storage")} value={selectedTarget?.name || "-"} note={selectedTarget ? summarizeTarget(selectedTarget) : t("Select a storage target")} />
       </div>
 
@@ -64,7 +64,7 @@ export default function BackupTemplateModal({ t, state, nodes, targets, onClose,
           <select value={form.storage_target_id || ""} onChange={(event) => patchForm({ storage_target_id: event.target.value })}>
             <option value="">{t("Select storage target")}</option>
             {targets.map((target) => (
-              <option key={target.id} value={target.id}>{target.name} · {target.type}</option>
+              <option key={target.id} value={target.id}>{target.name} · {storageTypeLabel(target.type, t)}</option>
             ))}
           </select>
         </label>
@@ -114,7 +114,7 @@ export default function BackupTemplateModal({ t, state, nodes, targets, onClose,
             <div className="backup-plan-row" key={`${source.name || source.type}-${index}`}>
               <div>
                 <div className="node-title">{source.name || "-"}</div>
-                <div className="muted small">{sourceTypeLabel(source.type)}</div>
+                <div className="muted small">{sourceTypeLabel(source.type, t)}</div>
               </div>
             </div>
           ))}

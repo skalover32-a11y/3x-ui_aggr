@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "../../i18n.js";
 
 export const TABS = ["jobs", "targets", "runs", "templates"];
 
@@ -56,17 +57,23 @@ export function formatDuration(ms) {
   return `${seconds}s`;
 }
 
-export function formatCronPreview(expression, timezone) {
+export function formatCronPreview(expression, timezone, t = (value) => value) {
   const cron = String(expression || "").trim();
   const tz = String(timezone || "UTC").trim() || "UTC";
   const parts = cron.split(/\s+/);
   if (parts.length !== 5) return `${cron} (${tz})`;
   const [minute, hour, dom, month, dow] = parts;
   if (dom === "*" && month === "*" && dow === "*" && /^\d+$/.test(hour) && /^\d+$/.test(minute)) {
-    return `Daily ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} (${tz})`;
+    return t("Daily at {time} ({timezone})", {
+      time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      timezone: tz,
+    });
   }
   if (hour === "*" && dom === "*" && month === "*" && dow === "*" && /^\d+$/.test(minute)) {
-    return `Hourly at :${String(minute).padStart(2, "0")} (${tz})`;
+    return t("Hourly at :{minute} ({timezone})", {
+      minute: String(minute).padStart(2, "0"),
+      timezone: tz,
+    });
   }
   return `${cron} (${tz})`;
 }
@@ -175,12 +182,14 @@ export function parseTemplateDefinition(definition) {
   }
 }
 
-export function sourceTypeLabel(type) {
-  return SOURCE_TYPE_OPTIONS.find((item) => item.value === type)?.label || type || "-";
+export function sourceTypeLabel(type, t = (value) => value) {
+  const label = SOURCE_TYPE_OPTIONS.find((item) => item.value === type)?.label || type || "-";
+  return t(label);
 }
 
-export function storageTypeLabel(type) {
-  return STORAGE_TYPE_OPTIONS.find((item) => item.value === type)?.label || type || "-";
+export function storageTypeLabel(type, t = (value) => value) {
+  const label = STORAGE_TYPE_OPTIONS.find((item) => item.value === type)?.label || type || "-";
+  return t(label);
 }
 
 export function summarizeTarget(target) {
@@ -201,7 +210,7 @@ export function summarizeTarget(target) {
   }
 }
 
-export function summarizeSource(source) {
+export function summarizeSource(source, t = (value) => value) {
   const cfg = source?.config || {};
   switch (source?.type) {
     case "directory_path":
@@ -216,11 +225,11 @@ export function summarizeSource(source) {
     case "nginx_snapshot":
       return cfg.command || "nginx -T";
     case "cron_snapshot":
-      return cfg.include_system ? "user + system cron" : "user crontab";
+      return cfg.include_system ? t("user + system cron") : t("user crontab");
     case "docker_inventory_snapshot":
-      return "docker ps / volume / network / image / compose";
+      return t("docker ps / volume / network / image / compose");
     case "system_snapshot":
-      return "hostnamectl, ip addr, ss, df, free";
+      return t("hostnamectl, ip addr, ss, df, free");
     case "custom_command":
       return cfg.command || "-";
     default:
@@ -260,15 +269,42 @@ export function statusTone(status) {
   }
 }
 
-export function humanStatus(status) {
+export function humanStatus(status, t = (value) => value) {
   const value = String(status || "").trim();
   if (!value) return "-";
-  return value.replaceAll("_", " ");
+  const normalized = value.toLowerCase();
+  switch (normalized) {
+    case "queued":
+      return t("Queued");
+    case "running":
+      return t("Running");
+    case "success":
+      return t("Success");
+    case "failed":
+      return t("Failed");
+    case "partial_success":
+      return t("Partial success");
+    case "cancelled":
+      return t("Cancelled");
+    case "idle":
+      return t("Idle");
+    case "enabled":
+      return t("Enabled");
+    case "disabled":
+      return t("Disabled");
+    case "scheduled":
+      return t("Scheduled");
+    case "online":
+      return t("Online");
+    default:
+      return value.replaceAll("_", " ");
+  }
 }
 
 export function StatusPill({ value }) {
+  const { t } = useI18n();
   const tone = statusTone(value);
-  return <span className={`backup-status-pill ${tone}`}>{humanStatus(value)}</span>;
+  return <span className={`backup-status-pill ${tone}`}>{humanStatus(value, t)}</span>;
 }
 
 export function SummaryCard({ title, value, note }) {

@@ -270,7 +270,7 @@ export default function BackupSourceModal({
   return (
     <Modal
       title={state.mode === "create" ? t("Add source") : t("Edit source")}
-      subtitle={`${sourceTypeLabel(form.type)} · ${summarizeSource(form)}`}
+      subtitle={`${sourceTypeLabel(form.type, t)} · ${summarizeSource(form, t)}`}
       wide
       onClose={onClose}
     >
@@ -292,7 +292,7 @@ export default function BackupSourceModal({
           <span>{t("Source type")}</span>
           <select value={form.type} onChange={(event) => changeType(event.target.value)}>
             {ALLOWED_SOURCE_OPTIONS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
+              <option key={item.value} value={item.value}>{t(item.label)}</option>
             ))}
           </select>
         </label>
