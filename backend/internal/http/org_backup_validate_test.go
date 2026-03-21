@@ -16,8 +16,9 @@ func TestValidateOrgBackupPayloadSkipsBrokenReferences(t *testing.T) {
 			{ID: nodeID, Name: "node-1"},
 		},
 		Services: []orgBackupService{
-			{ID: serviceID, NodeID: nodeID, Kind: "HTTP"},
-			{ID: uuid.New(), NodeID: uuid.New(), Kind: "HTTP"},
+			{ID: serviceID, NodeID: uuidPtr(nodeID), Kind: "HTTP"},
+			{ID: uuid.New(), NodeID: uuidPtr(uuid.New()), Kind: "HTTP"},
+			{ID: uuid.New(), Name: "external-ftp", Kind: "CUSTOM_FTP"},
 		},
 		Bots: []orgBackupBot{
 			{ID: botID, NodeID: nodeID, Name: "bot-1", Kind: "HTTP"},
@@ -37,8 +38,8 @@ func TestValidateOrgBackupPayloadSkipsBrokenReferences(t *testing.T) {
 	if got := len(valid.Nodes); got != 1 {
 		t.Fatalf("valid nodes=%d want=1", got)
 	}
-	if got := len(valid.Services); got != 1 {
-		t.Fatalf("valid services=%d want=1", got)
+	if got := len(valid.Services); got != 2 {
+		t.Fatalf("valid services=%d want=2", got)
 	}
 	if got := len(valid.Bots); got != 1 {
 		t.Fatalf("valid bots=%d want=1", got)

@@ -459,6 +459,34 @@ function formatPromLabelPairs(labels, max = 4) {
   return head.join(", ");
 }
 
+function createServiceEditor(overrides = {}) {
+  return {
+    open: false,
+    mode: "add",
+    scope: "node",
+    node: null,
+    service: null,
+    ...overrides,
+  };
+}
+
+function createServiceForm(overrides = {}) {
+  return {
+    name: "",
+    kind: "CUSTOM_HTTP",
+    url: "",
+    host: "",
+    port: "",
+    health_path: "/",
+    expected_status: ["200"],
+    headers_json: "{}",
+    auth_username: "",
+    auth_password: "",
+    is_enabled: true,
+    ...overrides,
+  };
+}
+
 function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -476,6 +504,7 @@ function SidebarNav({ active, isGlobalAdmin, isOrgAdmin }) {
   }
   const toolsItems = (isOrgAdmin || isGlobalAdmin)
     ? [
+        { key: "backupServices", label: t("Backup FTP"), path: "/nodes?view=backup-services" },
         { key: "files", label: t("File Manager"), path: "/files" },
         { key: "keystore", label: t("Key storage"), path: "/keys" },
         { key: "dbwork", label: t("DB work"), path: "/db" },
@@ -1579,18 +1608,12 @@ function NodesPage() {
   const [nodeChecksFilter, setNodeChecksFilter] = useState("all");
   const [sidebarActive, setSidebarActive] = useState("panels");
   const [servicesMap, setServicesMap] = useState({});
+  const [externalServices, setExternalServices] = useState([]);
   const [serviceResults, setServiceResults] = useState({});
   const [servicesBusy, setServicesBusy] = useState(false);
   const [servicesError, setServicesError] = useState("");
-  const [serviceEditor, setServiceEditor] = useState({ open: false, mode: "add", node: null, service: null });
-  const [serviceForm, setServiceForm] = useState({
-    kind: "CUSTOM_HTTP",
-    url: "",
-    health_path: "/",
-    expected_status: ["200"],
-    headers_json: "{}",
-    is_enabled: true,
-  });
+  const [serviceEditor, setServiceEditor] = useState(createServiceEditor());
+  const [serviceForm, setServiceForm] = useState(createServiceForm());
   const [botsMap, setBotsMap] = useState({});
   const [botResults, setBotResults] = useState({});
   const [botsBusy, setBotsBusy] = useState(false);
@@ -1740,17 +1763,37 @@ function NodesPage() {
     try {
       const data = await request("GET", `/nodes/${nodeID}/services`);
       setServicesMap((prev) => ({ ...prev, [nodeID]: data }));
-      const resultEntries = await Promise.all(
-        data.map((svc) => request("GET", `/services/${svc.id}/results?limit=1`).catch(() => []))
-      );
-      const resultsNext = {};
-      data.forEach((svc, idx) => {
-        const rows = resultEntries[idx] || [];
-        if (rows.length > 0) {
-          resultsNext[svc.id] = rows[0];
-        }
-      });
-      setServiceResults((prev) => ({ ...prev, ...resultsNext }));
+      await loadLatestServiceResults(data);
+    } catch (err) {
+      setServicesError(err.message);
+    } finally {
+      setServicesBusy(false);
+    }
+  }
+
+  async function loadLatestServiceResults(items) {
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) return {};
+    const resultEntries = await Promise.all(
+      list.map((svc) => request("GET", `/services/${svc.id}/results?limit=1`).catch(() => []))
+    );
+    const resultsNext = {};
+    list.forEach((svc, idx) => {
+      const rows = resultEntries[idx] || [];
+      resultsNext[svc.id] = rows.length > 0 ? rows[0] : null;
+    });
+    setServiceResults((prev) => ({ ...prev, ...resultsNext }));
+    return resultsNext;
+  }
+
+  async function loadExternalServices() {
+    setServicesBusy(true);
+    setServicesError("");
+    try {
+      const data = await request("GET", "/services");
+      const scoped = (Array.isArray(data) ? data : []).filter((svc) => !svc.node_id && svc.kind === "CUSTOM_FTP");
+      setExternalServices(scoped);
+      await loadLatestServiceResults(scoped);
     } catch (err) {
       setServicesError(err.message);
     } finally {
@@ -1862,6 +1905,8 @@ function NodesPage() {
     } else if (view === "bots") {
       setNodeTypeFilter("BOT");
       setSidebarActive("bots");
+    } else if (view === "backup-services") {
+      setSidebarActive("backupServices");
     } else if (view === "alerts") {
       setSidebarActive("alerts");
     } else if (view === "prometheus") {
@@ -1977,6 +2022,13 @@ function NodesPage() {
   }, [location.search, nodes, nodeAutoOpened]);
 
   useEffect(() => {
+    if (!orgId) return;
+    if (sidebarActive === "backupServices") {
+      loadExternalServices();
+    }
+  }, [orgId, sidebarActive]);
+
+  useEffect(() => {
     if (!nodeDetails.open) {
       setShowAgentToken(false);
       return;
@@ -2045,6 +2097,7 @@ function NodesPage() {
   }, [nodes]);
 
   const showingBots = nodeTypeFilter === "BOT";
+  const showingBackupServices = sidebarActive === "backupServices";
   const filteredNodes = useMemo(() => {
     let scopedNodes = nodes;
     if (nodeTypeFilter === "HOST") {
@@ -2778,15 +2831,29 @@ function NodesPage() {
 
   function openServiceAdd(node) {
     setServicesError("");
-    setServiceForm({
+    setServiceForm(createServiceForm({
       kind: "CUSTOM_HTTP",
-      url: "",
       health_path: "/",
       expected_status: ["200"],
+    }));
+    setServiceEditor(createServiceEditor({ open: true, mode: "add", scope: "node", node, service: null }));
+  }
+
+  function openExternalServiceAdd() {
+    setServicesError("");
+    setServiceForm(createServiceForm({
+      name: "",
+      kind: "CUSTOM_FTP",
+      host: "",
+      port: "21",
+      health_path: "",
+      expected_status: ["230"],
+      auth_username: "",
+      auth_password: "",
       headers_json: "{}",
       is_enabled: true,
-    });
-    setServiceEditor({ open: true, mode: "add", node, service: null });
+    }));
+    setServiceEditor(createServiceEditor({ open: true, mode: "add", scope: "external", node: null, service: null }));
   }
 
   function openServiceEdit(node, service) {
@@ -2795,15 +2862,25 @@ function NodesPage() {
       ? service.expected_status.map((val) => `${val}`)
       : [];
     const headers = service.headers ? JSON.stringify(service.headers, null, 2) : "{}";
-    setServiceForm({
+    const isFTP = service.kind === "CUSTOM_FTP";
+    setServiceForm(createServiceForm({
+      name: service.name || "",
       kind: service.kind || "CUSTOM_HTTP",
       url: service.url || "",
+      host: service.host || "",
+      port: service.port != null ? String(service.port) : "",
       health_path: service.health_path || "/",
-      expected_status: expected.length > 0 ? expected : ["200"],
+      expected_status: expected.length > 0 ? expected : [service.auth_username ? "230" : (isFTP ? "220" : "200")],
       headers_json: headers,
+      auth_username: service.auth_username || "",
+      auth_password: "",
       is_enabled: service.is_enabled !== false,
-    });
-    setServiceEditor({ open: true, mode: "edit", node, service });
+    }));
+    setServiceEditor(createServiceEditor({ open: true, mode: "edit", scope: node ? "node" : "external", node, service }));
+  }
+
+  function openExternalServiceEdit(service) {
+    openServiceEdit(null, service);
   }
 
   function parseExpected(values) {
@@ -2812,12 +2889,44 @@ function NodesPage() {
       .filter((val) => !Number.isNaN(val));
   }
 
+  function applyServiceKind(kind) {
+    setServiceForm((prev) => {
+      const next = { ...prev, kind };
+      if (kind === "CUSTOM_FTP" && prev.kind !== "CUSTOM_FTP") {
+        next.url = "";
+        next.health_path = "";
+        if (!prev.port) next.port = "21";
+        if (JSON.stringify(prev.expected_status || []) === JSON.stringify(["200"])) {
+          next.expected_status = ["230"];
+        }
+      }
+      if (kind === "CUSTOM_HTTP" && prev.kind === "CUSTOM_FTP") {
+        if (!prev.health_path) next.health_path = "/";
+        if (JSON.stringify(prev.expected_status || []) === JSON.stringify(["220"])) {
+          next.expected_status = ["200"];
+        }
+      }
+      return next;
+    });
+  }
+
+  function serviceTargetLabel(service) {
+    if (!service) return "-";
+    if (service.url) return service.url;
+    const host = service.host || "";
+    const port = service.port != null && service.port !== "" ? service.port : "";
+    if (host && port) return `${host}:${port}`;
+    if (host) return host;
+    return "-";
+  }
+
   async function saveService() {
-    if (!serviceEditor.node) return;
     setServicesError("");
+    const isExternal = serviceEditor.scope === "external";
+    if (!isExternal && !serviceEditor.node) return;
     let headers = {};
     const rawHeaders = serviceForm.headers_json?.trim();
-    if (rawHeaders) {
+    if (!isExternal && rawHeaders) {
       try {
         headers = JSON.parse(rawHeaders);
       } catch (err) {
@@ -2826,22 +2935,37 @@ function NodesPage() {
       }
     }
     const payload = {
+      name: serviceForm.name || null,
       kind: serviceForm.kind,
-      url: serviceForm.url || null,
-      health_path: serviceForm.health_path || null,
+      url: serviceForm.kind === "CUSTOM_HTTP" ? (serviceForm.url || null) : null,
+      host: serviceForm.kind === "CUSTOM_FTP" ? (serviceForm.host || null) : null,
+      port: serviceForm.kind === "CUSTOM_FTP" && serviceForm.port !== "" ? Number(serviceForm.port) : null,
+      health_path: serviceForm.kind === "CUSTOM_HTTP" ? (serviceForm.health_path || null) : null,
       expected_status: parseExpected(serviceForm.expected_status),
-      headers,
+      headers: serviceForm.kind === "CUSTOM_HTTP" ? headers : {},
+      auth_username: serviceForm.kind === "CUSTOM_FTP" ? (serviceForm.auth_username || null) : null,
       is_enabled: !!serviceForm.is_enabled,
     };
+    const passwordValue = String(serviceForm.auth_password || "").trim();
+    if (serviceForm.kind === "CUSTOM_FTP" && passwordValue) {
+      payload.auth_password = passwordValue;
+    }
     try {
       if (serviceEditor.mode === "add") {
-        const created = await request("POST", `/nodes/${serviceEditor.node.id}/services`, payload);
+        const created = isExternal
+          ? await request("POST", "/services", payload)
+          : await request("POST", `/nodes/${serviceEditor.node.id}/services`, payload);
         setServiceResults((prev) => ({ ...prev, [created.id]: null }));
       } else if (serviceEditor.service) {
         await request("PUT", `/services/${serviceEditor.service.id}`, payload);
       }
-      setServiceEditor({ open: false, mode: "add", node: null, service: null });
-      loadServices(serviceEditor.node.id);
+      setServiceEditor(createServiceEditor());
+      setServiceForm(createServiceForm());
+      if (isExternal) {
+        loadExternalServices();
+      } else {
+        loadServices(serviceEditor.node.id);
+      }
     } catch (err) {
       setServicesError(err.message);
     }
@@ -2861,7 +2985,11 @@ function NodesPage() {
     setServicesError("");
     try {
       await request("PUT", `/services/${service.id}`, { is_enabled: enabled });
-      loadServices(service.node_id);
+      if (service.node_id) {
+        loadServices(service.node_id);
+      } else {
+        loadExternalServices();
+      }
     } catch (err) {
       setServicesError(err.message);
     }
@@ -2872,7 +3000,11 @@ function NodesPage() {
     setServicesError("");
     try {
       await request("DELETE", `/services/${service.id}`, {});
-      loadServices(service.node_id);
+      if (service.node_id) {
+        loadServices(service.node_id);
+      } else {
+        loadExternalServices();
+      }
     } catch (err) {
       setServicesError(err.message);
     }
@@ -3114,7 +3246,7 @@ function NodesPage() {
         <div className="table services">
           <div className="table-row head">
             <div>{t("Kind")}</div>
-            <div>{t("URL")}</div>
+            <div>{t("Target")}</div>
             <div>{t("Path")}</div>
             <div>{t("Expected")}</div>
             <div>{t("Enabled")}</div>
@@ -3132,8 +3264,8 @@ function NodesPage() {
             return (
               <div className="table-row" key={service.id}>
                 <div>{service.kind || "-"}</div>
-                <div>{service.url || "-"}</div>
-                <div>{service.health_path || "-"}</div>
+                <div>{serviceTargetLabel(service)}</div>
+                <div>{service.kind === "CUSTOM_FTP" ? "-" : (service.health_path || "-")}</div>
                 <div>{expected}</div>
                 <div>{service.is_enabled ? t("On") : t("Off")}</div>
                 <div className="status-cell">
@@ -3172,6 +3304,93 @@ function NodesPage() {
           )}
         </div>
       </>
+    );
+  }
+
+  function renderExternalServicesView() {
+    return (
+      <div className="nodes-layout">
+        <div className="nodes-toolbar">
+          <div className="nodes-toolbar-info">
+            <div className="section-title">{t("Backup FTP services")}</div>
+            <div className="muted">
+              {servicesBusy ? t("Loading...") : t("{count} services", { count: externalServices.length })}
+            </div>
+          </div>
+          {!isViewer && (
+            <div className="node-actions">
+              <button type="button" onClick={openExternalServiceAdd}>{t("Add")}</button>
+              <button type="button" className="secondary" onClick={() => loadExternalServices()}>{t("Refresh")}</button>
+            </div>
+          )}
+        </div>
+        {servicesError && <div className="error">{servicesError}</div>}
+        <div className="table-card">
+          <div className="data-table nodes-table">
+            <div className="data-row head">
+              <div>{t("Name")}</div>
+              <div>{t("Target")}</div>
+              <div>{t("Login")}</div>
+              <div>{t("Expected")}</div>
+              <div>{t("Enabled")}</div>
+              <div>{t("Last status")}</div>
+              <div>{t("Last seen")}</div>
+              <div>{t("Latency")}</div>
+              <div>{t("Actions")}</div>
+            </div>
+            {externalServices.map((service) => {
+              const last = serviceResults[service.id];
+              const expected = (service.expected_status || []).join(", ") || "-";
+              const statusKind = normalizeCheckStatus(last?.status);
+              const statusText = checkStatusLabel(last?.status, t);
+              const statusReason = summarizeStatusError(last?.error);
+              return (
+                <div className="data-row" key={service.id}>
+                  <div>
+                    <div className="node-title">{service.name || t("Unnamed service")}</div>
+                    <div className="muted small">{service.kind || "CUSTOM_FTP"}</div>
+                  </div>
+                  <div>{serviceTargetLabel(service)}</div>
+                  <div>{service.auth_username || "-"}</div>
+                  <div>{expected}</div>
+                  <div>{service.is_enabled ? t("On") : t("Off")}</div>
+                  <div className="status-cell">
+                    <div className="status-main">
+                      <StatusBadge status={statusKind} />
+                      <span className="status-text">{statusText}</span>
+                    </div>
+                    <div className="muted small">{last?.status ? String(last.status).toUpperCase() : "-"}</div>
+                    {statusReason && <span className="status-error" title={last?.error || statusReason}>{statusReason}</span>}
+                  </div>
+                  <div>{last?.ts ? formatTS(last.ts) : "-"}</div>
+                  <div>{last?.latency_ms != null ? `${last.latency_ms}ms` : "-"}</div>
+                  <div className="actions">
+                    {!isViewer && (
+                      <>
+                        <button type="button" onClick={() => runService(service)}>{t("Run now")}</button>
+                        <button type="button" className="secondary" onClick={() => openExternalServiceEdit(service)}>{t("Edit")}</button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => toggleService(service, !service.is_enabled)}
+                        >
+                          {service.is_enabled ? t("Disable") : t("Enable")}
+                        </button>
+                        <button type="button" className="danger" onClick={() => deleteService(service)}>{t("Delete")}</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {externalServices.length === 0 && !servicesBusy && (
+              <div className="data-row">
+                <div>{t("No backup FTP services yet")}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -3842,207 +4061,209 @@ function NodesPage() {
         </div>
       )}
 
-      <div className="nodes-layout">
-        <div className="nodes-toolbar">
-          <div className="nodes-toolbar-info">
-            <div className="muted">
-              {showingBots
-                ? t("Bots: {count}", { count: botCount })
-                : t("Servers configured: {count}", { count: filteredNodes.length })}
+      {showingBackupServices ? renderExternalServicesView() : (
+        <div className="nodes-layout">
+          <div className="nodes-toolbar">
+            <div className="nodes-toolbar-info">
+              <div className="muted">
+                {showingBots
+                  ? t("Bots: {count}", { count: botCount })
+                  : t("Servers configured: {count}", { count: filteredNodes.length })}
+              </div>
+              {!showingBots && (
+                <label className="nodes-checks-filter">
+                  <span className="muted small">{t("Checks filter")}</span>
+                  <select value={nodeChecksFilter} onChange={(e) => setNodeChecksFilter(e.target.value)}>
+                    <option value="all">{t("All")}</option>
+                    <option value="with_services">{t("With services")}</option>
+                    <option value="with_bots">{t("With bots")}</option>
+                    <option value="with_any">{t("With checks")}</option>
+                  </select>
+                </label>
+              )}
             </div>
-            {!showingBots && (
-              <label className="nodes-checks-filter">
-                <span className="muted small">{t("Checks filter")}</span>
-                <select value={nodeChecksFilter} onChange={(e) => setNodeChecksFilter(e.target.value)}>
-                  <option value="all">{t("All")}</option>
-                  <option value="with_services">{t("With services")}</option>
-                  <option value="with_bots">{t("With bots")}</option>
-                  <option value="with_any">{t("With checks")}</option>
-                </select>
-              </label>
+            {!showingBots && canOperate && (
+              <div className="node-actions">
+                <div className="muted small">{t("Selected: {count}", { count: selectedNodeIDs.length })}</div>
+                <button type="button" className="secondary" onClick={() => selectAllFilteredNodes(filteredNodes)} disabled={filteredNodes.length === 0}>
+                  {t("Select all")}
+                </button>
+                <button type="button" className="secondary" onClick={clearSelectedNodes} disabled={selectedNodeIDs.length === 0}>
+                  {t("Clear")}
+                </button>
+                <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
+                  {t("Deploy agent")}
+                </button>
+                <button type="button" className="secondary" onClick={openInstallVLFProto} disabled={filteredNodes.length === 0}>
+                  {t("Install / update VLF-Proto")}
+                </button>
+                <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_install")} disabled={filteredNodes.length === 0}>
+                  {t("Install Remna geodata")}
+                </button>
+                <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_run")} disabled={filteredNodes.length === 0}>
+                  {t("Run Remna geodata update")}
+                </button>
+                <button type="button" className="secondary" onClick={() => openTaskModal("update_services")} disabled={filteredNodes.length === 0}>
+                  {t("Update services")}
+                </button>
+                <button type="button" className="secondary" onClick={() => openTaskModal("reboot_node")} disabled={filteredNodes.length === 0}>
+                  {t("Reboot nodes")}
+                </button>
+                <button type="button" className="secondary" onClick={() => openTaskModal("restart_service")} disabled={filteredNodes.length === 0}>
+                  {t("Restart service")}
+                </button>
+              </div>
             )}
           </div>
-          {!showingBots && canOperate && (
-            <div className="node-actions">
-              <div className="muted small">{t("Selected: {count}", { count: selectedNodeIDs.length })}</div>
-              <button type="button" className="secondary" onClick={() => selectAllFilteredNodes(filteredNodes)} disabled={filteredNodes.length === 0}>
-                {t("Select all")}
-              </button>
-              <button type="button" className="secondary" onClick={clearSelectedNodes} disabled={selectedNodeIDs.length === 0}>
-                {t("Clear")}
-              </button>
-              <button type="button" onClick={openDeployAgent} disabled={filteredNodes.length === 0}>
-                {t("Deploy agent")}
-              </button>
-              <button type="button" className="secondary" onClick={openInstallVLFProto} disabled={filteredNodes.length === 0}>
-                {t("Install / update VLF-Proto")}
-              </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_install")} disabled={filteredNodes.length === 0}>
-                {t("Install Remna geodata")}
-              </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("remna_geodata_run")} disabled={filteredNodes.length === 0}>
-                {t("Run Remna geodata update")}
-              </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("update_services")} disabled={filteredNodes.length === 0}>
-                {t("Update services")}
-              </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("reboot_node")} disabled={filteredNodes.length === 0}>
-                {t("Reboot nodes")}
-              </button>
-              <button type="button" className="secondary" onClick={() => openTaskModal("restart_service")} disabled={filteredNodes.length === 0}>
-                {t("Restart service")}
-              </button>
+
+          {showingBots && <div className="bots-view">{renderBotsView()}</div>}
+
+          {!showingBots && (
+            <div className="table-card">
+              <div className="data-table nodes-table selectable">
+                <div className="data-row head">
+                  {canOperate && <div />}
+                  <div>{t("Status")}</div>
+                  <div>{t("Node Name")}</div>
+                  <div>{t("Node IP")}</div>
+                  <div>{t("Agent Status")}</div>
+                  <div>{t("Uptime")}</div>
+                  <div>{t("Last Check")}</div>
+                  <div>{t("Actions")}</div>
+                </div>
+                {filteredNodes.map((node) => {
+                  const uptimePoints = uptimeMap[node.id] || [];
+                  const { percent } = computeUptime(uptimePoints);
+                  const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
+                  const nodeMetrics = metricsMap[node.id] || [];
+                  const cpuPctNodeRaw = Number(node.cpu_pct);
+                  const cpuPctMetricRaw = findLastMetricValue(nodeMetrics, "cpu_pct");
+                  const cpuPctExact = cpuPctMetricRaw != null
+                    ? cpuPctMetricRaw
+                    : (Number.isFinite(cpuPctNodeRaw) ? cpuPctNodeRaw : null);
+                  const load1 = findLastMetricValue(nodeMetrics, "load1");
+                  const cpuPct = cpuPctExact != null ? Math.max(0, Math.min(100, cpuPctExact)) : cpuFromLoad(load1);
+                  const cpuDisplay = cpuPct != null ? formatPercent(cpuPct) : "-";
+                  const memTotal = findLastMetricValue(nodeMetrics, ["mem_total_bytes", "ram_total_bytes"]);
+                  const memAvail = findLastMetricValue(nodeMetrics, "mem_available_bytes");
+                  const memUsedRaw = findLastMetricValue(nodeMetrics, "ram_used_bytes");
+                  const memUsed = memUsedRaw != null ? memUsedRaw : (memTotal != null && memAvail != null ? Math.max(0, memTotal - memAvail) : null);
+                  const ramPct = memTotal != null && memTotal > 0 && memUsed != null
+                    ? Math.max(0, Math.min(100, (memUsed / memTotal) * 100))
+                    : null;
+                  const diskTotal = findLastMetricValue(nodeMetrics, "disk_total_bytes");
+                  const diskUsed = findLastMetricValue(nodeMetrics, "disk_used_bytes");
+                  const diskFreePct = diskTotal != null && diskTotal > 0 && diskUsed != null
+                    ? Math.max(0, Math.min(100, ((diskTotal - diskUsed) / diskTotal) * 100))
+                    : null;
+                  const uptimeTone = percent >= 95 ? "good" : percent >= 85 ? "warn" : "bad";
+                  const cpuTone = usageTone(cpuPct, 60, 85);
+                  const ramTone = usageTone(ramPct, 70, 90);
+                  const diskTone = freeTone(diskFreePct, 30, 15);
+                  const hostValue = formatNodeIP(node);
+                  const servicesCount = Number(node.services_count || 0);
+                  const botsCount = Number(node.bots_count || 0);
+                  return (
+                    <div
+                      className="data-row"
+                      key={node.id}
+                      onClick={() => openNodeDetails(node)}
+                    >
+                      {canOperate && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={!!selectedNodes[node.id]}
+                            onChange={() => toggleNodeSelection(node.id)}
+                          />
+                        </div>
+                      )}
+                      <div><StatusDot ok={node.online === true} /></div>
+                      <div>
+                        <div className="node-title">{node.name || t("Unnamed node")}</div>
+                        <div className="muted small">{node.kind || "PANEL"}</div>
+                        <div className="node-checks-summary">
+                          <button
+                            type="button"
+                            className={`node-check-chip ${servicesCount > 0 ? "has-items" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openNodeDetailsTab(node, "services");
+                            }}
+                          >
+                            <span>{t("Services")}</span>
+                            <strong>{servicesCount}</strong>
+                          </button>
+                          <button
+                            type="button"
+                            className={`node-check-chip ${botsCount > 0 ? "has-items" : ""}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openNodeDetailsTab(node, "bots");
+                            }}
+                          >
+                            <span>{t("Checks")}</span>
+                            <strong>{botsCount}</strong>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="location-cell">
+                        <span>{hostValue}</span>
+                      </div>
+                      <div>
+                        <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
+                          {node.agent_online ? t("Online") : t("Offline")}
+                        </span>
+                        <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
+                      </div>
+                      <div>
+                        <div className="node-metric-lines">
+                          <div className="node-metric-line">
+                            <span className="node-metric-label">{t("Uptime")}</span>
+                            <NodeMetricBar percent={percent} tone={uptimeTone} />
+                            <span className="node-metric-value">{percent.toFixed(1)}%</span>
+                          </div>
+                          <div className="node-metric-line">
+                            <span className="node-metric-label">{t("CPU")}</span>
+                            <NodeMetricBar percent={cpuPct} tone={cpuTone} />
+                            <span className="node-metric-value">{cpuDisplay}</span>
+                          </div>
+                          <div className="node-metric-line">
+                            <span className="node-metric-label">{t("RAM")}</span>
+                            <NodeMetricBar percent={ramPct} tone={ramTone} />
+                            <span className="node-metric-value">{ramPct != null ? formatPercent(ramPct) : "-"}</span>
+                          </div>
+                          <div className="node-metric-line">
+                            <span className="node-metric-label">{t("Disk Free")}</span>
+                            <NodeMetricBar percent={diskFreePct} tone={diskTone} />
+                            <span className="node-metric-value">{diskFreePct != null ? formatPercent(diskFreePct) : "-"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div>{lastTs ? formatTS(lastTs) : "-"}</div>
+                      <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() => openActionPlan("restart_service", node)}
+                        >
+                          {t("Restart Agent")}
+                        </button>
+                        <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("SSH")}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {filteredNodes.length === 0 && (
+                  <div className="data-row">
+                    <div>{t("No data")}</div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
-
-        {showingBots && <div className="bots-view">{renderBotsView()}</div>}
-
-        {!showingBots && (
-          <div className="table-card">
-            <div className="data-table nodes-table selectable">
-              <div className="data-row head">
-                {canOperate && <div />}
-                <div>{t("Status")}</div>
-                <div>{t("Node Name")}</div>
-                <div>{t("Node IP")}</div>
-                <div>{t("Agent Status")}</div>
-                <div>{t("Uptime")}</div>
-                <div>{t("Last Check")}</div>
-                <div>{t("Actions")}</div>
-              </div>
-              {filteredNodes.map((node) => {
-                const uptimePoints = uptimeMap[node.id] || [];
-                const { percent } = computeUptime(uptimePoints);
-                const lastTs = uptimePoints[uptimePoints.length - 1]?.ts;
-                const nodeMetrics = metricsMap[node.id] || [];
-                const cpuPctNodeRaw = Number(node.cpu_pct);
-                const cpuPctMetricRaw = findLastMetricValue(nodeMetrics, "cpu_pct");
-                const cpuPctExact = cpuPctMetricRaw != null
-                  ? cpuPctMetricRaw
-                  : (Number.isFinite(cpuPctNodeRaw) ? cpuPctNodeRaw : null);
-                const load1 = findLastMetricValue(nodeMetrics, "load1");
-                const cpuPct = cpuPctExact != null ? Math.max(0, Math.min(100, cpuPctExact)) : cpuFromLoad(load1);
-                const cpuDisplay = cpuPct != null ? formatPercent(cpuPct) : "-";
-                const memTotal = findLastMetricValue(nodeMetrics, ["mem_total_bytes", "ram_total_bytes"]);
-                const memAvail = findLastMetricValue(nodeMetrics, "mem_available_bytes");
-                const memUsedRaw = findLastMetricValue(nodeMetrics, "ram_used_bytes");
-                const memUsed = memUsedRaw != null ? memUsedRaw : (memTotal != null && memAvail != null ? Math.max(0, memTotal - memAvail) : null);
-                const ramPct = memTotal != null && memTotal > 0 && memUsed != null
-                  ? Math.max(0, Math.min(100, (memUsed / memTotal) * 100))
-                  : null;
-                const diskTotal = findLastMetricValue(nodeMetrics, "disk_total_bytes");
-                const diskUsed = findLastMetricValue(nodeMetrics, "disk_used_bytes");
-                const diskFreePct = diskTotal != null && diskTotal > 0 && diskUsed != null
-                  ? Math.max(0, Math.min(100, ((diskTotal - diskUsed) / diskTotal) * 100))
-                  : null;
-                const uptimeTone = percent >= 95 ? "good" : percent >= 85 ? "warn" : "bad";
-                const cpuTone = usageTone(cpuPct, 60, 85);
-                const ramTone = usageTone(ramPct, 70, 90);
-                const diskTone = freeTone(diskFreePct, 30, 15);
-                const hostValue = formatNodeIP(node);
-                const servicesCount = Number(node.services_count || 0);
-                const botsCount = Number(node.bots_count || 0);
-                return (
-                  <div
-                    className="data-row"
-                    key={node.id}
-                    onClick={() => openNodeDetails(node)}
-                  >
-                    {canOperate && (
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={!!selectedNodes[node.id]}
-                          onChange={() => toggleNodeSelection(node.id)}
-                        />
-                      </div>
-                    )}
-                    <div><StatusDot ok={node.online === true} /></div>
-                    <div>
-                      <div className="node-title">{node.name || t("Unnamed node")}</div>
-                      <div className="muted small">{node.kind || "PANEL"}</div>
-                      <div className="node-checks-summary">
-                        <button
-                          type="button"
-                          className={`node-check-chip ${servicesCount > 0 ? "has-items" : ""}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openNodeDetailsTab(node, "services");
-                          }}
-                        >
-                          <span>{t("Services")}</span>
-                          <strong>{servicesCount}</strong>
-                        </button>
-                        <button
-                          type="button"
-                          className={`node-check-chip ${botsCount > 0 ? "has-items" : ""}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openNodeDetailsTab(node, "bots");
-                          }}
-                        >
-                          <span>{t("Checks")}</span>
-                          <strong>{botsCount}</strong>
-                        </button>
-                      </div>
-                    </div>
-                    <div className="location-cell">
-                      <span>{hostValue}</span>
-                    </div>
-                    <div>
-                      <span className={`badge ${node.agent_online ? "online" : "offline"}`}>
-                        {node.agent_online ? t("Online") : t("Offline")}
-                      </span>
-                      <span className="muted small">{node.agent_version ? `v${node.agent_version}` : "-"}</span>
-                    </div>
-                    <div>
-                      <div className="node-metric-lines">
-                        <div className="node-metric-line">
-                          <span className="node-metric-label">{t("Uptime")}</span>
-                          <NodeMetricBar percent={percent} tone={uptimeTone} />
-                          <span className="node-metric-value">{percent.toFixed(1)}%</span>
-                        </div>
-                        <div className="node-metric-line">
-                          <span className="node-metric-label">{t("CPU")}</span>
-                          <NodeMetricBar percent={cpuPct} tone={cpuTone} />
-                          <span className="node-metric-value">{cpuDisplay}</span>
-                        </div>
-                        <div className="node-metric-line">
-                          <span className="node-metric-label">{t("RAM")}</span>
-                          <NodeMetricBar percent={ramPct} tone={ramTone} />
-                          <span className="node-metric-value">{ramPct != null ? formatPercent(ramPct) : "-"}</span>
-                        </div>
-                        <div className="node-metric-line">
-                          <span className="node-metric-label">{t("Disk Free")}</span>
-                          <NodeMetricBar percent={diskFreePct} tone={diskTone} />
-                          <span className="node-metric-value">{diskFreePct != null ? formatPercent(diskFreePct) : "-"}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div>{lastTs ? formatTS(lastTs) : "-"}</div>
-                <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => openActionPlan("restart_service", node)}
-                  >
-                    {t("Restart Agent")}
-                  </button>
-                  <button type="button" className="ghost" onClick={() => openSSH(node)}>{t("SSH")}</button>
-                </div>
-                  </div>
-                );
-              })}
-              {filteredNodes.length === 0 && (
-                <div className="data-row">
-                  <div>{t("No data")}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {nodeDetails.open && nodeDetails.node && (
         <div className="modal node-details-modal">
@@ -4120,34 +4341,65 @@ function NodesPage() {
           <div className="modal-content">
             <h3>{serviceEditor.mode === "add" ? t("Add Service") : t("Edit Service")}</h3>
             <div className="form-grid" autoComplete="off">
-              <select
-                value={serviceForm.kind}
-                onChange={(e) => setServiceForm({ ...serviceForm, kind: e.target.value })}
-              >
-                <option value="CUSTOM_HTTP">CUSTOM_HTTP</option>
-              </select>
               <input
-                placeholder={t("URL")}
-                value={serviceForm.url}
-                onChange={(e) => setServiceForm({ ...serviceForm, url: e.target.value })}
+                placeholder={t("Service name")}
+                value={serviceForm.name}
+                onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
               />
-              <input
-                placeholder={t("Health path")}
-                value={serviceForm.health_path}
-                onChange={(e) => setServiceForm({ ...serviceForm, health_path: e.target.value })}
-              />
+              <input value={serviceForm.kind} readOnly />
+              {serviceForm.kind === "CUSTOM_HTTP" ? (
+                <>
+                  <input
+                    placeholder={t("URL")}
+                    value={serviceForm.url}
+                    onChange={(e) => setServiceForm({ ...serviceForm, url: e.target.value })}
+                  />
+                  <input
+                    placeholder={t("Health path")}
+                    value={serviceForm.health_path}
+                    onChange={(e) => setServiceForm({ ...serviceForm, health_path: e.target.value })}
+                  />
+                </>
+              ) : (
+                <>
+                  <input
+                    placeholder={t("Host")}
+                    value={serviceForm.host}
+                    onChange={(e) => setServiceForm({ ...serviceForm, host: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    placeholder={t("Port")}
+                    value={serviceForm.port}
+                    onChange={(e) => setServiceForm({ ...serviceForm, port: e.target.value })}
+                  />
+                  <input
+                    placeholder={t("Login")}
+                    value={serviceForm.auth_username}
+                    onChange={(e) => setServiceForm({ ...serviceForm, auth_username: e.target.value })}
+                  />
+                  <input
+                    type="password"
+                    placeholder={serviceEditor.mode === "edit" && serviceEditor.service?.auth_password_set ? t("FTP password (leave blank to keep)") : t("Password")}
+                    value={serviceForm.auth_password}
+                    onChange={(e) => setServiceForm({ ...serviceForm, auth_password: e.target.value })}
+                  />
+                </>
+              )}
               <ListInput
                 label={t("Expected status")}
                 values={serviceForm.expected_status}
-                placeholder="200"
+                placeholder={serviceForm.kind === "CUSTOM_FTP" ? (serviceForm.auth_username ? "230" : "220") : "200"}
                 onChange={(values) => setServiceForm({ ...serviceForm, expected_status: values })}
               />
-              <textarea
-                rows="4"
-                placeholder={t("Headers (JSON)")}
-                value={serviceForm.headers_json}
-                onChange={(e) => setServiceForm({ ...serviceForm, headers_json: e.target.value })}
-              />
+              {serviceForm.kind === "CUSTOM_HTTP" && (
+                <textarea
+                  rows="4"
+                  placeholder={t("Headers (JSON)")}
+                  value={serviceForm.headers_json}
+                  onChange={(e) => setServiceForm({ ...serviceForm, headers_json: e.target.value })}
+                />
+              )}
               <label className="checkbox">
                 <input
                   type="checkbox"
@@ -4160,7 +4412,7 @@ function NodesPage() {
             {servicesError && <div className="error">{servicesError}</div>}
             <div className="actions">
               <button type="button" onClick={() => saveService()}>{t("Save")}</button>
-              <button type="button" onClick={() => setServiceEditor({ open: false, mode: "add", node: null, service: null })}>{t("Cancel")}</button>
+              <button type="button" onClick={() => setServiceEditor(createServiceEditor())}>{t("Cancel")}</button>
             </div>
           </div>
         </div>

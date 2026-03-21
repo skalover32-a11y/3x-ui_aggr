@@ -92,20 +92,24 @@ type Invite struct {
 }
 
 type Service struct {
-	ID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	NodeID         uuid.UUID      `gorm:"type:uuid;not null" json:"node_id"`
-	Kind           string         `gorm:"type:text;not null" json:"kind"`
-	URL            *string        `gorm:"type:text" json:"url"`
-	Host           *string        `gorm:"type:text" json:"host"`
-	Port           *int           `gorm:"type:int" json:"port"`
-	TLSMode        *string        `gorm:"type:text" json:"tls_mode"`
-	HealthPath     *string        `gorm:"type:text" json:"health_path"`
-	ExpectedStatus pq.Int64Array  `gorm:"type:int[]" json:"expected_status"`
-	Headers        datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"headers"`
-	AuthRef        *string        `gorm:"type:text" json:"auth_ref"`
-	IsEnabled      bool           `gorm:"not null;default:true" json:"is_enabled"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	ID              uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	OrgID           uuid.UUID      `gorm:"type:uuid;not null" json:"org_id"`
+	NodeID          *uuid.UUID     `gorm:"type:uuid" json:"node_id,omitempty"`
+	Name            string         `gorm:"type:text;not null" json:"name"`
+	Kind            string         `gorm:"type:text;not null" json:"kind"`
+	URL             *string        `gorm:"type:text" json:"url"`
+	Host            *string        `gorm:"type:text" json:"host"`
+	Port            *int           `gorm:"type:int" json:"port"`
+	TLSMode         *string        `gorm:"type:text" json:"tls_mode"`
+	HealthPath      *string        `gorm:"type:text" json:"health_path"`
+	ExpectedStatus  pq.Int64Array  `gorm:"type:int[]" json:"expected_status"`
+	Headers         datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb" json:"headers"`
+	AuthRef         *string        `gorm:"type:text" json:"auth_ref"`
+	AuthUsername    *string        `gorm:"type:text" json:"auth_username,omitempty"`
+	AuthPasswordEnc *string        `gorm:"type:text" json:"-"`
+	IsEnabled       bool           `gorm:"not null;default:true" json:"is_enabled"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 type Bot struct {

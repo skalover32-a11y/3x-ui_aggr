@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,9 +16,11 @@ import (
 	"gorm.io/gorm"
 
 	"agr_3x_ui/internal/db"
+	"agr_3x_ui/internal/services/checks"
 )
 
 type serviceRequest struct {
+	Name           *string           `json:"name"`
 	NodeID         *string           `json:"node_id"`
 	Kind           string            `json:"kind"`
 	URL            *string           `json:"url"`
@@ -28,24 +31,30 @@ type serviceRequest struct {
 	ExpectedStatus []int             `json:"expected_status"`
 	Headers        map[string]string `json:"headers"`
 	AuthRef        *string           `json:"auth_ref"`
+	AuthUsername   *string           `json:"auth_username"`
+	AuthPassword   *string           `json:"auth_password"`
 	IsEnabled      *bool             `json:"is_enabled"`
 }
 
 type serviceResponse struct {
-	ID             string            `json:"id"`
-	NodeID         string            `json:"node_id"`
-	Kind           string            `json:"kind"`
-	URL            *string           `json:"url"`
-	Host           *string           `json:"host"`
-	Port           *int              `json:"port"`
-	TLSMode        *string           `json:"tls_mode"`
-	HealthPath     *string           `json:"health_path"`
-	ExpectedStatus []int             `json:"expected_status"`
-	Headers        map[string]string `json:"headers"`
-	AuthRef        *string           `json:"auth_ref"`
-	IsEnabled      bool              `json:"is_enabled"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	ID              string            `json:"id"`
+	OrgID           string            `json:"org_id"`
+	NodeID          *string           `json:"node_id,omitempty"`
+	Name            string            `json:"name"`
+	Kind            string            `json:"kind"`
+	URL             *string           `json:"url"`
+	Host            *string           `json:"host"`
+	Port            *int              `json:"port"`
+	TLSMode         *string           `json:"tls_mode"`
+	HealthPath      *string           `json:"health_path"`
+	ExpectedStatus  []int             `json:"expected_status"`
+	Headers         map[string]string `json:"headers"`
+	AuthRef         *string           `json:"auth_ref"`
+	AuthUsername    *string           `json:"auth_username,omitempty"`
+	AuthPasswordSet bool              `json:"auth_password_set"`
+	IsEnabled       bool              `json:"is_enabled"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
 func (h *Handler) getService(ctx context.Context, idStr string) (*db.Service, error) {
@@ -61,25 +70,34 @@ func (h *Handler) getService(ctx context.Context, idStr string) (*db.Service, er
 }
 
 func toServiceResponse(service *db.Service) serviceResponse {
+	var nodeID *string
+	if service.NodeID != nil {
+		val := service.NodeID.String()
+		nodeID = &val
+	}
 	return serviceResponse{
-		ID:             service.ID.String(),
-		NodeID:         service.NodeID.String(),
-		Kind:           service.Kind,
-		URL:            service.URL,
-		Host:           service.Host,
-		Port:           service.Port,
-		TLSMode:        service.TLSMode,
-		HealthPath:     service.HealthPath,
-		ExpectedStatus: intArray(service.ExpectedStatus),
-		Headers:        headersFromJSON(service.Headers),
-		AuthRef:        service.AuthRef,
-		IsEnabled:      service.IsEnabled,
-		CreatedAt:      service.CreatedAt,
-		UpdatedAt:      service.UpdatedAt,
+		ID:              service.ID.String(),
+		OrgID:           service.OrgID.String(),
+		NodeID:          nodeID,
+		Name:            strings.TrimSpace(service.Name),
+		Kind:            service.Kind,
+		URL:             service.URL,
+		Host:            service.Host,
+		Port:            service.Port,
+		TLSMode:         service.TLSMode,
+		HealthPath:      service.HealthPath,
+		ExpectedStatus:  intArray(service.ExpectedStatus),
+		Headers:         headersFromJSON(service.Headers),
+		AuthRef:         service.AuthRef,
+		AuthUsername:    service.AuthUsername,
+		AuthPasswordSet: service.AuthPasswordEnc != nil && strings.TrimSpace(*service.AuthPasswordEnc) != "",
+		IsEnabled:       service.IsEnabled,
+		CreatedAt:       service.CreatedAt,
+		UpdatedAt:       service.UpdatedAt,
 	}
 }
 
-func (h *Handler) buildServiceFromRequest(nodeID uuid.UUID, req *serviceRequest) (*db.Service, error) {
+func (h *Handler) buildServiceFromRequest(orgID uuid.UUID, nodeID *uuid.UUID, req *serviceRequest) (*db.Service, error) {
 	headers, err := headersToJSON(req.Headers)
 	if err != nil {
 		return nil, err
@@ -88,28 +106,71 @@ func (h *Handler) buildServiceFromRequest(nodeID uuid.UUID, req *serviceRequest)
 	if req.IsEnabled != nil {
 		enabled = *req.IsEnabled
 	}
+	authUsername := trimPtr(req.AuthUsername)
+	var authPasswordEnc *string
+	if req.AuthPassword != nil {
+		rawPassword := strings.TrimSpace(*req.AuthPassword)
+		if rawPassword != "" {
+			if authUsername == nil {
+				return nil, fmt.Errorf("auth username required")
+			}
+			enc, err := h.encryptString(rawPassword)
+			if err != nil {
+				return nil, err
+			}
+			authPasswordEnc = &enc
+		}
+	}
 	service := &db.Service{
-		NodeID:         nodeID,
-		Kind:           strings.TrimSpace(req.Kind),
-		URL:            trimPtr(req.URL),
-		Host:           trimPtr(req.Host),
-		Port:           req.Port,
-		TLSMode:        trimPtr(req.TLSMode),
-		HealthPath:     trimPtr(req.HealthPath),
-		ExpectedStatus: int64Array(req.ExpectedStatus),
-		Headers:        headers,
-		AuthRef:        trimPtr(req.AuthRef),
-		IsEnabled:      enabled,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		OrgID:           orgID,
+		NodeID:          nodeID,
+		Name:            serviceNameOrDefault(trimPtr(req.Name), strings.TrimSpace(req.Kind), trimPtr(req.URL), trimPtr(req.Host), req.Port),
+		Kind:            strings.TrimSpace(req.Kind),
+		URL:             trimPtr(req.URL),
+		Host:            trimPtr(req.Host),
+		Port:            req.Port,
+		TLSMode:         trimPtr(req.TLSMode),
+		HealthPath:      trimPtr(req.HealthPath),
+		ExpectedStatus:  int64Array(req.ExpectedStatus),
+		Headers:         headers,
+		AuthRef:         trimPtr(req.AuthRef),
+		AuthUsername:    authUsername,
+		AuthPasswordEnc: authPasswordEnc,
+		IsEnabled:       enabled,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 	return service, nil
 }
 
-func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID uuid.UUID) error {
+func serviceNameOrDefault(name *string, kind string, rawURL *string, host *string, port *int) string {
+	if name != nil && strings.TrimSpace(*name) != "" {
+		return strings.TrimSpace(*name)
+	}
+	if rawURL != nil && strings.TrimSpace(*rawURL) != "" {
+		return strings.TrimSpace(*rawURL)
+	}
+	hostValue := ""
+	if host != nil {
+		hostValue = strings.TrimSpace(*host)
+	}
+	if hostValue != "" {
+		if port != nil && *port > 0 {
+			return fmt.Sprintf("%s:%d", hostValue, *port)
+		}
+		return hostValue
+	}
+	kindValue := strings.TrimSpace(kind)
+	if kindValue == "" {
+		return "service"
+	}
+	return strings.ToLower(kindValue)
+}
+
+func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, service *db.Service) error {
 	var count int64
 	if err := tx.WithContext(ctx).Model(&db.Check{}).
-		Where("target_type = ? AND target_id = ?", "service", serviceID).
+		Where("target_type = ? AND target_id = ?", "service", service.ID).
 		Count(&count).Error; err != nil {
 		return err
 	}
@@ -117,20 +178,41 @@ func (h *Handler) createDefaultCheck(ctx context.Context, tx *gorm.DB, serviceID
 		return nil
 	}
 	row := db.Check{
-		TargetType:    "service",
-		TargetID:      serviceID,
-		Type:          "HTTP",
-		IntervalSec:   60,
-		TimeoutMS:     3000,
-		Retries:       1,
-		FailAfterSec:  300,
+		TargetType:     "service",
+		TargetID:       service.ID,
+		Type:           checks.ServiceCheckType(service.Kind),
+		IntervalSec:    60,
+		TimeoutMS:      3000,
+		Retries:        1,
+		FailAfterSec:   300,
 		RecoverAfterOK: 2,
-		Enabled:       true,
-		SeverityRules: datatypes.JSON([]byte("{}")),
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
+		Enabled:        true,
+		SeverityRules:  datatypes.JSON([]byte("{}")),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 	return tx.WithContext(ctx).Create(&row).Error
+}
+
+func (h *Handler) syncServiceChecks(ctx context.Context, tx *gorm.DB, service *db.Service) error {
+	if service == nil {
+		return nil
+	}
+	desiredType := checks.ServiceCheckType(service.Kind)
+	result := tx.WithContext(ctx).
+		Model(&db.Check{}).
+		Where("target_type = ? AND target_id = ? AND lower(type) IN ?", "service", service.ID, []string{"http", "https", "tcp", "ftp"}).
+		Updates(map[string]any{
+			"type":       desiredType,
+			"updated_at": time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	return h.createDefaultCheck(ctx, tx, service)
 }
 
 func (h *Handler) ListAllServices(c *gin.Context) {
@@ -140,13 +222,19 @@ func (h *Handler) ListAllServices(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 	query = query.
-		Joins("JOIN nodes ON nodes.id = services.node_id").
-		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
-		Where("om.user_id = ?", user.ID).
-		Where("nodes.org_id IS NOT NULL")
+		Joins("JOIN organization_members om ON om.org_id = services.org_id").
+		Where("om.user_id = ?", user.ID)
+	if orgID != nil {
+		query = query.Where("services.org_id = ?", *orgID)
+	}
 	var rows []db.Service
-	if err := query.Find(&rows).Error; err != nil {
+	if err := query.Order("services.created_at desc").Find(&rows).Error; err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to list services")
 		return
 	}
@@ -162,18 +250,33 @@ func (h *Handler) CreateServiceGlobal(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
-	if req.NodeID == nil || strings.TrimSpace(*req.NodeID) == "" {
-		respondError(c, http.StatusBadRequest, "INVALID_NODE", "node_id required")
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
-	node, err := h.getNodeForActor(c, strings.TrimSpace(*req.NodeID))
-	if err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil || orgID == nil || *orgID == uuid.Nil {
+		respondError(c, http.StatusBadRequest, "INVALID_ORG", "organization required")
 		return
 	}
-	service, err := h.buildServiceFromRequest(node.ID, &req)
+	var nodeID *uuid.UUID
+	if req.NodeID != nil && strings.TrimSpace(*req.NodeID) != "" {
+		node, err := h.getNodeForActor(c, strings.TrimSpace(*req.NodeID))
+		if err != nil {
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "node not found")
+			return
+		}
+		if node.OrgID == nil || *node.OrgID == uuid.Nil {
+			respondError(c, http.StatusBadRequest, "INVALID_ORG", "node organization missing")
+			return
+		}
+		*orgID = *node.OrgID
+		nodeID = &node.ID
+	}
+	service, err := h.buildServiceFromRequest(*orgID, nodeID, &req)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
+		respondError(c, http.StatusBadRequest, "INVALID_SERVICE", err.Error())
 		return
 	}
 	ctx := c.Request.Context()
@@ -181,7 +284,7 @@ func (h *Handler) CreateServiceGlobal(c *gin.Context) {
 		if err := tx.WithContext(ctx).Create(service).Error; err != nil {
 			return err
 		}
-		return h.createDefaultCheck(ctx, tx, service.ID)
+		return h.createDefaultCheck(ctx, tx, service)
 	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
 		return
@@ -217,9 +320,14 @@ func (h *Handler) CreateService(c *gin.Context) {
 	if !parseJSONBody(c, &req) {
 		return
 	}
-	service, err := h.buildServiceFromRequest(node.ID, &req)
+	if node.OrgID == nil || *node.OrgID == uuid.Nil {
+		respondError(c, http.StatusBadRequest, "INVALID_ORG", "node organization missing")
+		return
+	}
+	nodeID := node.ID
+	service, err := h.buildServiceFromRequest(*node.OrgID, &nodeID, &req)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_HEADERS", "invalid headers")
+		respondError(c, http.StatusBadRequest, "INVALID_SERVICE", err.Error())
 		return
 	}
 	ctx := c.Request.Context()
@@ -227,7 +335,7 @@ func (h *Handler) CreateService(c *gin.Context) {
 		if err := tx.WithContext(ctx).Create(service).Error; err != nil {
 			return err
 		}
-		return h.createDefaultCheck(ctx, tx, service.ID)
+		return h.createDefaultCheck(ctx, tx, service)
 	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_CREATE", "failed to create service")
 		return
@@ -252,6 +360,9 @@ func (h *Handler) UpdateService(c *gin.Context) {
 	if strings.TrimSpace(req.Kind) != "" {
 		service.Kind = strings.TrimSpace(req.Kind)
 	}
+	if req.Name != nil {
+		service.Name = serviceNameOrDefault(trimPtr(req.Name), service.Kind, service.URL, service.Host, service.Port)
+	}
 	if req.URL != nil {
 		service.URL = trimPtr(req.URL)
 	}
@@ -270,6 +381,27 @@ func (h *Handler) UpdateService(c *gin.Context) {
 	if req.AuthRef != nil {
 		service.AuthRef = trimPtr(req.AuthRef)
 	}
+	if req.AuthUsername != nil {
+		service.AuthUsername = trimPtr(req.AuthUsername)
+		if service.AuthUsername == nil {
+			service.AuthPasswordEnc = nil
+		}
+	}
+	if req.AuthPassword != nil {
+		rawPassword := strings.TrimSpace(*req.AuthPassword)
+		if rawPassword != "" {
+			if service.AuthUsername == nil {
+				respondError(c, http.StatusBadRequest, "INVALID_SERVICE", "auth username required")
+				return
+			}
+			enc, encErr := h.encryptString(rawPassword)
+			if encErr != nil {
+				respondError(c, http.StatusInternalServerError, "SERVICE_AUTH", "failed to encrypt password")
+				return
+			}
+			service.AuthPasswordEnc = &enc
+		}
+	}
 	if req.Headers != nil {
 		headers, err := headersToJSON(req.Headers)
 		if err != nil {
@@ -284,8 +416,15 @@ func (h *Handler) UpdateService(c *gin.Context) {
 	if req.IsEnabled != nil {
 		service.IsEnabled = *req.IsEnabled
 	}
+	service.Name = serviceNameOrDefault(&service.Name, service.Kind, service.URL, service.Host, service.Port)
 	service.UpdatedAt = time.Now()
-	if err := h.DB.WithContext(c.Request.Context()).Save(service).Error; err != nil {
+	ctx := c.Request.Context()
+	if err := h.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.WithContext(ctx).Save(service).Error; err != nil {
+			return err
+		}
+		return h.syncServiceChecks(ctx, tx, service)
+	}); err != nil {
 		respondError(c, http.StatusInternalServerError, "DB_UPDATE", "failed to update service")
 		return
 	}

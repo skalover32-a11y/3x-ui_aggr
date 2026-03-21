@@ -32,28 +32,32 @@ func TestRunNowService(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
+	orgID := uuid.New()
 
 	node := db.Node{
-		ID:             uuid.New(),
-		Name:           "node-1",
-		BaseURL:        "http://example.com",
-		PanelUsername:  "admin",
+		ID:               uuid.New(),
+		OrgID:            &orgID,
+		Name:             "node-1",
+		BaseURL:          "http://example.com",
+		PanelUsername:    "admin",
 		PanelPasswordEnc: "enc",
-		SSHHost:        "127.0.0.1",
-		SSHPort:        22,
-		SSHUser:        "root",
-		SSHKeyEnc:      "key",
-		VerifyTLS:      true,
-		IsEnabled:      true,
-		SSHEnabled:     true,
-		SSHAuthMethod:  "key",
+		SSHHost:          "127.0.0.1",
+		SSHPort:          22,
+		SSHUser:          "root",
+		SSHKeyEnc:        "key",
+		VerifyTLS:        true,
+		IsEnabled:        true,
+		SSHEnabled:       true,
+		SSHAuthMethod:    "key",
 	}
 	if err := dbConn.Create(&node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	service := db.Service{
 		ID:             uuid.New(),
-		NodeID:         node.ID,
+		OrgID:          orgID,
+		NodeID:         &node.ID,
+		Name:           "svc-1",
 		Kind:           "CUSTOM_HTTP",
 		URL:            stringPtr(srv.URL),
 		HealthPath:     stringPtr("/"),

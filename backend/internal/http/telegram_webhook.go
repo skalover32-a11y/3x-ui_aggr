@@ -236,15 +236,50 @@ func (h *Handler) orgIDForAlert(ctx context.Context, data string) (uuid.UUID, er
 	if err := h.DB.WithContext(ctx).Where("alert_id = ?", id).First(&state).Error; err != nil {
 		return uuid.Nil, err
 	}
-	if state.NodeID == nil {
-		return uuid.Nil, gorm.ErrRecordNotFound
+	if state.NodeID != nil {
+		var node db.Node
+		if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *state.NodeID).Error; err != nil {
+			return uuid.Nil, err
+		}
+		if node.OrgID == nil {
+			return uuid.Nil, gorm.ErrRecordNotFound
+		}
+		return *node.OrgID, nil
 	}
-	var node db.Node
-	if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *state.NodeID).Error; err != nil {
-		return uuid.Nil, err
+	if state.ServiceID != nil {
+		var svc db.Service
+		if err := h.DB.WithContext(ctx).Select("org_id", "node_id").First(&svc, "id = ?", *state.ServiceID).Error; err == nil {
+			if svc.OrgID != uuid.Nil {
+				return svc.OrgID, nil
+			}
+			if svc.NodeID != nil {
+				var node db.Node
+				if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *svc.NodeID).Error; err == nil && node.OrgID != nil {
+					return *node.OrgID, nil
+				}
+			}
+		}
 	}
-	if node.OrgID == nil {
-		return uuid.Nil, gorm.ErrRecordNotFound
+	if state.BotID != nil {
+		var bot db.Bot
+		if err := h.DB.WithContext(ctx).Select("node_id").First(&bot, "id = ?", *state.BotID).Error; err == nil {
+			var node db.Node
+			if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", bot.NodeID).Error; err == nil && node.OrgID != nil {
+				return *node.OrgID, nil
+			}
+		}
 	}
-	return *node.OrgID, nil
+	if state.IncidentID != nil {
+		var incident db.Incident
+		if err := h.DB.WithContext(ctx).Select("org_id").First(&incident, "id = ?", *state.IncidentID).Error; err == nil && incident.OrgID != nil {
+			return *incident.OrgID, nil
+		}
+	}
+	if strings.TrimSpace(state.Fingerprint) != "" {
+		var incident db.Incident
+		if err := h.DB.WithContext(ctx).Select("org_id").First(&incident, "fingerprint = ?", state.Fingerprint).Error; err == nil && incident.OrgID != nil {
+			return *incident.OrgID, nil
+		}
+	}
+	return uuid.Nil, gorm.ErrRecordNotFound
 }

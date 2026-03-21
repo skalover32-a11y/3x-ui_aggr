@@ -48,20 +48,23 @@ type orgBackupNode struct {
 }
 
 type orgBackupService struct {
-	ID             uuid.UUID      `json:"id"`
-	NodeID         uuid.UUID      `json:"node_id"`
-	Kind           string         `json:"kind"`
-	URL            *string        `json:"url,omitempty"`
-	Host           *string        `json:"host,omitempty"`
-	Port           *int           `json:"port,omitempty"`
-	TLSMode        *string        `json:"tls_mode,omitempty"`
-	HealthPath     *string        `json:"health_path,omitempty"`
-	ExpectedStatus []int64        `json:"expected_status"`
-	Headers        datatypes.JSON `json:"headers"`
-	AuthRef        *string        `json:"auth_ref,omitempty"`
-	IsEnabled      bool           `json:"is_enabled"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	ID              uuid.UUID      `json:"id"`
+	NodeID          *uuid.UUID     `json:"node_id,omitempty"`
+	Name            string         `json:"name"`
+	Kind            string         `json:"kind"`
+	URL             *string        `json:"url,omitempty"`
+	Host            *string        `json:"host,omitempty"`
+	Port            *int           `json:"port,omitempty"`
+	TLSMode         *string        `json:"tls_mode,omitempty"`
+	HealthPath      *string        `json:"health_path,omitempty"`
+	ExpectedStatus  []int64        `json:"expected_status"`
+	Headers         datatypes.JSON `json:"headers"`
+	AuthRef         *string        `json:"auth_ref,omitempty"`
+	AuthUsername    *string        `json:"auth_username,omitempty"`
+	AuthPasswordEnc *string        `json:"auth_password_enc,omitempty"`
+	IsEnabled       bool           `json:"is_enabled"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
 type orgBackupBot struct {
@@ -200,31 +203,32 @@ func (h *Handler) ExportOrgConfig(c *gin.Context) {
 	}
 
 	var services []db.Service
-	if len(nodeIDs) > 0 {
-		if err := h.DB.WithContext(ctx).Where("node_id IN ?", nodeIDs).Order("created_at").Find(&services).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to load services")
-			return
-		}
+	if err := h.DB.WithContext(ctx).Where("org_id = ?", orgID).Order("created_at").Find(&services).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "DB_LIST", "failed to load services")
+		return
 	}
 	serviceIDs := make([]uuid.UUID, 0, len(services))
 	serviceBackup := make([]orgBackupService, 0, len(services))
 	for _, s := range services {
 		serviceIDs = append(serviceIDs, s.ID)
 		serviceBackup = append(serviceBackup, orgBackupService{
-			ID:             s.ID,
-			NodeID:         s.NodeID,
-			Kind:           s.Kind,
-			URL:            s.URL,
-			Host:           s.Host,
-			Port:           s.Port,
-			TLSMode:        s.TLSMode,
-			HealthPath:     s.HealthPath,
-			ExpectedStatus: append([]int64(nil), s.ExpectedStatus...),
-			Headers:        cloneJSON(s.Headers),
-			AuthRef:        s.AuthRef,
-			IsEnabled:      s.IsEnabled,
-			CreatedAt:      s.CreatedAt,
-			UpdatedAt:      s.UpdatedAt,
+			ID:              s.ID,
+			NodeID:          s.NodeID,
+			Name:            s.Name,
+			Kind:            s.Kind,
+			URL:             s.URL,
+			Host:            s.Host,
+			Port:            s.Port,
+			TLSMode:         s.TLSMode,
+			HealthPath:      s.HealthPath,
+			ExpectedStatus:  append([]int64(nil), s.ExpectedStatus...),
+			Headers:         cloneJSON(s.Headers),
+			AuthRef:         s.AuthRef,
+			AuthUsername:    s.AuthUsername,
+			AuthPasswordEnc: s.AuthPasswordEnc,
+			IsEnabled:       s.IsEnabled,
+			CreatedAt:       s.CreatedAt,
+			UpdatedAt:       s.UpdatedAt,
 		})
 	}
 
@@ -477,9 +481,13 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 		}
 
 		for _, row := range validPayload.Services {
-			newNodeID, ok := nodeMap[row.NodeID]
-			if !ok {
-				continue
+			var newNodeID *uuid.UUID
+			if row.NodeID != nil {
+				mapped, ok := nodeMap[*row.NodeID]
+				if !ok {
+					continue
+				}
+				newNodeID = &mapped
 			}
 			newID := uuid.New()
 			serviceMap[row.ID] = newID
@@ -492,20 +500,24 @@ func (h *Handler) ImportOrgConfig(c *gin.Context) {
 				updatedAt = createdAt
 			}
 			s := db.Service{
-				ID:             newID,
-				NodeID:         newNodeID,
-				Kind:           row.Kind,
-				URL:            row.URL,
-				Host:           row.Host,
-				Port:           row.Port,
-				TLSMode:        row.TLSMode,
-				HealthPath:     row.HealthPath,
-				ExpectedStatus: pq.Int64Array(append([]int64(nil), row.ExpectedStatus...)),
-				Headers:        cloneJSON(row.Headers),
-				AuthRef:        row.AuthRef,
-				IsEnabled:      row.IsEnabled,
-				CreatedAt:      createdAt,
-				UpdatedAt:      updatedAt,
+				ID:              newID,
+				OrgID:           orgID,
+				NodeID:          newNodeID,
+				Name:            row.Name,
+				Kind:            row.Kind,
+				URL:             row.URL,
+				Host:            row.Host,
+				Port:            row.Port,
+				TLSMode:         row.TLSMode,
+				HealthPath:      row.HealthPath,
+				ExpectedStatus:  pq.Int64Array(append([]int64(nil), row.ExpectedStatus...)),
+				Headers:         cloneJSON(row.Headers),
+				AuthRef:         row.AuthRef,
+				AuthUsername:    row.AuthUsername,
+				AuthPasswordEnc: row.AuthPasswordEnc,
+				IsEnabled:       row.IsEnabled,
+				CreatedAt:       createdAt,
+				UpdatedAt:       updatedAt,
 			}
 			if err := tx.Create(&s).Error; err != nil {
 				return err
@@ -664,7 +676,7 @@ func purgeOrgBackupData(tx *gorm.DB, orgID uuid.UUID) error {
 		return nil
 	}
 	nodeSub := tx.Table("nodes").Select("id").Where("org_id = ?", orgID)
-	serviceSub := tx.Table("services").Select("id").Where("node_id IN (?)", nodeSub)
+	serviceSub := tx.Table("services").Select("id").Where("org_id = ?", orgID)
 	botSub := tx.Table("bots").Select("id").Where("node_id IN (?)", nodeSub)
 	checkSub := tx.Table("checks").Select("id").
 		Where("(target_type = 'node' AND target_id IN (?)) OR (target_type = 'service' AND target_id IN (?)) OR (target_type = 'bot' AND target_id IN (?))", nodeSub, serviceSub, botSub)
@@ -684,7 +696,7 @@ func purgeOrgBackupData(tx *gorm.DB, orgID uuid.UUID) error {
 	if err := tx.Where("id IN (?)", checkSub).Delete(&db.Check{}).Error; err != nil {
 		return err
 	}
-	if err := tx.Where("node_id IN (?)", nodeSub).Delete(&db.Service{}).Error; err != nil {
+	if err := tx.Where("org_id = ?", orgID).Delete(&db.Service{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("node_id IN (?)", nodeSub).Delete(&db.Bot{}).Error; err != nil {
@@ -815,10 +827,12 @@ func validateOrgBackupPayload(payload orgBackupPayload) (orgBackupPayload, orgBa
 			appendWarning(fmt.Sprintf("services[%d]: skipped duplicate id %s", idx, row.ID))
 			continue
 		}
-		if _, ok := nodeSeen[row.NodeID]; !ok {
-			skipped.Services++
-			appendWarning(fmt.Sprintf("services[%d]: skipped, missing node_id %s", idx, row.NodeID))
-			continue
+		if row.NodeID != nil {
+			if _, ok := nodeSeen[*row.NodeID]; !ok {
+				skipped.Services++
+				appendWarning(fmt.Sprintf("services[%d]: skipped, missing node_id %s", idx, *row.NodeID))
+				continue
+			}
 		}
 		serviceSeen[row.ID] = struct{}{}
 		out.Services = append(out.Services, row)
@@ -909,13 +923,11 @@ func (h *Handler) loadOrgBackupCounts(ctx context.Context, orgID uuid.UUID) (org
 	counts.Nodes = len(nodes)
 
 	var services []uuid.UUID
-	if len(nodes) > 0 {
-		if err := h.DB.WithContext(ctx).
-			Model(&db.Service{}).
-			Where("node_id IN ?", nodes).
-			Pluck("id", &services).Error; err != nil {
-			return counts, err
-		}
+	if err := h.DB.WithContext(ctx).
+		Model(&db.Service{}).
+		Where("org_id = ?", orgID).
+		Pluck("id", &services).Error; err != nil {
+		return counts, err
 	}
 	counts.Services = len(services)
 

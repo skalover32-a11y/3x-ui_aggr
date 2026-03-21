@@ -93,14 +93,13 @@ func (h *Handler) getServiceForActor(c *gin.Context, idStr string) (*db.Service,
 	}
 	var service db.Service
 	if err := query.
-		Joins("JOIN nodes ON nodes.id = services.node_id").
-		Joins("JOIN organization_members om ON om.org_id = nodes.org_id").
+		Joins("JOIN organization_members om ON om.org_id = services.org_id").
 		Where("om.user_id = ?", user.ID).
 		Scopes(func(tx *gorm.DB) *gorm.DB {
 			if orgID == nil {
 				return tx
 			}
-			return tx.Where("nodes.org_id = ?", *orgID)
+			return tx.Where("services.org_id = ?", *orgID)
 		}).
 		Where("services.id = ?", serviceID).
 		First(&service).Error; err != nil {

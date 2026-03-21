@@ -57,6 +57,16 @@ func (h *Handler) ListIncidents(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 
 	query := h.DB.WithContext(c.Request.Context()).Model(&db.Incident{})
 	if status := strings.ToLower(strings.TrimSpace(c.Query("status"))); status != "" {
@@ -75,7 +85,7 @@ func (h *Handler) ListIncidents(c *gin.Context) {
 	resp := make([]incidentResponse, 0, len(rows))
 	for i := range rows {
 		row := rows[i]
-		if !incidentAllowed(c.Request.Context(), h.DB, nodeIDs, &row) {
+		if !incidentAllowed(c.Request.Context(), h.DB, nodeIDs, orgID, &row) {
 			continue
 		}
 		resp = append(resp, incidentResponse{
@@ -118,7 +128,17 @@ func (h *Handler) AckIncident(c *gin.Context) {
 		return
 	}
 	nodeIDs, err := h.accessibleNodeIDs(c)
-	if err != nil || !incidentAllowed(c.Request.Context(), h.DB, nodeIDs, &row) {
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil || !incidentAllowed(c.Request.Context(), h.DB, nodeIDs, orgID, &row) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
@@ -130,8 +150,8 @@ func (h *Handler) AckIncident(c *gin.Context) {
 		}
 	}
 	now := time.Now()
-	orgID := h.orgIDForIncident(c.Request.Context(), &row)
-	ackMuteMinutes, _ := h.alertPolicyForOrg(c.Request.Context(), orgID)
+	policyOrgID := h.orgIDForIncident(c.Request.Context(), &row)
+	ackMuteMinutes, _ := h.alertPolicyForOrg(c.Request.Context(), policyOrgID)
 	mutedUntil := now.Add(time.Duration(ackMuteMinutes) * time.Minute)
 	if err := h.DB.WithContext(c.Request.Context()).Model(&db.Incident{}).Where("id = ?", row.ID).Updates(map[string]any{
 		"status":          "acked",
@@ -153,7 +173,7 @@ func (h *Handler) AckIncident(c *gin.Context) {
 	})
 }
 
-func incidentAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, row *db.Incident) bool {
+func incidentAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, orgID *uuid.UUID, row *db.Incident) bool {
 	if row == nil || dbConn == nil {
 		return false
 	}
@@ -163,9 +183,16 @@ func incidentAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID
 	}
 	if row.ServiceID != nil {
 		var svc db.Service
-		if err := dbConn.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
-			_, ok := nodeIDs[svc.NodeID]
-			return ok
+		if err := dbConn.WithContext(ctx).Select("node_id", "org_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
+			if svc.NodeID != nil {
+				_, ok := nodeIDs[*svc.NodeID]
+				if ok {
+					return true
+				}
+			}
+			if orgID != nil && svc.OrgID != uuid.Nil {
+				return svc.OrgID == *orgID
+			}
 		}
 		return false
 	}

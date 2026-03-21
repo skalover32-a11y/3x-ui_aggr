@@ -86,6 +86,16 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
+	user, err := h.actorUser(c)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, err := h.orgIDFromRequest(c, user.ID)
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
 
 	var rows []db.AlertState
 	if err := query.Order("last_seen desc").Limit(limit).Find(&rows).Error; err != nil {
@@ -95,7 +105,7 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 	if len(rows) > 0 {
 		filtered := make([]db.AlertState, 0, len(rows))
 		for _, row := range rows {
-			if alertAllowed(c.Request.Context(), h.DB, nodeIDs, &row) {
+			if alertAllowed(c.Request.Context(), h.DB, nodeIDs, orgID, &row) {
 				filtered = append(filtered, row)
 			}
 		}
@@ -154,7 +164,17 @@ func (h *Handler) MuteAlert(c *gin.Context) {
 		return
 	}
 	nodeIDs, err := h.accessibleNodeIDs(c)
-	if err != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state) {
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	user, userErr := h.actorUser(c)
+	if userErr != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, orgErr := h.orgIDFromRequest(c, user.ID)
+	if orgErr != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, orgID, &state) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
@@ -185,7 +205,17 @@ func (h *Handler) RetryAlert(c *gin.Context) {
 		return
 	}
 	nodeIDs, err := h.accessibleNodeIDs(c)
-	if err != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, &state) {
+	if err != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	user, userErr := h.actorUser(c)
+	if userErr != nil {
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
+		return
+	}
+	orgID, orgErr := h.orgIDFromRequest(c, user.ID)
+	if orgErr != nil || !alertAllowed(c.Request.Context(), h.DB, nodeIDs, orgID, &state) {
 		respondError(c, http.StatusForbidden, "FORBIDDEN", "forbidden")
 		return
 	}
@@ -239,7 +269,7 @@ func uuidToStringPtr(id *uuid.UUID) *string {
 	return &v
 }
 
-func alertAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, state *db.AlertState) bool {
+func alertAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]struct{}, orgID *uuid.UUID, state *db.AlertState) bool {
 	if state == nil || dbConn == nil {
 		return false
 	}
@@ -249,9 +279,16 @@ func alertAllowed(ctx context.Context, dbConn *gorm.DB, nodeIDs map[uuid.UUID]st
 	}
 	if state.ServiceID != nil {
 		var svc db.Service
-		if err := dbConn.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *state.ServiceID).Error; err == nil {
-			_, ok := nodeIDs[svc.NodeID]
-			return ok
+		if err := dbConn.WithContext(ctx).Select("node_id", "org_id").First(&svc, "id = ?", *state.ServiceID).Error; err == nil {
+			if svc.NodeID != nil {
+				_, ok := nodeIDs[*svc.NodeID]
+				if ok {
+					return true
+				}
+			}
+			if orgID != nil && svc.OrgID != uuid.Nil {
+				return svc.OrgID == *orgID
+			}
 		}
 		return false
 	}

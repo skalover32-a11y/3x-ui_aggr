@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -185,15 +187,20 @@ func (w *Worker) runCheck(ctx context.Context, check *db.Check, nodeMap map[stri
 		if !ok || !service.IsEnabled {
 			return false
 		}
-		node, ok := nodeMap[service.NodeID.String()]
-		if !ok || !node.IsEnabled {
-			return false
+		var node *db.Node
+		if service.NodeID != nil && *service.NodeID != uuid.Nil {
+			resolved, found := nodeMap[service.NodeID.String()]
+			if !found || !resolved.IsEnabled {
+				return false
+			}
+			node = &resolved
 		}
 		var settings *alerts.Settings
 		if w.Alerts != nil {
-			settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
+			orgID := serviceOrgID(&service, node)
+			settings, _ = w.Alerts.LoadSettingsForOrg(ctx, orgID)
 		}
-		w.runServiceCheck(ctx, settings, &node, &service, check)
+		w.runServiceCheck(ctx, settings, node, &service, check)
 		return true
 	case "bot":
 		bot, ok := botMap[check.TargetID.String()]
@@ -220,7 +227,12 @@ func (w *Worker) backfillServiceChecks(ctx context.Context) {
 	}
 	res := w.DB.WithContext(ctx).Exec(`
 		INSERT INTO checks (target_type, target_id, type, interval_sec, timeout_ms, retries, fail_after_sec, recover_after_ok, enabled, severity_rules, created_at, updated_at)
-		SELECT 'service', s.id, 'HTTP', 60, 3000, 1, 300, 2, true, '{}'::jsonb, now(), now()
+		SELECT 'service', s.id,
+			CASE
+				WHEN upper(coalesce(s.kind, '')) IN ('CUSTOM_FTP', 'FTP') THEN 'FTP'
+				ELSE 'HTTP'
+			END,
+			60, 3000, 1, 300, 2, true, '{}'::jsonb, now(), now()
 		FROM services s
 		WHERE NOT EXISTS (
 			SELECT 1 FROM checks c WHERE c.target_type = 'service' AND c.target_id = s.id
@@ -296,10 +308,10 @@ func (w *Worker) executeServiceCheck(ctx context.Context, node *db.Node, service
 	tries := retriesFor(check)
 	checkType := strings.ToLower(check.Type)
 	if checkType == "" {
-		checkType = "http"
+		checkType = strings.ToLower(ServiceCheckType(service.Kind))
 	}
 	if checkType == "tcp" {
-		target := serviceHostPort(service, node)
+		target := serviceHostPort(service, node, checkType)
 		if target == "" {
 			msg := "service target missing"
 			return false, 0, 0, 0, &msg
@@ -318,6 +330,24 @@ func (w *Worker) executeServiceCheck(ctx context.Context, node *db.Node, service
 		}
 		return false, latency, 0, 0, errMsg
 	}
+	if checkType == "ftp" {
+		target := serviceHostPort(service, node, checkType)
+		if target == "" {
+			msg := "service target missing"
+			return false, 0, 0, 0, &msg
+		}
+		var ok bool
+		var latency int
+		var replyCode int
+		var errMsg *string
+		for i := 0; i < tries; i++ {
+			ok, latency, replyCode, errMsg = w.checkFTP(ctx, target, w.timeoutFor(check), service)
+			if ok {
+				break
+			}
+		}
+		return ok, latency, replyCode, 0, errMsg
+	}
 	url := serviceURL(service, node, checkType)
 	if url == "" {
 		msg := "service url missing"
@@ -328,8 +358,12 @@ func (w *Worker) executeServiceCheck(ctx context.Context, node *db.Node, service
 	var bytes int64
 	var errMsg *string
 	ok := false
+	verifyTLS := true
+	if node != nil {
+		verifyTLS = node.VerifyTLS
+	}
 	for i := 0; i < tries; i++ {
-		statusCode, latency, bytes, errMsg = checkHTTP(ctx, url, node.VerifyTLS, serviceHeaders(service), w.timeoutFor(check))
+		statusCode, latency, bytes, errMsg = checkHTTP(ctx, url, verifyTLS, serviceHeaders(service), w.timeoutFor(check))
 		ok = statusCode > 0 && isExpectedStatus(service, statusCode)
 		if ok {
 			break
@@ -641,6 +675,18 @@ func (w *Worker) runSSHCommand(ctx context.Context, node *db.Node, cmd string) (
 	return out, latency, nil
 }
 
+func serviceOrgID(service *db.Service, node *db.Node) *uuid.UUID {
+	if service != nil && service.OrgID != uuid.Nil {
+		orgID := service.OrgID
+		return &orgID
+	}
+	if node != nil && node.OrgID != nil && *node.OrgID != uuid.Nil {
+		orgID := *node.OrgID
+		return &orgID
+	}
+	return nil
+}
+
 func serviceHeaders(service *db.Service) map[string]string {
 	if service == nil || len(service.Headers) == 0 {
 		return nil
@@ -708,8 +754,27 @@ func serviceURL(service *db.Service, node *db.Node, checkType string) string {
 	return fmt.Sprintf("%s://%s:%d%s", schema, host, port, path)
 }
 
-func serviceHostPort(service *db.Service, node *db.Node) string {
+func serviceHostPort(service *db.Service, node *db.Node, checkType string) string {
+	if service == nil {
+		return ""
+	}
 	host := strings.TrimSpace(valueOrEmpty(service.Host))
+	port := 0
+	if service.Port != nil {
+		port = *service.Port
+	}
+	if raw := strings.TrimSpace(valueOrEmpty(service.URL)); raw != "" {
+		if parsed, err := url.Parse(raw); err == nil {
+			if host == "" {
+				host = strings.TrimSpace(parsed.Hostname())
+			}
+			if port <= 0 && strings.TrimSpace(parsed.Port()) != "" {
+				if parsedPort, convErr := strconv.Atoi(parsed.Port()); convErr == nil {
+					port = parsedPort
+				}
+			}
+		}
+	}
 	if host == "" && node != nil {
 		host = strings.TrimSpace(node.Host)
 		if host == "" {
@@ -719,12 +784,15 @@ func serviceHostPort(service *db.Service, node *db.Node) string {
 	if host == "" {
 		return ""
 	}
-	port := 0
-	if service.Port != nil {
-		port = *service.Port
-	}
 	if port <= 0 {
-		port = 80
+		switch strings.ToLower(strings.TrimSpace(checkType)) {
+		case "ftp":
+			port = 21
+		case "https":
+			port = 443
+		default:
+			port = 80
+		}
 	}
 	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
@@ -875,12 +943,112 @@ func checkTCP(ctx context.Context, addr string, timeout time.Duration) (bool, in
 	return true, latency, nil
 }
 
+func (w *Worker) checkFTP(ctx context.Context, addr string, timeout time.Duration, service *db.Service) (bool, int, int, *string) {
+	start := time.Now()
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	latency := int(time.Since(start).Milliseconds())
+	if err != nil {
+		msg := err.Error()
+		return false, latency, 0, &msg
+	}
+	defer conn.Close()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else if timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+	}
+
+	reader := bufio.NewReader(conn)
+	replyCode, _, readErr := readFTPResponse(reader)
+	if readErr != nil {
+		msg := readErr.Error()
+		return false, latency, 0, &msg
+	}
+	username := strings.TrimSpace(valueOrEmpty(service.AuthUsername))
+	if username == "" {
+		if !isExpectedFTPCode(service, replyCode, false) {
+			msg := fmt.Sprintf("ftp reply code %d", replyCode)
+			return false, latency, replyCode, &msg
+		}
+		_, _ = io.WriteString(conn, "QUIT\r\n")
+		return true, latency, replyCode, nil
+	}
+	if replyCode != 220 && replyCode != 230 {
+		msg := fmt.Sprintf("ftp reply code %d", replyCode)
+		return false, latency, replyCode, &msg
+	}
+	safeUser, sanitizeErr := sanitizeFTPArg(username)
+	if sanitizeErr != nil {
+		msg := sanitizeErr.Error()
+		return false, latency, replyCode, &msg
+	}
+	if _, writeErr := io.WriteString(conn, fmt.Sprintf("USER %s\r\n", safeUser)); writeErr != nil {
+		msg := writeErr.Error()
+		return false, latency, replyCode, &msg
+	}
+	userCode, _, userErr := readFTPResponse(reader)
+	if userErr != nil {
+		msg := userErr.Error()
+		return false, latency, replyCode, &msg
+	}
+	finalCode := userCode
+	if userCode == 331 {
+		password, passErr := w.servicePassword(service)
+		if passErr != nil {
+			msg := passErr.Error()
+			return false, latency, finalCode, &msg
+		}
+		if strings.TrimSpace(password) == "" {
+			msg := "ftp password missing"
+			return false, latency, finalCode, &msg
+		}
+		safePass, sanitizePassErr := sanitizeFTPArg(password)
+		if sanitizePassErr != nil {
+			msg := sanitizePassErr.Error()
+			return false, latency, finalCode, &msg
+		}
+		if _, writeErr := io.WriteString(conn, fmt.Sprintf("PASS %s\r\n", safePass)); writeErr != nil {
+			msg := writeErr.Error()
+			return false, latency, finalCode, &msg
+		}
+		passCode, _, passRespErr := readFTPResponse(reader)
+		if passRespErr != nil {
+			msg := passRespErr.Error()
+			return false, latency, finalCode, &msg
+		}
+		finalCode = passCode
+	}
+	if !isExpectedFTPCode(service, finalCode, true) {
+		msg := fmt.Sprintf("ftp reply code %d", finalCode)
+		return false, latency, finalCode, &msg
+	}
+	_, _ = io.WriteString(conn, "QUIT\r\n")
+	return true, latency, finalCode, nil
+}
+
 func isExpectedStatus(service *db.Service, statusCode int) bool {
 	if service == nil || len(service.ExpectedStatus) == 0 {
 		return statusCode >= 200 && statusCode < 400
 	}
 	for _, val := range service.ExpectedStatus {
 		if int(val) == statusCode {
+			return true
+		}
+	}
+	return false
+}
+
+func isExpectedFTPCode(service *db.Service, replyCode int, authenticated bool) bool {
+	if service == nil || len(service.ExpectedStatus) == 0 {
+		if authenticated {
+			return replyCode == 230
+		}
+		return replyCode == 220
+	}
+	for _, val := range service.ExpectedStatus {
+		if int(val) == replyCode {
 			return true
 		}
 	}
@@ -895,9 +1063,13 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 	if err := w.DB.WithContext(ctx).First(&service, "id = ?", serviceID).Error; err != nil {
 		return nil, err
 	}
-	var node db.Node
-	if err := w.DB.WithContext(ctx).First(&node, "id = ?", service.NodeID).Error; err != nil {
-		return nil, err
+	var node *db.Node
+	if service.NodeID != nil && *service.NodeID != uuid.Nil {
+		var resolved db.Node
+		if err := w.DB.WithContext(ctx).First(&resolved, "id = ?", *service.NodeID).Error; err != nil {
+			return nil, err
+		}
+		node = &resolved
 	}
 	var check db.Check
 	if err := w.DB.WithContext(ctx).
@@ -908,7 +1080,7 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 			backfill := db.Check{
 				TargetType:     "service",
 				TargetID:       service.ID,
-				Type:           "HTTP",
+				Type:           ServiceCheckType(service.Kind),
 				IntervalSec:    60,
 				TimeoutMS:      3000,
 				Retries:        1,
@@ -929,13 +1101,65 @@ func (w *Worker) RunNowService(ctx context.Context, serviceID uuid.UUID) (*db.Ch
 	}
 	var settings *alerts.Settings
 	if w.Alerts != nil {
-		settings, _ = w.Alerts.LoadSettingsForOrg(ctx, node.OrgID)
+		settings, _ = w.Alerts.LoadSettingsForOrg(ctx, serviceOrgID(&service, node))
 	}
-	ok, latency, statusCode, bytes, errMsg := w.executeServiceCheck(ctx, &node, &service, &check)
+	ok, latency, statusCode, bytes, errMsg := w.executeServiceCheck(ctx, node, &service, &check)
 	metrics := map[string]any{"status_code": statusCode, "bytes": bytes}
 	result := w.storeResult(ctx, check.ID, ok, latency, metrics, errMsg)
-	w.notifyGeneric(ctx, settings, &node, &service, &check, ok, latency, statusCode, errMsg)
+	w.notifyGeneric(ctx, settings, node, &service, &check, ok, latency, statusCode, errMsg)
 	return result, nil
+}
+
+func (w *Worker) servicePassword(service *db.Service) (string, error) {
+	if service == nil || service.AuthPasswordEnc == nil || strings.TrimSpace(*service.AuthPasswordEnc) == "" {
+		return "", nil
+	}
+	if w == nil || w.Encryptor == nil {
+		return "", errors.New("encryptor not configured")
+	}
+	return w.Encryptor.DecryptString(strings.TrimSpace(*service.AuthPasswordEnc))
+}
+
+func readFTPResponse(reader *bufio.Reader) (int, string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, "", err
+	}
+	line = strings.TrimRight(line, "\r\n")
+	if len(line) < 3 {
+		return 0, line, fmt.Errorf("ftp reply invalid: %q", line)
+	}
+	code, convErr := strconv.Atoi(line[:3])
+	if convErr != nil {
+		return 0, line, fmt.Errorf("ftp reply invalid: %q", line)
+	}
+	lines := []string{line}
+	if len(line) >= 4 && line[3] == '-' {
+		prefix := line[:3] + " "
+		for {
+			next, readErr := reader.ReadString('\n')
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				return code, strings.Join(lines, "\n"), readErr
+			}
+			next = strings.TrimRight(next, "\r\n")
+			lines = append(lines, next)
+			if strings.HasPrefix(next, prefix) || errors.Is(readErr, io.EOF) {
+				break
+			}
+		}
+	}
+	return code, strings.Join(lines, "\n"), nil
+}
+
+func sanitizeFTPArg(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(trimmed, "\r\n") {
+		return "", errors.New("ftp credentials contain invalid line breaks")
+	}
+	return trimmed, nil
 }
 
 func (w *Worker) RunNowBot(ctx context.Context, botID uuid.UUID) (*db.CheckResult, error) {

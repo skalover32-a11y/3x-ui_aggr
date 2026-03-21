@@ -65,11 +65,17 @@ func (h *Handler) orgIDForIncident(ctx context.Context, row *db.Incident) *uuid.
 	}
 	if row.ServiceID != nil && *row.ServiceID != uuid.Nil {
 		var svc db.Service
-		if err := h.DB.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
-			var node db.Node
-			if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", svc.NodeID).Error; err == nil && node.OrgID != nil {
-				id := *node.OrgID
+		if err := h.DB.WithContext(ctx).Select("org_id", "node_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
+			if svc.OrgID != uuid.Nil {
+				id := svc.OrgID
 				return &id
+			}
+			if svc.NodeID != nil {
+				var node db.Node
+				if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *svc.NodeID).Error; err == nil && node.OrgID != nil {
+					id := *node.OrgID
+					return &id
+				}
 			}
 		}
 	}
@@ -114,11 +120,17 @@ func (h *Handler) orgIDForAlertState(ctx context.Context, row *db.AlertState) *u
 	}
 	if row.ServiceID != nil && *row.ServiceID != uuid.Nil {
 		var svc db.Service
-		if err := h.DB.WithContext(ctx).Select("node_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
-			var node db.Node
-			if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", svc.NodeID).Error; err == nil && node.OrgID != nil {
-				id := *node.OrgID
+		if err := h.DB.WithContext(ctx).Select("org_id", "node_id").First(&svc, "id = ?", *row.ServiceID).Error; err == nil {
+			if svc.OrgID != uuid.Nil {
+				id := svc.OrgID
 				return &id
+			}
+			if svc.NodeID != nil {
+				var node db.Node
+				if err := h.DB.WithContext(ctx).Select("org_id").First(&node, "id = ?", *svc.NodeID).Error; err == nil && node.OrgID != nil {
+					id := *node.OrgID
+					return &id
+				}
 			}
 		}
 	}

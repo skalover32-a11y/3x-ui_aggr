@@ -145,7 +145,11 @@ func renderMeta(alert Alert) []string {
 		lines = append(lines, fmt.Sprintf("Probe type: <code>%s</code>", escapeHTML(genericProbeLabel(alert.CheckType, alert.TargetType))))
 	}
 	if alert.Metrics.StatusCode != 0 {
-		lines = append(lines, fmt.Sprintf("HTTP status: <code>%d</code>", alert.Metrics.StatusCode))
+		statusLabel := "HTTP status"
+		if strings.EqualFold(strings.TrimSpace(alert.CheckType), "FTP") {
+			statusLabel = "FTP reply"
+		}
+		lines = append(lines, fmt.Sprintf("%s: <code>%d</code>", statusLabel, alert.Metrics.StatusCode))
 	}
 	lines = append(lines, "Channel: <code>Telegram</code>")
 	lines = append(lines, fmt.Sprintf("Severity: <b>%s</b>", severityLabel(alert.Severity)))
@@ -364,6 +368,8 @@ func genericProbeLabel(checkType, targetType string) string {
 		return "HTTP endpoint"
 	case "CUSTOM_HTTP":
 		return "Custom HTTP endpoint"
+	case "FTP", "CUSTOM_FTP":
+		return "FTP server"
 	}
 	target := strings.ToLower(strings.TrimSpace(targetType))
 	switch target {

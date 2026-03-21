@@ -272,18 +272,29 @@ func (s *Service) NotifyDisk(ctx context.Context, settings *Settings, node *db.N
 }
 
 func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *db.Node, service *db.Service, check *db.Check, status string, latency int, statusCode int, errMsg *string) {
-	if settings == nil && s != nil && node != nil {
-		settings, _ = s.LoadSettingsForOrg(ctx, node.OrgID)
+	orgID := serviceOrgID(service, node)
+	if settings == nil && s != nil {
+		settings, _ = s.LoadSettingsForOrg(ctx, orgID)
 	}
-	if settings == nil || node == nil || check == nil {
+	if settings == nil || check == nil {
 		return
 	}
 	active := strings.ToLower(strings.TrimSpace(status)) != "ok"
+	nodeID := uuid.Nil
+	panelURL := ""
+	ip := ""
+	nodeName := serviceLabel(service, node)
+	if node != nil {
+		nodeID = node.ID
+		panelURL = node.BaseURL
+		ip = node.SSHHost
+		nodeName = nodeLabel(node)
+	}
 	alert := Alert{
 		Type:           AlertGeneric,
-		OrgID:          node.OrgID,
-		NodeID:         node.ID,
-		NodeName:       nodeLabel(node),
+		OrgID:          orgID,
+		NodeID:         nodeID,
+		NodeName:       nodeName,
 		TS:             time.Now(),
 		Severity:       SeverityCritical,
 		ServiceKind:    "",
@@ -291,8 +302,8 @@ func (s *Service) NotifyGeneric(ctx context.Context, settings *Settings, node *d
 		Target:         serviceTarget(node, service),
 		TargetType:     "service",
 		Status:         status,
-		PanelURL:       node.BaseURL,
-		IP:             node.SSHHost,
+		PanelURL:       panelURL,
+		IP:             ip,
 		FailAfterSec:   check.FailAfterSec,
 		RecoverAfterOK: check.RecoverAfterOK,
 		MuteUntil:      check.MuteUntil,
@@ -914,6 +925,36 @@ func nodeLabel(node *db.Node) string {
 		return node.ID.String()
 	}
 	return "unknown"
+}
+
+func serviceLabel(service *db.Service, node *db.Node) string {
+	if service != nil {
+		if strings.TrimSpace(service.Name) != "" {
+			return strings.TrimSpace(service.Name)
+		}
+		if target := serviceTarget(node, service); strings.TrimSpace(target) != "" {
+			return strings.TrimSpace(target)
+		}
+		if service.ID != uuid.Nil {
+			return service.ID.String()
+		}
+	}
+	if node != nil {
+		return nodeLabel(node)
+	}
+	return "service"
+}
+
+func serviceOrgID(service *db.Service, node *db.Node) *uuid.UUID {
+	if service != nil && service.OrgID != uuid.Nil {
+		orgID := service.OrgID
+		return &orgID
+	}
+	if node != nil && node.OrgID != nil && *node.OrgID != uuid.Nil {
+		orgID := *node.OrgID
+		return &orgID
+	}
+	return nil
 }
 
 func CPUThreshold() float64 {

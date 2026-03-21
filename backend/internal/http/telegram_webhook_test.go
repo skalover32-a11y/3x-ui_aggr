@@ -290,7 +290,9 @@ func TestTelegramWebhookRetryRunsServiceCheck(t *testing.T) {
 	targetURL := target.URL
 	service := db.Service{
 		ID:             uuid.New(),
-		NodeID:         node.ID,
+		OrgID:          orgID,
+		NodeID:         &node.ID,
+		Name:           "svc",
 		Kind:           "CUSTOM_HTTP",
 		URL:            &targetURL,
 		ExpectedStatus: pq.Int64Array{200},

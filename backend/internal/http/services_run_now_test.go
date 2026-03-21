@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"agr_3x_ui/internal/db"
@@ -18,18 +16,16 @@ import (
 )
 
 func TestRunServiceCheckEndpoint(t *testing.T) {
-	dsn := os.Getenv("TEST_DB_DSN")
-	if dsn == "" {
-		t.Skip("TEST_DB_DSN not set")
+	dbConn := setupOrgTestDB(t)
+	user := createUser(t, dbConn, "tester")
+	org := db.Organization{ID: uuid.New(), Name: "Org One", OwnerUserID: user.ID}
+	if err := dbConn.Create(&org).Error; err != nil {
+		t.Fatalf("create org: %v", err)
 	}
-	dbConn, err := db.Open(dsn)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
+	member := db.OrganizationMember{OrgID: org.ID, UserID: user.ID, Role: "owner"}
+	if err := dbConn.Create(&member).Error; err != nil {
+		t.Fatalf("create member: %v", err)
 	}
-	if err := dbConn.AutoMigrate(&db.Node{}, &db.Service{}, &db.Check{}, &db.CheckResult{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	_ = dbConn.Exec("TRUNCATE check_results, checks, services, nodes RESTART IDENTITY CASCADE").Error
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -38,6 +34,7 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 
 	node := db.Node{
 		ID:               uuid.New(),
+		OrgID:            &org.ID,
 		Name:             "node-1",
 		BaseURL:          "http://example.com",
 		PanelUsername:    "admin",
@@ -54,28 +51,15 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	if err := dbConn.Create(&node).Error; err != nil {
 		t.Fatalf("create node: %v", err)
 	}
-	secret := []byte("test")
-	claims := middleware.Claims{
-		Role: "admin",
-		User: "tester",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
-	}
-	jwtToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
-	if err != nil {
-		t.Fatalf("sign jwt: %v", err)
-	}
 
-	h := &Handler{
-		DB:        dbConn,
-		Checks:    checks.New(dbConn, nil, nil, nil, time.Second),
-		JWTSecret: secret,
-	}
+	h := newTestHandler(t, dbConn)
+	h.Checks = checks.New(dbConn, nil, nil, h.Encryptor, time.Second)
 	r := NewRouter(h)
+	jwtToken := signJWT(h.JWTSecret, user.Username, middleware.RoleAdmin)
 
 	createBody := map[string]any{
 		"node_id":         node.ID.String(),
+		"name":            "svc",
 		"kind":            "CUSTOM_HTTP",
 		"url":             srv.URL,
 		"health_path":     "/",
@@ -86,10 +70,12 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/services", bytes.NewReader(bodyBytes))
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Org-ID", org.ID.String())
 	r.ServeHTTP(resp, req)
 	if resp.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
 	}
+
 	var created serviceResponse
 	if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
 		t.Fatalf("parse service response: %v", err)
@@ -109,6 +95,7 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodPost, "/api/services/"+created.ID+"/run", bytes.NewReader([]byte("{}")))
 	request.Header.Set("Authorization", "Bearer "+jwtToken)
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Org-ID", org.ID.String())
 	r.ServeHTTP(resp, request)
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
@@ -121,9 +108,4 @@ func TestRunServiceCheckEndpoint(t *testing.T) {
 	if len(results) == 0 {
 		t.Fatalf("expected check_results row")
 	}
-}
-
-func stringPtr(value string) *string {
-	v := value
-	return &v
 }
